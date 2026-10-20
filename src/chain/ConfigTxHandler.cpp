@@ -73,6 +73,9 @@ chain_tx::Roe<void> validateConfigChange(const BlockChainConfig &next,
   if (auto liveness = chain_tx::validateLivenessSettings(next); !liveness) {
     return liveness;
   }
+  if (auto finality = chain_tx::validateFinality(next); !finality) {
+    return finality;
+  }
   return chain_tx::validateBlockLimits(next);
 }
 

@@ -123,6 +123,8 @@ private:
   /** Default miner due period when omitted: one day of slots. */
   constexpr static const uint64_t DEFAULT_MINER_DUE_SECONDS = chain_genesis::defaults::kMinerDueSeconds;
   constexpr static const uint64_t DEFAULT_MINER_MAX_MISSED_SLOTS = chain_genesis::defaults::kMinerMaxMissedSlots;
+  /** How old a block must be to be final (projects/finality FN001): a day. */
+  constexpr static const uint64_t DEFAULT_FINALITY_SECONDS = chain_genesis::defaults::kFinalitySeconds;
 
   struct InitFileConfig {
     /** This chain's name; part of genesis (signatures and the epoch seed bind to it). */
@@ -152,6 +154,8 @@ private:
     uint64_t minerDueAfterSlots{ (DEFAULT_MINER_DUE_SECONDS + DEFAULT_SLOT_DURATION - 1) / DEFAULT_SLOT_DURATION };
     uint64_t minerMaxMissedSlots{ DEFAULT_MINER_MAX_MISSED_SLOTS };
     uint64_t minerReregisterCooldownEpochs{0};
+    /** Seconds of slot time before a block is final (FN001); default when omitted: a day. */
+    uint64_t finalitySeconds{ DEFAULT_FINALITY_SECONDS };
     /**
      * Miner accounts created in the genesis block (`genesisMiners`): the only
      * stake at start, since system accounts never lead. Stake defaults to an

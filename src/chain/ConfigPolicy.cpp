@@ -23,6 +23,16 @@ Roe<void> validateLivenessSettings(const BlockChainConfig &config) {
   return {};
 }
 
+Roe<void> validateFinality(const BlockChainConfig &config) {
+  if (config.finalitySeconds < kMinFinalitySeconds || config.finalitySeconds > kMaxFinalitySeconds) {
+    return TxError(chain_err::E_TX_VALIDATION, "finalitySeconds must be between " +
+                                                   std::to_string(kMinFinalitySeconds) + " and " +
+                                                   std::to_string(kMaxFinalitySeconds) + ": " +
+                                                   std::to_string(config.finalitySeconds));
+  }
+  return {};
+}
+
 Roe<void> validateBlockLimits(const BlockChainConfig &config) {
   if (config.maxBlockBytes == 0 || config.maxBlockBytes > kMaxBlockBytesCeiling) {
     return TxError(chain_err::E_TX_VALIDATION, "maxBlockBytes must be between 1 and " +

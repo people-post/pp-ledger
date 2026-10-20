@@ -6,6 +6,7 @@ the entry **superseded by** that doc.
 ## FN001 — A finality bound in the chain config
 
 **Date:** 2026-10-20
+**Superseded by:** [WIRE_SCHEMA.md § Config updates](../../docs/contracts/WIRE_SCHEMA.md#config-updates) and [BEACON_AUTHORITY.md § Rewind](../../docs/contracts/BEACON_AUTHORITY.md#rewind) (normative; this entry keeps the why).
 **Decision:** `BlockChainConfig.finalitySeconds`, 24 hours by default, from 1 hour to 30 days, set at
 genesis and changed by `T_CONFIG` like any config.
 **Rationale:** Services that move value off the chain need a time after which a block stands; it must
@@ -18,6 +19,7 @@ past it); a fixed number of blocks (slots, not blocks, measure time: an idle cha
 ## FN002 — A block keeps the bound it was committed under
 
 **Date:** 2026-10-20
+**Superseded by:** [WIRE_SCHEMA.md § Config updates](../../docs/contracts/WIRE_SCHEMA.md#config-updates) and [BEACON_AUTHORITY.md § Rewind](../../docs/contracts/BEACON_AUTHORITY.md#rewind) (normative; this entry keeps the why).
 **Decision:** A block's finality time is its slot's start plus the bound in force for it. The finalized
 height is the highest block such that it and every block below it are past their finality times.
 **Rationale:** A service relies on "final" once it holds: raising the bound must not make a final block
@@ -28,6 +30,7 @@ a rewind drops a suffix.
 ## FN003 — Nodes rewind on their own only above the finalized height; deeper is an operator's emergency
 
 **Date:** 2026-10-20
+**Superseded by:** [WIRE_SCHEMA.md § Config updates](../../docs/contracts/WIRE_SCHEMA.md#config-updates) and [BEACON_AUTHORITY.md § Rewind](../../docs/contracts/BEACON_AUTHORITY.md#rewind) (normative; this entry keeps the why).
 **Decision:** A rewind that drops no final block happens on its own, as today's within-seven-days.
 One that drops a final block waits for the operator's approval (`--approve-rewind`), alerts, and is
 reported (`crossedFinality`).

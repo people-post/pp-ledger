@@ -160,6 +160,7 @@ budgets rather than signing onboarding with reserve or genesis.
 | `newAccountFee` | 0 | One-time fee every account creation after genesis pays on top of the above, to the fee account. `0` = none. Creation pays both up front: the meta-size fee (the same formula renewal charges) covers the account's first period, until renewal falls due about a year later; each renewal then pays for the next period |
 | `checkpointMinBlocks` / `checkpointMinAgeSeconds` | 2²⁰ / 1 year | Renewal cut-off (accounts last written before it must renew) and checkpoint spacing: a checkpoint is the first block of an epoch at least `checkpointMinBlocks` after the previous one, whose block is more than `checkpointMinAgeSeconds` old ([BLOCK_PIPELINE.md](../architecture/BLOCK_PIPELINE.md#checkpoints-and-late-join)). Both read slot times, not a node's clock |
 | `maxValidationTimespanSeconds` | 86400 | Widest allowed transaction validity window |
+| `finalitySeconds` | 86400 | How old (in slot time) a block must be to be **final**: no node undoes it on its own, and services beside the chain (the bank) treat it as settled. 3600 to 2 592 000 (an hour to 30 days); changed by a config update, binding blocks committed under it only ([projects/finality](../../projects/finality/DESIGN.md)) |
 | `maxIssuancePerEpoch` | 0 | Most native tokens genesis may issue to reserve per epoch (amount + fee, net of anything sent back to genesis). `0` = no issuance until a config update raises it — which itself takes effect only at the next epoch |
 | `minerMinStake` | 0 | Native balance a miner needs to register (after its fee) and to be elected |
 | `minerRegistrationFee` | 0 | Flat fee for `T_MINER_REGISTER` on top of the meta-size fee, to the fee account |
@@ -341,9 +342,10 @@ relays in front of the new beacon. Hand it to the network with `submit-tx` to an
 it passes keeps it (`data/beacon-cert.dat`) and serves it on `STATUS`, from where the others take
 it. **A cutover below a node's tip is a rewind order:** every node holding blocks above it drops
 them by restarting itself, unattended, and waits at the cutover
-([BEACON_AUTHORITY.md § Rewind](../contracts/BEACON_AUTHORITY.md#rewind)) — when the cutover is at
-most seven days of slots back. A deeper cut waits for each node's operator: check the certificate,
-then restart the node (`pp-beacon`, `pp-relay`, `pp-miner`) with `--approve-rewind <generation>`.
+([BEACON_AUTHORITY.md § Rewind](../contracts/BEACON_AUTHORITY.md#rewind)) — when it drops no final
+block (`finalitySeconds`, a day by default). A cut into final blocks is an emergency and waits for
+each node's operator: check the certificate, then restart the node (`pp-beacon`, `pp-relay`,
+`pp-miner`) with `--approve-rewind <generation>`; it is reported as having crossed finality.
 A node holding another block at the cutover height than the certificate names does not rewind at
 all (a fork, or a wrong height): it stops and alerts. Bringing up the new beacon is part 2 of
 [beacon-authority](../../projects/beacon-authority/DESIGN.md).

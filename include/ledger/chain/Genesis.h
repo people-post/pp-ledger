@@ -81,6 +81,7 @@ inline constexpr uint64_t kMaxValidationTimespanSeconds = 86400;
 inline constexpr uint64_t kMinerDueSeconds = 86400;                                ///< a day of slots
 inline constexpr uint64_t kMinerMaxMissedSlots = 3;
 inline constexpr uint64_t kRecoveryDelaySeconds = 30ULL * 24 * 60 * 60;            ///< about a month
+inline constexpr uint64_t kFinalitySeconds = 24ULL * 3600;                         ///< a day (FN001)
 /** Genesis miners without a stake share 1/kGenesisMinerStakeShare of the supply. */
 inline constexpr uint64_t kGenesisMinerStakeShare = 10;
 } // namespace defaults

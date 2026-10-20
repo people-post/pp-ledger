@@ -29,7 +29,7 @@ no migration (networks start from a new genesis on a change).
 
 | Form | Version | Fields, in order | Carried in |
 |------|---------|------------------|-----------|
-| `ChainAuthority` | — (genesis meta v12) | `recovery {publicKeys, minSignatures, delayEpochs}`, `beacon` (a `BeaconCertificate`, unversioned), `hasPendingRecovery`, `pendingRecovery {announcement, announcedAt, applyEpoch}` | `GenesisAccountMeta.authority` ([WIRE_SCHEMA.md § Config updates](WIRE_SCHEMA.md#config-updates)) |
+| `ChainAuthority` | — (genesis meta v14) | `recovery {publicKeys, minSignatures, delayEpochs}`, `beacon` (a `BeaconCertificate`, unversioned), `hasPendingRecovery`, `pendingRecovery {announcement, announcedAt, applyEpoch}` | `GenesisAccountMeta.authority` ([WIRE_SCHEMA.md § Config updates](WIRE_SCHEMA.md#config-updates)) |
 | `BeaconCertificate` | 2 | `networkId`, `generation`, `publicKey`, `cutoverHeight`, `cutoverHash`, `dialHints` | `T_BEACON_CERT` `meta` |
 | `RecoveryAnnouncement` | 1 | `networkId`, `adminPublicKeys`, `adminMinSignatures` (`uint8`) | `T_RECOVERY` `meta` |
 | `SignedTip` | 1 | `networkId`, `generation`, `height`, `blockHash` (raw), `signature` | `STATUS.signedTip`, `data/signed-tip.dat` |
@@ -37,10 +37,10 @@ no migration (networks start from a new genesis on a change).
 | `Equivocation` | 1 | `first`, `second` (unversioned tips, `first.blockHash < second.blockHash`) | `STATUS.equivocation`, `EQUIVOCATION_ADD`, `data/equivocation.dat` |
 | `AuthorityProof` | — | `steps`: `AuthorityStep {blockId, epoch, record}`… | `AUTHORITY_PROOF` reply |
 | `RecoveryStatus` | — | `announcedAt`, `applyEpoch`, `adminPublicKeys`, `adminMinSignatures` | `STATUS.recovery` |
-| `RewindReport` | 1 | `keptUpTo`, `droppedUpTo`, `generation` | `STATUS.rewound`, `data/rewind.dat`, `data/rewound.dat` |
-| `GenesisImport` | — (genesis meta v12) | `predecessor {networkId, height, blockHash, stateRoot, header}`, `accountCount`, `systemKeys`: `{id, publicKeys, minSignatures}`… (reserve, registrar, fee, recycle) | `GenesisAccountMeta.import` of a re-genesis's `T_GENESIS` ([§ Importing genesis](#importing-genesis)) |
+| `RewindReport` | 2 | `keptUpTo`, `droppedUpTo`, `generation`, `crossedFinality` | `STATUS.rewound`, `data/rewind.dat`, `data/rewound.dat` |
+| `GenesisImport` | — (genesis meta v14) | `predecessor {networkId, height, blockHash, stateRoot, header}`, `accountCount`, `systemKeys`: `{id, publicKeys, minSignatures}`… (reserve, registrar, fee, recycle) | `GenesisAccountMeta.import` of a re-genesis's `T_GENESIS` ([§ Importing genesis](#importing-genesis)) |
 | `T_IMPORT` meta | — | a `StateSnapshot` account: `id`, `wallet`, `blockId` (the old chain's), `attachment` | `T_IMPORT` (20) |
-| `StateSnapshot` | 2 | `predecessor {networkId, height, blockHash, stateRoot, header}` (raw hashes; `header`: block *H* without its body), `config` (`BlockChainConfig` in force at `height`), `accounts`: `{id, wallet, blockId, attachment}`… by ascending id — the account leaf's fields (`attachment` in full; the leaf hashes it) | `pp-client export-state` file, for a re-genesis to import ([§ State export](#state-export)) |
+| `StateSnapshot` | 3 | `predecessor {networkId, height, blockHash, stateRoot, header}` (raw hashes; `header`: block *H* without its body), `config` (`BlockChainConfig` in force at `height`), `accounts`: `{id, wallet, blockId, attachment}`… by ascending id — the account leaf's fields (`attachment` in full; the leaf hashes it) | `pp-client export-state` file, for a re-genesis to import ([§ State export](#state-export)) |
 
 Code: `include/ledger/chain/Types.h` (authority, certificate, announcement), `include/ledger/client/Client.h` (tip,
 evidence, replies).
@@ -341,13 +341,15 @@ admin-signed certificate of a higher generation, kept as above, can order it
   `cutoverHash` names does not rewind — its history forked at or below it, or the certificate names
   the wrong block — not even when approved: it refuses the old tips past the cutover, alerts once,
   and waits for an operator.
-- **Bounded** (`rewind::schedule`): a node rewinds on its own only as far as seven days of slot time
-  (`rewind::kMaxAutomaticRewind`), measured from the cutover block — or the first block it holds,
-  when the cutover is older — to the last block it would drop. Deeper, or when that cannot be read,
-  it does nothing more than before: it refuses the old generation's tips past the cutover, so it
-  stops at its own tip, and logs one error-level alert per certificate. Its operator checks the
-  certificate and restarts the node with `--approve-rewind <generation>` to apply it. A mistaken
-  certificate thus cannot cut a network's history unattended.
+- **Above finality** (`rewind::schedule`, [projects/finality](../../projects/finality/DESIGN.md)
+  FN003): a node rewinds on its own only when **no block it would drop is final** — the cutover is
+  at or above its finalized height ([WIRE_SCHEMA.md § Config updates](WIRE_SCHEMA.md#config-updates):
+  `finalitySeconds`, a day by default). Deeper, or when that cannot be read, it does nothing more
+  than before: it refuses the old generation's tips past the cutover, so it stops at its own tip, and
+  logs one error-level alert per certificate. Undoing final blocks is the **emergency**: its operator
+  checks the certificate and restarts the node with `--approve-rewind <generation>`; the order is
+  then written `crossedFinality`. A mistaken certificate thus cannot cut final history unattended,
+  and services that treat final blocks as settled learn when it was.
 - **Order written.** Within reach (or approved), it writes the order (`RewindReport`: the cutover as
   `keptUpTo`, its last block as `droppedUpTo`, the generation) to `data/rewind.dat`, logs an
   error-level alert, keeps serving for 2 s (a forward in flight — the certificate itself —
@@ -364,8 +366,9 @@ admin-signed certificate of a higher generation, kept as above, can order it
   cutover) and syncs what is valid. Its blocks no longer pass the cutover, so the order is not
   issued again. A miner starts even when its registration is refused (a beacon that stood down
   refuses them) and registers again every minute.
-- **Reported:** the beacon's and relays' `STATUS` carries `rewound` (the last `RewindReport`;
-  absent if none) and `pp-client -b status` prints it. Clients that read blocks above the cutover
+- **Reported:** the beacon's and relays' `STATUS` carries `rewound` (the last `RewindReport`, with
+  `crossedFinality`; absent if none), `finalizedHeight` (absent while no block is final) and
+  `finalitySeconds`; `pp-client -b status` prints them. Clients that read blocks above the cutover
   see history change; transactions from them must be resubmitted (idempotency keys make that safe;
   re-signed if their validity window passed).
 
@@ -487,7 +490,7 @@ What the beacon authority adds to the ledger RPC ([LEDGER_TOPOLOGY.md § Realiza
 
 | Request (id) | Change |
 |--------------|--------|
-| `STATUS` (1), beacon and relays | Meta keys, each absent when there is none: `signedTip` (`SignedTip`, versioned bytes), `certificate` (packed `T_BEACON_CERT` record), `equivocation` (`Equivocation`, versioned bytes), `recovery` (packed `RecoveryStatus`), `rewound` (`RewindReport`, versioned bytes). A syncing node offers `certificate`, then `equivocation`, then checks `signedTip` |
+| `STATUS` (1), beacon and relays | Meta keys, each absent when there is none: `signedTip` (`SignedTip`, versioned bytes), `certificate` (packed `T_BEACON_CERT` record), `equivocation` (`Equivocation`, versioned bytes), `recovery` (packed `RecoveryStatus`), `rewound` (`RewindReport`, versioned bytes), `finalizedHeight` and `finalitySeconds` (numbers; projects/finality). A syncing node offers `certificate`, then `equivocation`, then checks `signedTip` |
 | `BLOCK_ADD` (1002), `BLOCK_WAIT` (1003) | Reply payload is a packed `TipReply` |
 | `AUTHORITY_PROOF` (1004) | New: [Authority proof](#authority-proof). Answered by nodes holding the chain from genesis |
 | `EQUIVOCATION_ADD` (1005) | New: payload `Equivocation` (versioned bytes), reply a short text; downstream to upstream only ([Equivocation halt](#equivocation-halt)) |

@@ -148,8 +148,16 @@ not installed in `RecordHandler`.
   (`0` = no heartbeats), so an idle chain still gets a block every epoch; `minerDueAfterSlots`
   is `0` (never due) or at least 12 hours of slots (`⌈43200 / slotDuration⌉`), so miners do not
   owe an empty block in nearly every slot they lead. Code: `chain_tx::validateLivenessSettings`.
+- **The finality bound** (beacon `--init` and every `T_CONFIG`; [projects/finality](../../projects/finality/DESIGN.md)):
+  `finalitySeconds` from 3600 (an hour) to 2 592 000 (30 days); 86 400 (a day) by default at
+  `--init`. A block's **finality time** is its slot's start plus the bound in force for its epoch —
+  a change binds blocks committed under it only, so a raised bound never reopens a final block. A
+  node's **finalized height** is the highest block such that it and every block below it are past
+  their finality times by its calibrated clock (prefix-closed). Nodes never undo a final block on
+  their own ([BEACON_AUTHORITY.md § Rewind](BEACON_AUTHORITY.md#rewind)). Code:
+  `chain_tx::validateFinality`, `Chain::finalizedHeight`.
 - **A genesis renewal carries the config state.** Genesis meta (`GenesisAccountMeta`, version
-  12) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
+  14) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
   config), `authority` (below), and an import section (`hasImport`, `import` — a re-genesis's
   `T_GENESIS` only; `T_CONFIG` and renewals carrying one are refused). `T_GENESIS` and `T_CONFIG` carry no pending section (a
   `T_CONFIG`'s `config` is the update). A genesis `T_RENEWAL` — what a node starting from its
@@ -249,11 +257,12 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   (`chain_tx::validateBlockLimits`, at `--init` and every `T_CONFIG`).
 - A transfer (`T_DEFAULT`) cannot pay its own account.
 
-`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **13**)
+`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **14**)
 includes slot timing, fees, checkpoint policy, `networkId`, `heartbeatSlots`
 (empty-seal lag; `0` disables), issuance and account fees, the miner settings
-([Miner registration and liveness](#miner-registration-and-liveness)), and `maxBlockBytes`
-([Block size](#block-size); last, version 11).
+([Miner registration and liveness](#miner-registration-and-liveness)), `maxBlockBytes`
+([Block size](#block-size); version 11), and `finalitySeconds` ([Config updates](#config-updates);
+last, version 14).
 
 ## Epoch seed
 

@@ -87,8 +87,7 @@ pp::Roe<std::optional<Client::RewindReport>> applyPendingOrder(const std::string
   return order;
 }
 
-pp::Roe<Scheduled> schedule(const Chain &chain, const std::string &dataDir, uint64_t approvedGeneration,
-                            std::chrono::seconds maxAutomatic) {
+pp::Roe<Scheduled> schedule(const Chain &chain, const std::string &dataDir, uint64_t approvedGeneration) {
   Scheduled scheduled;
   if (chain.cutoverForked()) { // also at the cutover itself, where no rewind is due
     const auto &cert = *chain.seenCertificate();
@@ -105,11 +104,14 @@ pp::Roe<Scheduled> schedule(const Chain &chain, const std::string &dataDir, uint
     return scheduled;
   }
   scheduled.depthSeconds = chain.rewindDepthSeconds(*scheduled.order);
-  const bool withinReach = scheduled.depthSeconds &&
-                           *scheduled.depthSeconds <= static_cast<uint64_t>(maxAutomatic.count());
-  if (!withinReach && approvedGeneration != scheduled.order->generation) {
-    scheduled.kind = Scheduled::Kind::HeldBack;
-    return scheduled;
+  const auto crosses = chain.rewindCrossesFinality(*scheduled.order);
+  const bool alone = crosses.has_value() && !*crosses; // unreadable counts as crossing
+  if (!alone) {
+    if (approvedGeneration != scheduled.order->generation) {
+      scheduled.kind = Scheduled::Kind::HeldBack;
+      return scheduled;
+    }
+    scheduled.order->crossedFinality = true; // the operator's emergency: reported
   }
   if (auto written = writeOrder(dataDir, *scheduled.order); !written) {
     return written.error();

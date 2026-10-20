@@ -264,6 +264,7 @@ Object BeaconServer::InitFileConfig::ltsToJson() {
   j.setJsonUInt("minerDueAfterSlots", minerDueAfterSlots);
   j.setJsonUInt("minerMaxMissedSlots", minerMaxMissedSlots);
   j.setJsonUInt("minerReregisterCooldownEpochs", minerReregisterCooldownEpochs);
+  j.setJsonUInt("finalitySeconds", finalitySeconds);
   return j;
 }
 
@@ -399,6 +400,10 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
     return r;
   }
   if (auto r = readU64("newAccountFee", newAccountFee, false, true); !r) {
+    return r;
+  }
+  // Omitted: a day (FN001); the range is checked with the rest of the chain config.
+  if (auto r = readU64("finalitySeconds", finalitySeconds, false, false); !r) {
     return r;
   }
   if (jd.contains("minerDueAfterSlots")) {
@@ -585,6 +590,7 @@ const std::vector<std::pair<const char *, void (*)(Chain::BlockChainConfig &, co
         {"minerMaxMissedSlots", [](auto &to, const auto &from) { to.minerMaxMissedSlots = from.minerMaxMissedSlots; }},
         {"minerReregisterCooldownEpochs",
          [](auto &to, const auto &from) { to.minerReregisterCooldownEpochs = from.minerReregisterCooldownEpochs; }},
+        {"finalitySeconds", [](auto &to, const auto &from) { to.finalitySeconds = from.finalitySeconds; }},
 };
 
 /** A re-genesis's snapshot (pp-client export-state), checked against its own root. */
@@ -677,6 +683,7 @@ BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::strin
   log().info << "  Heartbeat slots: " << initFileConfig.heartbeatSlots;
   log().info << "  Max issuance per epoch: " << initFileConfig.maxIssuancePerEpoch;
   log().info << "  New account fee: " << initFileConfig.newAccountFee;
+  log().info << "  Finality (seconds): " << initFileConfig.finalitySeconds;
 
   // Prepare init configuration
   Beacon::InitConfig initConfig;
@@ -707,6 +714,7 @@ BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::strin
   initConfig.chain.minerDueAfterSlots = initFileConfig.minerDueAfterSlots;
   initConfig.chain.minerMaxMissedSlots = initFileConfig.minerMaxMissedSlots;
   initConfig.chain.minerReregisterCooldownEpochs = initFileConfig.minerReregisterCooldownEpochs;
+  initConfig.chain.finalitySeconds = initFileConfig.finalitySeconds;
   initConfig.chain.networkId = initFileConfig.networkId;
   if (!importStatePath.empty()) {
     // A re-genesis (B032): the old network's config, but for what init-config.json sets.
@@ -738,6 +746,9 @@ BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::strin
   }
   if (auto limits = chain_tx::validateBlockLimits(initConfig.chain); !limits) {
     return Error("Invalid init config: " + limits.error().message);
+  }
+  if (auto finality = chain_tx::validateFinality(initConfig.chain); !finality) {
+    return Error("Invalid init config: " + finality.error().message);
   }
   initConfig.miners = initFileConfig.genesisMiners;
   log().info << "  Genesis miners: " << initConfig.miners.size();
@@ -1177,6 +1188,8 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
   state.equivocation = beacon_.getEquivocation();
   state.recovery = beacon_.getRecoveryStatus();
   state.rewound = beacon_.getLastRewind();
+  state.finalizedHeight = beacon_.getFinalizedHeight();
+  state.finalitySeconds = beacon_.getFinalitySeconds();
   if (state.nextBlockId > 0) {
     if (auto tip = beacon_.readBlock(state.nextBlockId - 1)) {
       state.headHash = tip.value().hash;

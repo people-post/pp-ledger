@@ -136,8 +136,13 @@ NodeCore::Roe<void> NodeCore::applyPendingRewind() {
 
 NodeCore::Roe<void> NodeCore::onRewound(uint64_t /*keptUpTo*/) { return {}; }
 
+std::optional<uint64_t> NodeCore::getFinalizedHeight() const {
+  auto finalized = chain_.finalizedHeight();
+  return finalized ? finalized.value() : std::nullopt;
+}
+
 NodeCore::Roe<bool> NodeCore::scheduleRewind(uint64_t approvedGeneration) {
-  auto scheduled = rewind::schedule(chain_, workDir_, approvedGeneration, maxAutomaticRewind_);
+  auto scheduled = rewind::schedule(chain_, workDir_, approvedGeneration);
   if (!scheduled) {
     return Error(E_OPEN, "Failed to write the rewind order: " + scheduled.error().message);
   }
@@ -149,12 +154,15 @@ NodeCore::Roe<bool> NodeCore::scheduleRewind(uint64_t approvedGeneration) {
     if (heldBackGeneration_ != order->generation) {
       heldBackGeneration_ = order->generation;
       const auto &depth = scheduled.value().depthSeconds;
+      const auto finalized = getFinalizedHeight();
       log().error << "Not rewinding on its own: beacon generation " << order->generation << " orders a cut to block "
                   << order->keptUpTo << ", "
                   << (depth ? std::to_string(*depth / 3600) + " h" : std::string("an unknown time"))
-                  << " of slots back — more than the " << maxAutomaticRewind_.count() / 3600
-                  << " h a node rewinds unattended. Check the certificate; to apply it, restart with "
-                  << "--approve-rewind " << order->generation;
+                  << " of slots back — below the finalized height "
+                  << (finalized ? std::to_string(*finalized) : std::string("(unknown)"))
+                  << ": it would undo final blocks (a node never does that unattended). Check the certificate; "
+                  << "to apply it — an emergency, reported to every client — restart with --approve-rewind "
+                  << order->generation;
     }
     return false;
   case rewind::Scheduled::Kind::Forked:
@@ -171,6 +179,7 @@ NodeCore::Roe<bool> NodeCore::scheduleRewind(uint64_t approvedGeneration) {
   }
   log().error << "Rewinding to block " << order->keptUpTo << ": blocks " << order->keptUpTo + 1 << " to "
               << order->droppedUpTo << " are past the cutover of beacon generation " << order->generation
+              << (order->crossedFinality ? " — approved past finality: final blocks are undone" : "")
               << "; restarting";
   return true;
 }

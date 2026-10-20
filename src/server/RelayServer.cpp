@@ -209,6 +209,8 @@ Client::BeaconState RelayServer::buildStateResponse() const {
   state.equivocation = relay_.getEquivocation();
   state.recovery = relay_.getRecoveryStatus();
   state.rewound = relay_.getLastRewind();
+  state.finalizedHeight = relay_.getFinalizedHeight();
+  state.finalitySeconds = relay_.getFinalitySeconds();
   state.certificate = relay_.getCurrentCertificate();
   if (state.nextBlockId > 0) {
     if (auto tip = relay_.readBlock(state.nextBlockId - 1)) {

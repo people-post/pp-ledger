@@ -1162,6 +1162,7 @@ Chain::Roe<void> Chain::initLedger(const Ledger::InitConfig &config) {
   }
   authoritySteps_.clear();
   authorityStepsFrom_ = config.startingBlockId;
+  finalityBounds_.clear();
   chargedMisses_.clear();
   return {};
 }
@@ -1190,6 +1191,7 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   pendingSeal_.reset();
   authoritySteps_.clear();
   authorityStepsFrom_ = startingBlockId;
+  finalityBounds_.clear();
 
   // Process blocks from ledger one by one (replay existing chain state)
   // Starting block id is always a checkpoint id
@@ -1232,6 +1234,7 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
                                         block.block.epochSeed);
     }
     noteAuthoritySteps(block);
+  noteFinalityBound(block);
 
     blockId++;
 
@@ -1294,6 +1297,7 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
   }
   commitTipUpdate();
   noteAuthoritySteps(block);
+  noteFinalityBound(block);
 
   log().info << "Block added: " << block.block.index
              << " from slot leader: " << block.block.slotLeader;
@@ -1338,6 +1342,7 @@ Chain::Roe<void> Chain::commitSealedBlock(const Ledger::ChainNode &block) {
     return committed;
   }
   noteAuthoritySteps(block);
+  noteFinalityBound(block);
   log().info << "Block added: " << block.block.index
              << " from slot leader: " << block.block.slotLeader;
   return {};
@@ -1983,6 +1988,122 @@ std::optional<uint64_t> Chain::rewindDepthSeconds(const Client::RewindReport &or
     return std::nullopt;
   }
   return (last.value().block.slot - cut.value().block.slot) * getSlotDuration();
+}
+
+std::optional<bool> Chain::rewindCrossesFinality(const Client::RewindReport &order) const {
+  auto finalized = finalizedHeight();
+  if (!finalized) {
+    return std::nullopt;
+  }
+  return finalized.value().has_value() && *finalized.value() > order.keptUpTo;
+}
+
+uint64_t Chain::getFinalitySeconds() const {
+  return txContext_.optChainConfig ? txContext_.optChainConfig->finalitySeconds : 0;
+}
+
+void Chain::noteFinalityBound(const Ledger::ChainNode &block) {
+  const uint64_t bound = getFinalitySeconds();
+  if (finalityBounds_.empty() || finalityBounds_.back().second != bound) {
+    finalityBounds_.emplace_back(block.block.epoch, bound);
+  }
+}
+
+uint64_t Chain::finalitySecondsAt(uint64_t epoch) const {
+  if (finalityBounds_.empty()) {
+    return getFinalitySeconds();
+  }
+  uint64_t bound = finalityBounds_.front().second;
+  for (const auto &[from, seconds] : finalityBounds_) {
+    if (from > epoch) {
+      break;
+    }
+    bound = seconds;
+  }
+  return bound;
+}
+
+Chain::Roe<std::optional<uint64_t>> Chain::finalizedHeight() const {
+  const uint64_t first = txContext_.ledger.getStartingBlockId();
+  const uint64_t next = getNextBlockId();
+  if (next <= first || finalityBounds_.empty()) {
+    return std::optional<uint64_t>{};
+  }
+  const int64_t now = getConsensusTimestamp();
+  // Blocks run under one bound per stretch of epochs; within a stretch, finality time rises with the
+  // slot, so its final blocks are a prefix found by bisection. The finalized height is prefix-closed:
+  // the first stretch not wholly final ends it.
+  auto epochOf = [&](uint64_t id) -> Roe<uint64_t> {
+    auto b = readBlock(id);
+    if (!b) {
+      return b.error();
+    }
+    return b.value().block.epoch;
+  };
+  auto isFinal = [&](uint64_t id, uint64_t seconds) -> Roe<bool> {
+    auto b = readBlock(id);
+    if (!b) {
+      return b.error();
+    }
+    return getSlotStartTime(b.value().block.slot) + static_cast<int64_t>(seconds) <= now;
+  };
+  std::optional<uint64_t> finalized;
+  uint64_t lo = first;
+  for (size_t i = 0; i < finalityBounds_.size() && lo < next; ++i) {
+    // The stretch [lo, hi]: blocks before the next entry's epoch.
+    uint64_t hi = next - 1;
+    if (i + 1 < finalityBounds_.size()) {
+      const uint64_t nextFrom = finalityBounds_[i + 1].first;
+      auto loEpoch = epochOf(lo);
+      if (!loEpoch) {
+        return loEpoch.error();
+      }
+      if (loEpoch.value() >= nextFrom) {
+        continue; // no block held here ran under this bound
+      }
+      uint64_t a = lo, b = next - 1; // the last block with epoch < nextFrom
+      while (a < b) {
+        const uint64_t mid = a + (b - a + 1) / 2;
+        auto e = epochOf(mid);
+        if (!e) {
+          return e.error();
+        }
+        if (e.value() < nextFrom) {
+          a = mid;
+        } else {
+          b = mid - 1;
+        }
+      }
+      hi = a;
+    }
+    const uint64_t seconds = finalityBounds_[i].second;
+    auto loFinal = isFinal(lo, seconds);
+    if (!loFinal) {
+      return loFinal.error();
+    }
+    if (!loFinal.value()) {
+      return finalized;
+    }
+    uint64_t a = lo, b = hi; // the last final block of the stretch
+    while (a < b) {
+      const uint64_t mid = a + (b - a + 1) / 2;
+      auto f = isFinal(mid, seconds);
+      if (!f) {
+        return f.error();
+      }
+      if (f.value()) {
+        a = mid;
+      } else {
+        b = mid - 1;
+      }
+    }
+    finalized = a;
+    if (a < hi) {
+      return finalized;
+    }
+    lo = hi + 1;
+  }
+  return finalized;
 }
 
 std::optional<Ledger::Record> Chain::currentCertificateRecord() const {

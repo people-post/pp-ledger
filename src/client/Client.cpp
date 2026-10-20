@@ -165,6 +165,12 @@ pp::common::Meta Client::BeaconState::ltsToMeta() const {
   m.setUIntForJson("currentSlot", currentSlot);
   m.setUIntForJson("currentEpoch", currentEpoch);
   m.setUIntForJson("nStakeholders", nStakeholders);
+  if (finalizedHeight) {
+    m.setUIntForJson("finalizedHeight", *finalizedHeight);
+  }
+  if (finalitySeconds > 0) {
+    m.setUIntForJson("finalitySeconds", finalitySeconds);
+  }
   if (!networkId.empty()) {
     m.set("networkId", networkId);
   }
@@ -242,6 +248,11 @@ Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta)
     }
     rewound = report;
   }
+  finalizedHeight.reset();
+  if (auto finalized = meta.getNonNegInt("finalizedHeight")) {
+    finalizedHeight = *finalized;
+  }
+  finalitySeconds = meta.getNonNegInt("finalitySeconds").value_or(0);
   return true;
 }
 

@@ -1,6 +1,6 @@
 # Finality — a rewind bound on the chain, and a verifying gateway
 
-**Status:** design (fn0). Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
+**Status:** the bound built (fn1, normative in [WIRE_SCHEMA § Config updates](../../docs/contracts/WIRE_SCHEMA.md#config-updates) and [BEACON_AUTHORITY § Rewind](../../docs/contracts/BEACON_AUTHORITY.md#rewind)); the gateway (fn2) next. Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
 status: [CURRENT_STATE.md](CURRENT_STATE.md).
 
 Services beside the chain — the bank (`nfsc-brief-cashier/app-cashier`, projects/bank b4), the

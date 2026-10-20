@@ -51,6 +51,7 @@ TEST(ChainTest, GenesisAccountMeta_RoundTrip) {
   EXPECT_EQ(parsed.config.checkpoint.minAgeSeconds,
             gm.config.checkpoint.minAgeSeconds);
   EXPECT_EQ(parsed.config.heartbeatSlots, gm.config.heartbeatSlots);
+  EXPECT_EQ(parsed.config.finalitySeconds, gm.config.finalitySeconds);
   EXPECT_EQ(parsed.genesis.wallet.publicKeys, gm.genesis.wallet.publicKeys);
   EXPECT_EQ(parsed.genesis.wallet.minSignatures,
             gm.genesis.wallet.minSignatures);
@@ -2270,6 +2271,68 @@ TEST_F(ChainComposeTest, ConfigUpdate_AppliesAtNextEpochAndOnlyOneIsPending) {
   EXPECT_EQ(producer.getMaxTransactionsPerBlock(), before + 1);
 }
 
+// projects/finality FN002: a block keeps the finality bound it was committed under — a raised bound
+// never makes a final block undoable, a block under a lowered one never final before the ones under
+// it (the finalized height is prefix-closed).
+TEST_F(ChainComposeTest, Finality_ABlockKeepsTheBoundItWasCommittedUnder) {
+  auto &producer = harness_.producer;
+  const auto &cfg = harness_.chainConfig; // 5 s slots, 10 slots an epoch, finality an hour
+  ASSERT_EQ(cfg.finalitySeconds, 3600u);
+  const std::vector<utl::MlDsaKeyPair> rotated = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
+  auto configRecord = [&](uint64_t finality, uint64_t idem, bool byRotated) {
+    Chain::GenesisAccountMeta gm;
+    gm.config = cfg;
+    gm.config.finalitySeconds = finality;
+    gm.genesis.wallet = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
+    gm.genesis.wallet.publicKeys = {rotated[0].publicKey, rotated[1].publicKey, rotated[2].publicKey};
+    gm.genesis.wallet.minSignatures = 2;
+    gm.genesis.meta = AccountAttachment::emptySerialized();
+    gm.authority = producer.getAuthority().value();
+    Ledger::TxConfig tx;
+    tx.meta = gm.ltsToString();
+    tx.idempotentId = idem;
+    tx.validationTsMin = cfg.genesisTime;
+    tx.validationTsMax = cfg.genesisTime + 3600;
+    if (!byRotated) {
+      return makeRecord(Ledger::T_CONFIG, tx, harness_.genesisKey, producer.getNetworkId());
+    }
+    Ledger::Record record;
+    record.type = Ledger::T_CONFIG;
+    record.data = utl::binaryPack(tx);
+    for (size_t i = 0; i < 2; ++i) {
+      record.signatures.push_back(signMessage(rotated[i], record.signingMessage(producer.getNetworkId())));
+    }
+    return record;
+  };
+  // Epoch 0 (an hour): raise it to two from epoch 1. Epoch 1 (two hours): lower it to one from epoch 2.
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(producer, harness_.genesis, 1, {configRecord(7200, 1, false)});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+  Ledger::ChainNode block2 = makeNextBlockAtSlot(producer, block1, cfg.slotsPerEpoch, {configRecord(3600, 2, true)});
+  ASSERT_TRUE(producer.addBlock(block2).isOk());
+  EXPECT_EQ(producer.getFinalitySeconds(), 7200u);
+  Ledger::ChainNode block3 = makeNextBlockAtSlot(producer, block2, 2 * cfg.slotsPerEpoch, {configRecord(3600, 3, true)});
+  ASSERT_TRUE(producer.addBlock(block3).isOk()) << "a third update, harmless: the same bound";
+  EXPECT_EQ(producer.getFinalitySeconds(), 3600u);
+  EXPECT_EQ(producer.finalitySecondsAt(0), 3600u);
+  EXPECT_EQ(producer.finalitySecondsAt(1), 7200u);
+  EXPECT_EQ(producer.finalitySecondsAt(2), 3600u);
+
+  auto finalizedAt = [&](int64_t now) {
+    producer.setClockOverride(now);
+    auto finalized = producer.finalizedHeight();
+    EXPECT_TRUE(finalized.isOk()) << finalized.error().message;
+    return finalized.value();
+  };
+  const auto start = [&](uint64_t slot) { return producer.getSlotStartTime(slot); };
+  EXPECT_EQ(finalizedAt(start(0) + 3599), std::nullopt) << "nothing is an hour old";
+  EXPECT_EQ(finalizedAt(start(1) + 3600), std::optional<uint64_t>(1)) << "blocks 0 and 1, under an hour";
+  EXPECT_EQ(finalizedAt(start(10) + 3600), std::optional<uint64_t>(1)) << "block 2 keeps its two hours";
+  EXPECT_EQ(finalizedAt(start(20) + 3600), std::optional<uint64_t>(1))
+      << "block 3 is past its own hour, but block 2 is not: prefix-closed";
+  EXPECT_EQ(finalizedAt(start(10) + 7200), std::optional<uint64_t>(3)) << "all";
+  producer.setClockOverride(std::nullopt);
+}
+
 // Genesis issuance (to reserve, fee included) is capped per epoch by
 // maxIssuancePerEpoch (100 in the harness); a new epoch starts afresh.
 namespace {
@@ -3132,9 +3195,17 @@ TEST_F(ChainComposeTest, ConfigUpdate_RefusesLivenessSettingsOutOfRange) {
   refused = tryConfig([](auto &c) { c.minerDueAfterSlots = 8639; });
   ASSERT_FALSE(refused.isOk());
   EXPECT_NE(refused.error().message.find("at least 8640"), std::string::npos) << refused.error().message;
+  // The finality bound (projects/finality FN001): an hour to 30 days.
+  for (uint64_t out : {uint64_t{0}, uint64_t{3599}, uint64_t{30 * 86400 + 1}}) {
+    refused = tryConfig([out](auto &c) { c.finalitySeconds = out; });
+    ASSERT_FALSE(refused.isOk()) << out;
+    EXPECT_NE(refused.error().message.find("finalitySeconds must be between 3600 and 2592000"), std::string::npos)
+        << refused.error().message;
+  }
   for (const auto &ok : std::vector<std::function<void(Chain::BlockChainConfig &)>>{
            [](auto &c) { c.minerDueAfterSlots = 8640; }, [](auto &c) { c.minerDueAfterSlots = 0; },
-           [](auto &c) { c.heartbeatSlots = 0; }, [](auto &c) { c.heartbeatSlots = 10; }}) {
+           [](auto &c) { c.heartbeatSlots = 0; }, [](auto &c) { c.heartbeatSlots = 10; },
+           [](auto &c) { c.finalitySeconds = 3600; }, [](auto &c) { c.finalitySeconds = 30 * 86400; }}) {
     auto added = tryConfig(ok);
     EXPECT_TRUE(added.isOk()) << added.error().message;
   }

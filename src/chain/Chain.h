@@ -224,6 +224,23 @@ public:
    */
   std::optional<uint64_t> rewindDepthSeconds(const Client::RewindReport &order) const;
   /**
+   * Whether `order` would drop a final block (projects/finality FN003): its cutover lies below the
+   * finalized height. A node does that only with its operator's approval. None when the blocks
+   * cannot be read (treated as crossing).
+   */
+  std::optional<bool> rewindCrossesFinality(const Client::RewindReport &order) const;
+
+  /** The finality bound in force at the tip, in seconds (FN001); 0 before a config is loaded. */
+  uint64_t getFinalitySeconds() const;
+  /** The bound blocks of `epoch` were committed under (FN002): the history's entry for it. */
+  uint64_t finalitySecondsAt(uint64_t epoch) const;
+  /**
+   * The highest block such that it and every block below it held here are past their finality
+   * times — slot start plus the bound they were committed under — by this node's clock (FN002).
+   * None when no block held is final yet; an error when a block cannot be read.
+   */
+  Roe<std::optional<uint64_t>> finalizedHeight() const;
+  /**
    * The held certificate vouches for a block this chain holds at its cutover height, but with
    * another hash (bp2): history forked at or below it, or the certificate names the wrong block.
    * The node does not rewind then — a human must look.
@@ -560,6 +577,14 @@ private:
   uint64_t authorityStepsFrom_{0};
   /** Index a committed block's authority-changing records. */
   void noteAuthoritySteps(const Ledger::ChainNode &block);
+  /**
+   * The finality bound by epoch, as blocks committed here saw it (FN002): (first epoch, seconds),
+   * ascending; a new entry whenever a committed block's epoch runs under another bound. Rebuilt by
+   * every load (blocks are replayed); before the first block held, the first entry stands.
+   */
+  std::vector<std::pair<uint64_t, uint64_t>> finalityBounds_;
+  /** Note the bound `block` (committed) ran under. */
+  void noteFinalityBound(const Ledger::ChainNode &block);
   /** Highest certificate seen out of band and not committed yet (ba5c), with its record. */
   std::optional<BeaconCertificate> seenCert_;
   std::optional<Ledger::Record> seenCertRecord_;

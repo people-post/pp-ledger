@@ -35,6 +35,17 @@ inline constexpr uint64_t kBlockOverheadBytes = 64 * 1024;
  */
 Roe<void> validateBlockLimits(const BlockChainConfig &config);
 
+/** The finality bound's range (projects/finality FN001): an hour to 30 days. */
+inline constexpr uint64_t kMinFinalitySeconds = 3600;
+inline constexpr uint64_t kMaxFinalitySeconds = 30ULL * 24 * 3600;
+
+/**
+ * The finality bound, at genesis init and in every T_CONFIG: from `kMinFinalitySeconds` — a change
+ * cannot take the network's way back from a takeover — to `kMaxFinalitySeconds`, so "final" means
+ * something.
+ */
+Roe<void> validateFinality(const BlockChainConfig &config);
+
 } // namespace pp::chain_tx
 
 #endif
