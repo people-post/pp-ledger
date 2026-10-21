@@ -217,6 +217,14 @@ private:
   Roe<void> bootstrap();
   /** The authority at the tip held: the steps replayed from block 0, the certificate and evidence held. */
   Roe<void> rebuildTrail();
+  /**
+   * Whether the certificate held out of band still stands on `trail` (as a node re-checks it,
+   * Chain::refreshSeenCertificate): a later generation than the one in force, signed by the admin
+   * set in force, no recovery pending. Why not, when it does not.
+   */
+  Roe<void> heldCertificateStands(const AuthorityTrail &trail) const;
+  /** Journals that no certificate is held any more. */
+  Roe<void> dropHeldCertificate(const std::string &why);
   Roe<void> offerCertificate(const Ledger::Record &record);
   Roe<void> offerEquivocation(const Client::Equivocation &evidence);
   void refreshEquivocation();

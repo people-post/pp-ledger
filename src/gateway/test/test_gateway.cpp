@@ -424,6 +424,79 @@ TEST_F(GatewayTest, ATakeoverRewindsWhatWasAboveItsCutover) {
   EXPECT_EQ(balanceAt(kUser, At{}), -1) << "the account the dropped blocks made is not on this chain";
 }
 
+// A certificate held out of band stands only while the authority in force would still take it, as on
+// a node: a recovery announced (the admin set frozen) drops the old admins' one, and the new admins'
+// certificate for that generation is then taken, its cutover bounding the old generation's tips —
+// after a restart too.
+TEST_F(GatewayTest, ARecoveryDropsTheCertificateHeldForTheNewAdminsOne) {
+  const std::string net = harness_.producer.getNetworkId();
+  const int64_t genesisTime = harness_.chainConfig.genesisTime;
+  auto certificate = [&](const BeaconCertificate &cert, const std::vector<const utl::MlDsaKeyPair *> &signers,
+                         uint64_t idem) {
+    Ledger::TxBeaconCert tx;
+    tx.meta = cert.ltsToString();
+    tx.idempotentId = idem;
+    tx.validationTsMin = genesisTime;
+    tx.validationTsMax = genesisTime + 3600;
+    Ledger::Record record = makeRecord(Ledger::T_BEACON_CERT, tx, *signers.front(), net);
+    for (size_t i = 1; i < signers.size(); ++i) {
+      record.signatures.push_back(signMessage(*signers[i], record.signingMessage(net)));
+    }
+    return record;
+  };
+  ChainSource source(harness_.producer);
+  Gateway &gateway = open(source);
+  gateway.setClockOverride(slotTime(0));
+  poll();
+
+  // The old admins certify generation 2 (no cutover); the node shows it.
+  BeaconCertificate byOld = harness_.producer.getAuthority().value().beacon;
+  byOld.generation = 2;
+  byOld.publicKey = makeKeyPair().publicKey;
+  byOld.cutoverHeight = BeaconCertificate::kNoCutover;
+  byOld.cutoverHash.clear();
+  source.certificate = certificate(byOld, {&harness_.genesisKey}, 100);
+  poll();
+
+  // The recovery set announces three new admins (block 1); they replace the old in epoch 3.
+  const std::vector<utl::MlDsaKeyPair> admins = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
+  RecoveryAnnouncement announcement;
+  announcement.networkId = net;
+  for (const auto &admin : admins) {
+    announcement.adminPublicKeys.push_back(admin.publicKey);
+  }
+  announcement.adminMinSignatures = 2;
+  Ledger::TxRecovery recovery;
+  recovery.meta = announcement.ltsToString();
+  recovery.idempotentId = 101;
+  recovery.validationTsMin = genesisTime;
+  recovery.validationTsMax = genesisTime + 3600;
+  add(1, {makeRecord(Ledger::T_RECOVERY, recovery, testRecoveryKey(), net)});
+  source.certificate.reset();
+  poll();
+  const Ledger::ChainNode &replaced = add(30, {transfer(AccountBuffer::ID_REGISTRAR, 10)});
+  gateway.setClockOverride(slotTime(30));
+  poll();
+  ASSERT_EQ(gateway.tip().value().block.height, 2u);
+
+  // The new admins certify generation 2 with its cutover at block 2.
+  BeaconCertificate byNew = byOld;
+  byNew.publicKey = makeKeyPair().publicKey;
+  byNew.cutoverHeight = 2;
+  byNew.cutoverHash = replaced.hash;
+  source.certificate = certificate(byNew, {&admins[0], &admins[2]}, 102);
+  poll();
+
+  // Generation 1 signs on past the cutover: not followed, before or after a restart.
+  add(31, {transfer(AccountBuffer::ID_REGISTRAR, 10)});
+  EXPECT_FALSE(gateway.poll().isOk()) << "a tip of the superseded generation past its cutover";
+  EXPECT_EQ(gateway.tip().value().block.height, 2u);
+  Gateway &again = open(source);
+  again.setClockOverride(slotTime(31));
+  EXPECT_FALSE(again.poll().isOk()) << "after a restart";
+  EXPECT_EQ(again.tip().value().block.height, 2u);
+}
+
 TEST_F(GatewayTest, AnEquivocationHaltsItAtItsHeight) {
   ChainSource source(harness_.producer);
   open(source);

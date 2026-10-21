@@ -19,7 +19,11 @@ each step only on what the previous one proved:
    authority records itself.
 3. **Signed tips**, by the beacon key in force; a later generation's certificate the node holds
    (STATUS `certificate`, admin-signed) and equivocation evidence (STATUS `equivocation`) are taken
-   first, as a relay takes them, and bound which tips it accepts.
+   first, as a relay takes them, and bound which tips it accepts. As on a node, a held certificate is
+   checked again whenever the authority changes (a recovery announced or applied, the admin set
+   replaced), on restart, and when another certificate of its generation is shown; one the authority
+   in force would no longer take is dropped (journaled), so the current admins' certificate takes its
+   place.
 4. **Every block** from the one it holds to the signed tip, bottom up: each hashes to its hash and
    links to the one below; nothing is kept until the tip verifies over all of them.
 5. **Accounts**, by `ACCOUNT_PROOF` against a block it verified (its state root).
