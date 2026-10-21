@@ -1206,6 +1206,150 @@ TEST(ChainTest, Renewal_ZeroIdempotentIdAccepted) {
   std::filesystem::remove_all(tempDir, ec);
 }
 
+// A renewal is signed by the slot leader, not the account. The leader re-records a due account for
+// the chain's renewal fee and nothing else: not a higher fee, not one the account cannot cover, not an
+// account that is not due (before the first cutoff, or renewed already).
+TEST(ChainTest, ALeaderRenewsOnlyDueAccountsForTheirRenewalFee) {
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  const std::map<uint64_t, const utl::MlDsaKeyPair *> keys = {{AccountBuffer::ID_GENESIS, &genesisKey},
+                                                             {AccountBuffer::ID_FEE, &feeKey},
+                                                             {AccountBuffer::ID_RESERVE, &reserveKey},
+                                                             {AccountBuffer::ID_RECYCLE, &recycleKey},
+                                                             {kTestMinerId, &reserveKey}};
+  struct Net {
+    Chain chain;
+    std::filesystem::path dir;
+    Ledger::ChainNode tip;
+  };
+  // Genesis and one transfer; accounts last written before block `minBlocks - 1` are then due.
+  auto open = [&](Net &net, uint64_t minBlocks) {
+    Chain::BlockChainConfig config = makeChainConfig(0);
+    config.checkpoint.minBlocks = minBlocks;
+    config.checkpoint.minAgeSeconds = 0;
+    consensus::SlotCommittee::Config consensusConfig;
+    consensusConfig.slotDuration = 5;
+    consensusConfig.slotsPerEpoch = 10;
+    net.chain.initConsensus(consensusConfig);
+    net.dir = pp::test::uniqueTempPath("pp-ledger-chain-test-renewal-fee");
+    std::filesystem::remove_all(net.dir);
+    Ledger::InitConfig ledgerConfig;
+    ledgerConfig.workDir = net.dir.string();
+    ASSERT_TRUE(net.chain.initLedger(ledgerConfig).isOk());
+    net.tip = makeGenesisBlock(net.chain, config, genesisKey, feeKey, reserveKey, recycleKey);
+    ASSERT_TRUE(net.chain.addBlock(net.tip).isOk());
+    Ledger::TxDefault tx;
+    tx.tokenId = AccountBuffer::ID_GENESIS;
+    tx.fromWalletId = AccountBuffer::ID_RESERVE;
+    tx.toWalletId = AccountBuffer::ID_FEE;
+    tx.amount = 10;
+    tx.fee = 1;
+    tx.idempotentId = 1;
+    tx.validationTsMax = 3600;
+    net.chain.refreshStakeholders();
+    net.tip = makeNextBlock(net.chain, net.tip, {makeRecord(Ledger::T_DEFAULT, tx, reserveKey)});
+    ASSERT_TRUE(net.chain.addBlock(net.tip).isOk());
+  };
+  auto signedBy = [&](Chain &chain, uint64_t slot, Ledger::Record r) {
+    EXPECT_TRUE(chain.ensureEpochSeed(chain.getEpochFromSlot(slot)).isOk());
+    const auto &key = *keys.at(chain.getSlotLeader(slot).value());
+    r.signatures = {utl::mlDsaSign(key.privateKey, r.signingMessage(chain.getNetworkId())).value()};
+    return r;
+  };
+  // The block at `slot` holding `records`: sealed, or why not.
+  auto seal = [&](Net &net, uint64_t slot, const std::vector<Ledger::Record> &records) -> Chain::Roe<Ledger::ChainNode> {
+    net.chain.refreshStakeholders(slot);
+    EXPECT_TRUE(net.chain.ensureEpochSeed(net.chain.getEpochFromSlot(slot)).isOk());
+    auto block = net.chain.linkNextBlock(net.tip, slot, net.chain.getSlotLeader(slot).value(),
+                                         net.chain.getSlotEndTime(slot), records);
+    if (auto sealed = net.chain.sealBlock(block); !sealed) {
+      return sealed.error();
+    }
+    return block;
+  };
+
+  Net net;
+  open(net, 2);
+  const uint64_t slot2 = net.tip.block.slot + 1;
+  auto renewals = net.chain.collectRenewals(slot2);
+  ASSERT_TRUE(renewals.isOk()) << renewals.error().message;
+  std::optional<Ledger::Record> user;
+  for (const auto &r : renewals.value()) {
+    if (r.type == Ledger::T_RENEWAL && utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId == kTestMinerId) {
+      user = r;
+    }
+  }
+  ASSERT_TRUE(user.has_value()) << "the genesis miner's account is due";
+  const auto due = utl::binaryUnpack<Ledger::TxRenewal>(user->data).value();
+  ASSERT_GT(due.fee, 0u);
+  const int64_t held = net.chain.getAccount(kTestMinerId).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS);
+
+  // The same renewal charging `fee`, carrying the balance that leaves.
+  auto charging = [&](uint64_t fee) {
+    Ledger::TxRenewal tx = due;
+    Client::UserAccount carried;
+    EXPECT_TRUE(carried.ltsFromString(tx.meta));
+    carried.wallet.mBalances[AccountBuffer::ID_GENESIS] = held - static_cast<int64_t>(fee);
+    tx.fee = fee;
+    tx.meta = carried.ltsToString();
+    Ledger::Record r = *user;
+    r.data = utl::binaryPack(tx);
+    return signedBy(net.chain, slot2, r);
+  };
+  const uint64_t leader = net.chain.getSlotLeader(slot2).value();
+  {
+    AccountBuffer draft;
+    auto added = net.chain.addBufferTransaction(draft, charging(due.fee), leader);
+    EXPECT_TRUE(added.isOk()) << added.error().message;
+  }
+  for (uint64_t fee : {due.fee + 1, static_cast<uint64_t>(held), static_cast<uint64_t>(held) + 5000}) {
+    AccountBuffer draft;
+    EXPECT_FALSE(net.chain.addBufferTransaction(draft, charging(fee), leader).isOk()) << "fee " << fee;
+  }
+
+  // The honest renewal commits (a block of renewals may leave others for later); the account is not
+  // due again in the next block.
+  auto block2 = seal(net, slot2, {signedBy(net.chain, slot2, *user)});
+  ASSERT_TRUE(block2.isOk()) << block2.error().message;
+  ASSERT_TRUE(net.chain.addBlock(block2.value()).isOk());
+  net.tip = block2.value();
+  const uint64_t slot3 = slot2 + 1;
+  auto later = net.chain.collectRenewals(slot3);
+  ASSERT_TRUE(later.isOk()) << later.error().message;
+  for (const auto &r : later.value()) {
+    if (r.type == Ledger::T_RENEWAL) {
+      EXPECT_NE(utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId, kTestMinerId);
+    }
+  }
+  Ledger::TxRenewal again = due;
+  Client::UserAccount carried;
+  ASSERT_TRUE(carried.ltsFromString(again.meta));
+  carried.wallet = net.chain.getAccount(kTestMinerId).value().wallet; // as held now
+  carried.wallet.mBalances[AccountBuffer::ID_GENESIS] -= static_cast<int64_t>(due.fee);
+  again.meta = carried.ltsToString();
+  Ledger::Record renewAgain = *user;
+  renewAgain.data = utl::binaryPack(again);
+  auto early = seal(net, slot3, {signedBy(net.chain, slot3, renewAgain)});
+  ASSERT_FALSE(early.isOk()) << "renewed in the block before";
+  EXPECT_NE(early.error().message.find("too early"), std::string::npos) << early.error().message;
+
+  // Before the first cutoff nothing is due: the same renewal is refused there.
+  Net young;
+  open(young, 3);
+  const uint64_t youngSlot = young.tip.block.slot + 1;
+  auto none = young.chain.collectRenewals(youngSlot);
+  ASSERT_TRUE(none.isOk()) << none.error().message;
+  EXPECT_TRUE(none.value().empty());
+  auto premature = seal(young, youngSlot, {signedBy(young.chain, youngSlot, *user)});
+  ASSERT_FALSE(premature.isOk()) << "no account is due yet";
+  EXPECT_NE(premature.error().message.find("too early"), std::string::npos) << premature.error().message;
+
+  std::filesystem::remove_all(net.dir);
+  std::filesystem::remove_all(young.dir);
+}
+
 // Regression: the recycle account (balance 0) used to get T_END_USER at its
 // first renewal and be deleted, after which every write-off failed. System
 // accounts (AccountIds::isSystemAccount) are never terminated and renew

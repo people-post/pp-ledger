@@ -231,8 +231,12 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   after `slotStart(x.slot) - checkpoint.minAgeSeconds` (`calculateMaxBlockIdForRenewal`; the
   block's slot time, never a node's clock). The slot leader signs renewals, so a renewal re-records
   the account **as it is**: its keys, threshold, key type and meta must equal the committed ones
-  (the meta recorded at the account's last write); only the renewal fee leaves its balance.
-  Changing them takes the account's own `T_USER_UPDATE`, signed by the keys in force: it replaces the
+  (the meta recorded at the account's last write); only the renewal fee leaves its balance. That fee
+  is **exactly** the account's renewal fee (`calculateMinimumFeeForAccountMeta` on its committed
+  meta), never the leader's choice, and the renewal is valid only when the account's native balance
+  covers it. Only a **due** account is renewed or ended: none before the first cut-off
+  (`maxBlockIdForRenewal` 0), and an account written at or after the cut-off is not due (the
+  checkpoint's genesis renewal excepted). Changing them takes the account's own `T_USER_UPDATE`, signed by the keys in force: it replaces the
   keys, threshold and meta (and names the account's first recovery set: [Account
   recovery](#account-recovery); refused while a recovery is announced), and pays its fee from the account's native balance **as the chain has
   it** — balances in its meta are ignored, so renewals or transfers landing between its making and

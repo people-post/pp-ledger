@@ -678,13 +678,15 @@ chain_tx::Roe<void> validateAccountRenewals(
     const auto &account = accountResult.value();
 
     const bool checkpointGenesisRenewal = checkpointBlock && accountId == AccountBuffer::ID_GENESIS;
-    if (maxBlockIdForRenewal > 0 && account.blockId > maxBlockIdForRenewal && !checkpointGenesisRenewal) {
+    // Only a due account is renewed (or ended): last written before the cutoff (as collectRenewals
+    // picks them), none before the first cutoff. A leader may not charge a renewal fee at will.
+    if ((maxBlockIdForRenewal == 0 || account.blockId >= maxBlockIdForRenewal) && !checkpointGenesisRenewal) {
       return chain_tx::TxError(
           chain_err::E_ACCOUNT_RENEWAL,
           "Account renewal too early: account " + std::to_string(accountId) +
               " has blockId " + std::to_string(account.blockId) +
-              " but deadline is at blockId " +
-              std::to_string(maxBlockIdForRenewal));
+              (maxBlockIdForRenewal == 0 ? std::string(" and no account is due yet")
+                                         : " but deadline is at blockId " + std::to_string(maxBlockIdForRenewal)));
     }
 
     accountsRenewedInBlock.insert(accountId);
