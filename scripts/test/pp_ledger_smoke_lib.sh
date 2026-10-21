@@ -2093,79 +2093,67 @@ run_takeover_scenario() {
   TAKEOVER_CUTOVER=$cutover
 }
 
-# ---- The verifying gateway (projects/finality fn2): pp-http /v1/ beside a service ----
+# ---- A service's feed (docs/contracts/SERVICE_API.md): pp-http /api/chain/ on the service's own relay ----
 
-GATEWAY_TOKEN="smoke-gateway-token"
-
-# pp-http with /v1/, following relay1 from the pinned genesis; its journal in ${TEST_DIR}/gateway.
-start_gateway() {
+# pp-http beside a service, reading relay1 (the service's own relay; it verifies the chain).
+start_chain_api() {
   [[ -x "$BUILD_DIR/app/pp-http" ]] || die "pp-http not built (PP_LEDGER_BUILD_HTTP)"
-  local dir="${TEST_DIR}/gateway" hash
-  rm -rf "$dir" # a journal of an earlier network: refused (another genesis)
+  local dir="${TEST_DIR}/chain-api"
   mkdir -p "$dir"
-  hash=$(genesis_hash_hex)
-  [[ -n "$hash" ]] || die "gateway: no genesis hash from the relay"
-  PP_HTTP_V1_TOKEN="$GATEWAY_TOKEN" run_bg_cmd "$dir/console.log" "$BUILD_DIR/app/pp-http" --port "$HTTP_PORT" \
-    --beacon "$(relay_multiaddr)" --miner "$(miner_multiaddr 1)" \
-    --genesis-hash "$hash" --v1-data-dir "$dir/data" --v1-poll-ms 500
-  save_pid "gateway" $!
+  run_bg_cmd "$dir/console.log" "$BUILD_DIR/app/pp-http" --port "$HTTP_PORT" \
+    --beacon "$(relay_multiaddr)" --miner "$(miner_multiaddr 1)"
+  save_pid "chain-api" $!
   local deadline=$((SECONDS + 60))
-  until gateway_get /v1/tip >/dev/null 2>&1; do
-    ((SECONDS < deadline)) || { cat "$dir/console.log" >&2 || true; die "gateway: /v1/tip never answered"; }
+  until chain_get /api/chain/status >/dev/null 2>&1; do
+    ((SECONDS < deadline)) || { cat "$dir/console.log" >&2 || true; die "chain API: /api/chain/status never answered"; }
     sleep 1
   done
-  [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${HTTP_PORT}/v1/tip")" == "401" ]] ||
-    die "gateway: /v1/ answered without its token"
-  echo -e "${GREEN}✓ Gateway (/v1/) on ${HTTP_PORT}, following the relay from genesis ${hash}${NC}"
+  echo -e "${GREEN}✓ pp-http /api/chain/ on ${HTTP_PORT}, reading the relay${NC}"
 }
 
-gateway_get() { # path → body; fails on an HTTP error
-  curl -sf -H "Authorization: Bearer ${GATEWAY_TOKEN}" "http://127.0.0.1:${HTTP_PORT}$1"
+chain_get() { # path → body; fails on an HTTP error
+  curl -sf "http://127.0.0.1:${HTTP_PORT}$1"
 }
 
-gateway_field() { # path, key → a top-level number or string field
-  gateway_get "$1" 2>/dev/null | tr -d ' \n' | sed -n "s/.*\"$2\":\"\{0,1\}\([^,\"}]*\).*/\1/p"
+chain_field() { # path, key → the first string field of that name
+  chain_get "$1" 2>/dev/null | tr -d ' \n' | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p"
 }
 
-# Watch bob before the transactions start; his balance is proven as transfers reach him.
-run_gateway_watch() {
-  local bob=$(((1 << 30) + 1))
-  curl -sf -X PUT -H "Authorization: Bearer ${GATEWAY_TOKEN}" "http://127.0.0.1:${HTTP_PORT}/v1/watch/${bob}" >/dev/null ||
-    die "gateway: PUT /v1/watch/${bob} failed"
-}
-
-# The gateway's balance for bob at its tip matches the node's, once he has received transfers.
-check_gateway_balance() {
+# Bob's balance through /api/chain/accounts matches the node's; his transfers are in the block feed,
+# amounts as decimal strings.
+check_chain_feed() {
   local bob=$(((1 << 30) + 1)) deadline=$((SECONDS + 120)) ours="" theirs=""
   while ((SECONDS < deadline)); do
-    ours=$(gateway_get "/v1/accounts/${bob}/balances?at=tip" 2>/dev/null | tr -d ' \n' | sed -n 's/.*"balances":{"0":"\([0-9]*\)".*/\1/p')
+    ours=$(chain_get "/api/chain/accounts/${bob}" 2>/dev/null | tr -d ' \n' | sed -n 's/.*"balances":{"0":"\([0-9]*\)".*/\1/p')
     theirs=$(native_balance "$bob")
     [[ -n "$ours" && "$ours" -gt 5000 && "$ours" == "$theirs" ]] && break
     sleep 2
   done
   [[ -n "$ours" && "$ours" -gt 5000 && "$ours" == "$theirs" ]] ||
-    die "gateway: bob's verified balance '${ours}' does not match the node's '${theirs}'"
-  echo -e "${GREEN}✓ Gateway: bob's balance ${ours}, proven from the pinned genesis, matches the node${NC}"
+    die "chain API: bob's balance '${ours}' does not match the node's '${theirs}'"
+  local next feed
+  next=$(chain_field /api/chain/status nextBlockId)
+  feed=$(chain_get "/api/chain/blocks?from=1&limit=100" | tr -d ' \n')
+  [[ "$feed" == *"\"to\":\"${bob}\",\"amount\":\""* ]] || die "chain API: no transfer to bob in blocks 1.. (next ${next})"
+  echo -e "${GREEN}✓ Chain API: bob's balance ${ours} matches the node; his transfers are in the feed${NC}"
 }
 
-# After a takeover: the rewind reported (no final block crossed: a day's bound), generation 2 followed.
-check_gateway_after_takeover() {
-  local cutover=$1 deadline=$((SECONDS + 120)) events="" generation=""
+# After a takeover: the relay follows generation 2 past the cutover, and the feed links across it.
+check_chain_after_takeover() {
+  local cutover=$1 deadline=$((SECONDS + 120)) generation="" tip=""
   while ((SECONDS < deadline)); do
-    events=$(gateway_get "/v1/events?after=0" 2>/dev/null | tr -d ' \n' || true)
-    generation=$(gateway_field /v1/tip generation)
-    [[ "$events" == *"\"kind\":\"rewind\""* && "$generation" == "2" ]] && break
+    generation=$(chain_field /api/chain/status generation)
+    tip=$(chain_field /api/chain/status tipHeight)
+    [[ "$generation" == "2" && -n "$tip" && "$tip" -gt "$cutover" ]] && break
     sleep 2
   done
-  [[ "$events" == *"\"kind\":\"certificate\",\"generation\":2,\"cutoverHeight\":${cutover}"* ]] ||
-    die "gateway: no certificate event for generation 2 (events: ${events})"
-  [[ "$events" == *"\"kind\":\"rewind\",\"generation\":2,\"keptUpTo\":${cutover},"*"\"crossedFinality\":false"* ]] ||
-    die "gateway: no rewind to ${cutover} reported (events: ${events})"
-  [[ "$generation" == "2" ]] || die "gateway: does not follow generation 2 (tip generation '${generation}')"
-  local height
-  height=$(gateway_field /v1/tip height)
-  [[ -n "$height" && "$height" -gt "$cutover" ]] || die "gateway: tip ${height} not past the cutover ${cutover}"
-  echo -e "${GREEN}✓ Gateway: reported the rewind to block ${cutover} (no final block crossed), follows generation 2 at block ${height}${NC}"
+  [[ "$generation" == "2" && "$tip" -gt "$cutover" ]] ||
+    die "chain API: not following generation 2 past ${cutover} (generation '${generation}', tip '${tip}')"
+  local at after
+  at=$(chain_get "/api/chain/blocks?from=${cutover}&limit=1" | tr -d ' \n' | sed -n 's/.*"hash":"\([0-9a-f]*\)".*/\1/p')
+  after=$(chain_get "/api/chain/blocks?from=$((cutover + 1))&limit=1" | tr -d ' \n' | sed -n 's/.*"previousHash":"\([0-9a-f]*\)".*/\1/p')
+  [[ -n "$at" && "$at" == "$after" ]] || die "chain API: block $((cutover + 1)) does not link to the cutover block"
+  echo -e "${GREEN}✓ Chain API: generation 2 at block ${tip}, linked across the cutover ${cutover}${NC}"
 }
 
 # The beacon's multiaddr on its new host: the same peer id (its identity key moves with it), the

@@ -14,8 +14,7 @@
 #include "common/Logger.h"
 #include "ledger/lib/common/Utilities.h"
 #include "common/io/Json.h"
-#include "gateway/Gateway.h"
-#include "http_gateway.h"
+#include "http_chain.h"
 #include <httplib.h>
 
 #include <cli11.hpp>
@@ -1076,36 +1075,6 @@ int main(int argc, char** argv) {
                  "Another node on /metrics, NAME=MULTIADDR (repeatable; e.g. relay=/ip4/...)")
       ->envname("PP_HTTP_METRICS_TARGETS")
       ->delimiter(',');
-  // The verifying gateway (/v1/, projects/finality FN004): on with a pinned genesis.
-  std::string genesisHashHex;
-  std::string gatewayDataDir;
-  std::string gatewayNode;
-  std::string gatewayToken;
-  uint32_t gatewayPollMs = 1000;
-  int64_t gatewaySweepSeconds = 300;
-  int64_t gatewayKeepDays = 30;
-  app.add_option("--genesis-hash", genesisHashHex,
-                 "Block 0's hash, hex, from a source you trust: serves /v1/, verified from it")
-      ->envname("PP_HTTP_GENESIS_HASH");
-  app.add_option("--v1-data-dir", gatewayDataDir, "Where /v1/ keeps what it verified (required with --genesis-hash)")
-      ->envname("PP_HTTP_V1_DATA_DIR");
-  app.add_option("--v1-node", gatewayNode, "The node /v1/ follows, an ADP multiaddr (default: --beacon)")
-      ->envname("PP_HTTP_V1_NODE");
-  app.add_option("--v1-token", gatewayToken, "Bearer token /v1/ requires (default: none; set it from the environment)")
-      ->envname("PP_HTTP_V1_TOKEN");
-  app.add_option("--v1-poll-ms", gatewayPollMs, "How often /v1/ reads the node, in milliseconds")
-      ->default_val(1000)
-      ->check(CLI::Range(100, 600000))
-      ->envname("PP_HTTP_V1_POLL_MS");
-  app.add_option("--v1-sweep-seconds", gatewaySweepSeconds,
-                 "How often /v1/ proves every watched account again, in seconds")
-      ->default_val(300)
-      ->check(CLI::Range(10, 86400))
-      ->envname("PP_HTTP_V1_SWEEP_SECONDS");
-  app.add_option("--v1-keep-days", gatewayKeepDays, "How long /v1/ keeps final blocks (and balances at them), in days")
-      ->default_val(30)
-      ->check(CLI::Range(1, 3650))
-      ->envname("PP_HTTP_V1_KEEP_DAYS");
   app.add_option("--log-level", logLevel, "Log level: debug, info, warning or error")
       ->envname("PP_LEDGER_LOG_LEVEL")
       ->check(CLI::IsMember({"debug", "info", "warning", "error"}, CLI::ignore_case));
@@ -1179,34 +1148,12 @@ int main(int argc, char** argv) {
     targetClients.push_back(std::move(client));
   }
 
-  std::unique_ptr<pp::Client> gatewayClient;
-  std::unique_ptr<pp::gateway::ClientSource> gatewaySource;
-  std::unique_ptr<pp::gateway::Gateway> gateway;
-  if (!genesisHashHex.empty()) {
-    const bool prefixed = genesisHashHex.rfind("0x", 0) == 0;
-    const std::string genesisHash = pp::utl::hexDecode(prefixed ? genesisHashHex.substr(2) : genesisHashHex);
-    if (genesisHash.size() != 32 || gatewayDataDir.empty()) {
-      std::cerr << "Error: --genesis-hash must be 64 hex digits, with --v1-data-dir.\n";
-      return 1;
-    }
-    const std::string node = gatewayNode.empty() ? beaconMultiaddr : gatewayNode;
-    gatewayClient = std::make_unique<pp::Client>();
-    gatewayClient->attachAmpTransport(ampRuntime, "gateway");
-    if (auto dial = gatewayClient->setAmpPeer("gateway", node); !dial) {
-      std::cerr << "Error: failed to dial the node for /v1/: " << dial.error().message << "\n";
-      return 1;
-    }
-    gatewaySource = std::make_unique<pp::gateway::ClientSource>(*gatewayClient);
-    pp::gateway::Gateway::Options options;
-    options.genesisHash = genesisHash;
-    options.dataDir = gatewayDataDir;
-    options.sweepSeconds = gatewaySweepSeconds;
-    options.keepFinalSeconds = gatewayKeepDays * 24 * 3600;
-    gateway = std::make_unique<pp::gateway::Gateway>(*gatewaySource, options);
-    if (auto opened = gateway->open(); !opened) {
-      std::cerr << "Error: /v1/: " << opened.error().message << "\n";
-      return 1;
-    }
+  // /api/chain/ reads the node on a client of its own (one call at a time).
+  pp::Client chainClient;
+  chainClient.attachAmpTransport(ampRuntime, "chain");
+  if (auto dial = chainClient.setAmpPeer("chain", beaconMultiaddr); !dial) {
+    std::cerr << "Error: failed to dial the node for /api/chain/: " << dial.error().message << "\n";
+    return 1;
   }
 
   // MCP session registry
@@ -1416,9 +1363,7 @@ int main(int argc, char** argv) {
     handleMcpMessages(req, res, beaconClient, minerClient, mcpSessions, mcpSessionsMutex);
   });
 
-  if (gateway) {
-    registerGatewayRoutes(svr, *gateway, gatewayToken);
-  }
+  registerChainRoutes(svr, chainClient);
 
   httpLog.info << "HTTP API listening on " << httpHost << ":" << httpPort;
   httpLog.info << "Beacon: " << beaconMultiaddr;
@@ -1426,12 +1371,8 @@ int main(int argc, char** argv) {
   httpLog.info << "Routes: GET /metrics, /api/beacon/health, /api/miner/health, /api/beacon/state, /api/beacon/calibration, /api/beacon/miners, /api/miner/status, /api/block/<id>, /api/account/<id>";
   httpLog.info << "        POST /api/account/create (JSON: from, amount, key; optional: to, fee, newPubkey, meta, minSignatures)";
   httpLog.info << "        GET /api/tx/by-wallet?walletId=&beforeBlockId=, GET /api/tx/by-index?txIndex=, POST /api/tx/build (JSON), POST /api/tx/submit (JSON)";
+  httpLog.info << "Chain:  GET /api/chain/status, /api/chain/blocks?from=&limit=, /api/chain/accounts/<id>";
   httpLog.info << "MCP:    GET /mcp/sse (SSE endpoint), POST /mcp/messages?sessionId=<id>";
-  if (gateway) {
-    httpLog.info << "Verified (genesis " << genesisHashHex << (gatewayToken.empty() ? "" : ", bearer token")
-                 << "): GET /v1/tip, /v1/blocks/<height>, /v1/accounts/<id>/balances?at=, /v1/events?after=, "
-                    "/v1/watch; PUT|DELETE /v1/watch/<id>";
-  }
   std::signal(SIGINT, httpSignalHandler);
   std::signal(SIGTERM, httpSignalHandler);
   std::atomic<bool> listening{true};
@@ -1441,35 +1382,9 @@ int main(int argc, char** argv) {
     }
     svr.stop();
   });
-  // /v1/ follows the chain on its own thread (the only one calling its client); routes read it.
-  std::thread gatewayThread;
-  if (gateway) {
-    gatewayThread = std::thread([&]() {
-      auto gatewayLog = pp::logging::getLogger("Gateway");
-      std::string lastError;
-      while (listening && !g_httpStopRequested) {
-        auto polled = gateway->poll();
-        const std::string error = polled ? std::string() : polled.error().message;
-        if (error != lastError) {
-          if (error.empty()) {
-            gatewayLog.info << "Following the chain";
-          } else {
-            gatewayLog.warning << "Not following: " << error;
-          }
-          lastError = error;
-        }
-        for (uint32_t waited = 0; waited < gatewayPollMs && listening && !g_httpStopRequested; waited += 50) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
-      }
-    });
-  }
   const bool listened = svr.listen(httpHost, static_cast<int>(httpPort));
   listening = false;
   stopWatcher.join();
-  if (gatewayThread.joinable()) {
-    gatewayThread.join();
-  }
   if (!listened && !g_httpStopRequested) {
     std::cerr << "Error: failed to listen on " << httpHost << ":" << httpPort << "\n";
     return 1;

@@ -93,3 +93,19 @@ gateway's start need no guess.
 now, not the bounds of the blocks below a start); `finalitySeconds` alone in each header (a client would
 still take the running maximum over blocks it does not hold); keeping the history and cross-checking the
 node's STATUS (catches only a node that lies inconsistently).
+
+## FN008 — Services follow their own relay; no verifying gateway
+
+**Date:** 2026-10-21
+**Supersedes:** FN004–FN006.
+**Decision:** The verifying gateway (pp-http `/v1/`, `pp_gateway`) is removed. A service runs its own
+relay and reads it through pp-http's stateless `/api/chain/` (status with the finalized height, blocks
+as transfers, balances; [SERVICE_API.md](../../docs/contracts/SERVICE_API.md)); it credits from the
+blocks it follows, final at or below the finalized height, and walks back on a rewind by `previousHash`.
+**Rationale:** Every service can run a relay, and a relay already verifies the chain in full. The
+gateway was a second implementation of the node's authority and finality rules, which drifted (a held
+certificate it did not re-check after an admin change) and made pp-http — the thin helper beside the
+servers — stateful and security-critical. One verifier, in the node, is less to get right.
+**Alternatives:** Keep the gateway (two implementations to keep in lockstep); move it into a binary of
+its own (less exposure in pp-http, the same duplication); per-request proofs only (`pp-client
+verified-account`: kept, for a one-off check from a node one does not run).

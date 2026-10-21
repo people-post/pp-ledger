@@ -204,29 +204,22 @@ curl -X POST http://localhost:8080/api/tx/build -H 'Content-Type: application/js
 
 ---
 
-### Verified API (`/v1/`)
+### A service beside the chain (`/api/chain/`)
 
-For a service beside the chain (the bank, the exchange): answers checked from a pinned genesis
-([VERIFIED_API.md](../contracts/VERIFIED_API.md)) — tips, the finalized height, balances of watched
-accounts by height, rewinds and other events. Run one beside each service, on localhost (a sidecar in
-its pod), following a relay its operators run:
+For a service that credits what the chain says (the bank, the exchange): run **your own relay**, and
+pp-http beside the service on localhost pointed at it ([SERVICE_API.md](../contracts/SERVICE_API.md)).
+The relay verifies the chain; pp-http only translates its answers.
 
 ```bash
-export PP_HTTP_V1_TOKEN=…   # from the service's secret store; never on the command line
 ./app/pp-http --port 8090 \
-  --beacon '/dns4/relay.example/udp/8519/adp/1.0.0/p2p/<relay-peer-id>' \
-  --miner  '/dns4/relay.example/udp/8519/adp/1.0.0/p2p/<relay-peer-id>' \
-  --genesis-hash <block 0's hash, from the network's announcement> \
-  --v1-data-dir /var/lib/pp-gateway
-curl -H "Authorization: Bearer $PP_HTTP_V1_TOKEN" http://127.0.0.1:8090/v1/tip
-curl -X PUT -H "Authorization: Bearer $PP_HTTP_V1_TOKEN" http://127.0.0.1:8090/v1/watch/1073741825
-curl -H "Authorization: Bearer $PP_HTTP_V1_TOKEN" 'http://127.0.0.1:8090/v1/accounts/1073741825/balances?at=final'
+  --beacon '/ip4/127.0.0.1/udp/8519/adp/1.0.0/p2p/<your-relay-peer-id>' \
+  --miner  '/ip4/127.0.0.1/udp/8519/adp/1.0.0/p2p/<your-relay-peer-id>'
+curl http://127.0.0.1:8090/api/chain/status
+curl 'http://127.0.0.1:8090/api/chain/blocks?from=1&limit=20'
+curl http://127.0.0.1:8090/api/chain/accounts/1073741825
 ```
 
-`--miner` is required by pp-http but not used by `/v1/` (the relay will do). The data directory is the
-gateway's memory (a persistent volume): a restart resumes from it, and it
-refuses another chain's. `pp-client -b --host <relay> block 0` shows block 0's hash to compare with the
-announcement.
+`--miner` is required by pp-http but not used by `/api/chain/` (the relay will do).
 
 ---
 
