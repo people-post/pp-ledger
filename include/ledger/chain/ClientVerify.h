@@ -46,8 +46,12 @@ struct ProvenAccount {
   std::string attachmentHash;
 };
 
-/** `proof` against `block` (checked already): its leaf and path give the block's state root. */
-chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block &block, const Client::AccountProof &proof);
+/**
+ * `proof` against `block` (checked already): its leaf and path give the block's state root. The
+ * proof must be of `accountId`, the account asked for: a node chooses what it answers.
+ */
+chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block &block, const Client::AccountProof &proof,
+                                               uint64_t accountId);
 
 /** A domain as a proof shows it, once checked (projects/domains): no account when nobody has it. */
 struct ProvenDomain {
@@ -56,8 +60,12 @@ struct ProvenDomain {
   std::optional<uint64_t> accountId;
 };
 
-/** `proof` against `block` (checked already): the domain's leaf and path give the block's state root. */
-chain_tx::Roe<ProvenDomain> checkDomainProof(const Ledger::Block &block, const Client::DomainProof &proof);
+/**
+ * `proof` against `block` (checked already): the domain's leaf and path give the block's state root.
+ * The proof must be of `domain` (normalized), the domain asked for.
+ */
+chain_tx::Roe<ProvenDomain> checkDomainProof(const Ledger::Block &block, const Client::DomainProof &proof,
+                                             const std::string &domain);
 
 } // namespace pp::verify
 

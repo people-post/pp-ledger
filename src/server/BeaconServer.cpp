@@ -1275,11 +1275,12 @@ BeaconServer::hBlockAdd(const Client::Request &request) {
     break;
   }
   // The beacon decides missed slots: a leader seals once its slot ends and must deliver within
-  // the delivery window. Checked on live admission only (the beacon's clock), never on replay
-  // or by relays, so every node follows the beacon's chain.
-  if (!beacon_.isBeforeDeliveryDeadline(block.block.slot)) {
+  // the delivery window — not before its slot ends either, or it would skip the leaders of the
+  // slots before it while they run. Checked on live admission only (the beacon's clock), never on
+  // replay or by relays, so every node follows the beacon's chain.
+  if (!beacon_.isInDeliveryWindow(block.block.slot)) {
     return Error(E_REQUEST, "Block for slot " + std::to_string(block.block.slot) +
-                                " arrived after its delivery deadline");
+                                " arrived outside its delivery window");
   }
   auto result = beacon_.addBlock(block);
   if (!result) {
@@ -1344,7 +1345,10 @@ void BeaconServer::dTxAdd(const Client::Request &request, const RequestQueue::Re
   }
   txPool_.expire(now);
   const auto key = beacon_.idempotencyKeyOf(record.value());
-  switch (txPool_.add(record.value(), now, key ? std::optional<uint64_t>(key->first) : std::nullopt)) {
+  // Every record counts against a payer's share. Admission refuses keyless records but the admins'
+  // (a config with no id, a certificate): those count against the genesis account.
+  const uint64_t sender = key ? key->first : AccountBuffer::ID_GENESIS;
+  switch (txPool_.add(record.value(), now, sender)) {
   case TxPool::Add::Added:
     reply(packResponse("Transaction submitted"));
     return;
@@ -1356,7 +1360,7 @@ void BeaconServer::dTxAdd(const Client::Request &request, const RequestQueue::Re
     return;
   case TxPool::Add::SenderFull:
     reply(packError(Client::E_POOL_FULL,
-                    "Too many transactions of account " + std::to_string(key->first) + " pooled, please retry later",
+                    "Too many transactions of account " + std::to_string(sender) + " pooled, please retry later",
                     poolRetryAfterMs()));
     return;
   }
@@ -1447,7 +1451,11 @@ BeaconServer::hRegister(const Client::Request &request) {
     return Error(E_REQUEST, verified.error().message);
   }
   registerServer(minerInfo);
-  noteMinerPeer(request.from); // its sync and blocks now go first (LR009)
+  // Its sync and blocks now go first (LR009) — from the peer it signed, when that peer sent it (through
+  // a relay, the relay trusts it).
+  if (minerInfo.peerId == request.from) {
+    noteMinerPeer(minerInfo.id, request.from);
+  }
   return utl::binaryPack(buildStateResponse().ltsToMeta());
 }
 
@@ -1462,7 +1470,9 @@ BeaconServer::hMinerList(const Client::Request & /*request*/) {
   std::vector<pp::common::Meta> list;
   list.reserve(miners_.miners().size());
   for (const auto &[id, info] : miners_.miners()) {
-    list.push_back(info.ltsToMeta());
+    Client::MinerInfo listed = info;
+    listed.peerId.clear(); // ids only, no addresses or peers
+    list.push_back(listed.ltsToMeta());
   }
   return utl::binaryPack(list);
 }

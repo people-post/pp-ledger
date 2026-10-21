@@ -16,6 +16,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <vector>
 
 namespace pp::chain_test {
@@ -129,6 +130,26 @@ inline Chain::ChainAuthority makeTestAuthority(const std::string &networkId) {
 
 /** The fixture's genesis miner: the only stakeholder (system accounts never are). */
 constexpr uint64_t kTestMinerId = AccountBuffer::ID_FIRST_ISSUED;
+
+/**
+ * Slot leaders' keys, for the block helpers to sign as the leader does (a block carries its
+ * producer's signatures). The genesis builders set the genesis miner's; a test registering other
+ * miners adds theirs.
+ */
+inline std::map<uint64_t, utl::MlDsaKeyPair> &testLeaderKeys() {
+  static std::map<uint64_t, utl::MlDsaKeyPair> keys;
+  return keys;
+}
+
+/** `block` (sealed) signed by its slot leader, if the fixture holds the leader's key. */
+inline void signAsLeader(Ledger::ChainNode &block, const std::string &networkId) {
+  auto it = testLeaderKeys().find(block.block.slotLeader);
+  if (it == testLeaderKeys().end() || block.block.slotLeader == 0) {
+    return;
+  }
+  block.block.producerSignatures = {
+      utl::mlDsaSign(it->second.privateKey, Ledger::Block::producerSigningMessage(networkId, block.hash)).value()};
+}
 constexpr int64_t kTestMinerStake = 1000000;
 
 /** The genesis block before sealing; `tweakMeta` edits the genesis meta (e.g. a bad authority). */
@@ -144,6 +165,7 @@ inline Ledger::ChainNode buildUnsealedGenesis(const Chain::BlockChainConfig &cha
   // pair, so tests signing as the slot leader keep using one key). The
   // registrar defaults to the recycle key pair.
   const utl::MlDsaKeyPair &minerSigner = minerKey ? *minerKey : reserveKey;
+  testLeaderKeys()[kTestMinerId] = minerSigner;
   const utl::MlDsaKeyPair &registrarSigner = registrarKey ? *registrarKey : recycleKey;
   Chain::GenesisAccountMeta gm;
   gm.config = chainConfig;
@@ -245,6 +267,7 @@ inline Ledger::ChainNode makeNextBlockAtSlot(
   auto sealResult = validator.sealBlock(block);
   EXPECT_TRUE(sealResult.isOk())
       << (sealResult.isOk() ? "" : sealResult.error().message);
+  signAsLeader(block, validator.getNetworkId());
   return block;
 }
 

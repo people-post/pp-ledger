@@ -74,8 +74,8 @@ bool Chain::isSlotSealTime(uint64_t slot) const {
   return txContext_.consensus.isSlotSealTime(slot);
 }
 
-bool Chain::isBeforeDeliveryDeadline(uint64_t slot) const {
-  return txContext_.consensus.isBeforeDeliveryDeadline(slot);
+bool Chain::isInDeliveryWindow(uint64_t slot) const {
+  return txContext_.consensus.isInDeliveryWindow(slot);
 }
 
 uint64_t Chain::getProductionSlot() const {
@@ -1620,6 +1620,25 @@ void Chain::applyDueRecovery(uint64_t epoch) {
   refreshSeenCertificate();
 }
 
+Chain::Roe<void> Chain::checkProducerSigned(const Ledger::ChainNode &block) const {
+  // The elected leader is public: only its account's keys (as held before this block) make a
+  // block of its slot, so no one else can take the slot with a block in its name.
+  auto producer = txContext_.bank.getAccount(block.block.slotLeader);
+  if (!producer) {
+    return Error(E_BLOCK_VALIDATION, "Block " + std::to_string(block.block.index) + ": slot leader " +
+                                         std::to_string(block.block.slotLeader) + " not found");
+  }
+  if (auto signed_ = verifySignaturesAgainstAccount(
+          Ledger::Block::producerSigningMessage(getNetworkId(), block.hash), block.block.producerSignatures,
+          producer.value());
+      !signed_) {
+    return Error(E_BLOCK_VALIDATION, "Block " + std::to_string(block.block.index) +
+                                         " is not signed by its slot leader " +
+                                         std::to_string(block.block.slotLeader) + ": " + signed_.error().message);
+  }
+  return {};
+}
+
 Chain::Roe<void> Chain::processNormalBlock(
     const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode) {
   // A block of a new epoch is checked and applied under that epoch's config.
@@ -1631,6 +1650,11 @@ Chain::Roe<void> Chain::processNormalBlock(
     return Error(E_BLOCK_VALIDATION, "Block validation failed for block " +
                                          std::to_string(block.block.index) +
                                          ": " + roe.error().message);
+  }
+  if (chain_block::admissionRunsConsensusAndBody(mode)) {
+    if (auto produced = checkProducerSigned(block); !produced) {
+      return produced;
+    }
   }
 
   for (const auto &rec : block.block.records) {
@@ -1668,8 +1692,9 @@ Chain::Roe<void> Chain::addBufferTransaction(
     AccountBuffer &bank,
     const Ledger::Record &record,
     uint64_t slotLeaderId) const {
+  // Against the keys this draft holds: an earlier record in it may have changed them, as the seal will.
   auto roe = validateTxSignatures(record, slotLeaderId,
-                                  chain_block::BlockAdmissionMode::Full);
+                                  chain_block::BlockAdmissionMode::Full, &bank);
   if (!roe) {
     return Error(E_TX_SIGNATURE, "Failed to validate buffer transaction: " +
                                      roe.error().message);
@@ -2216,6 +2241,16 @@ Chain::Roe<void> Chain::verifyAccountSignatures(uint64_t accountId, const std::s
 
 Chain::Roe<void> Chain::checkAdmission(const Ledger::Record &record, int64_t nowSec,
                                       bool verifySignatures) const {
+  switch (record.type) {
+  case Ledger::T_GENESIS:
+  case Ledger::T_RENEWAL:
+  case Ledger::T_END_USER:
+  case Ledger::T_IMPORT:
+    // Written by a leader or a genesis, never submitted: no leader takes one from the pool.
+    return Error(E_TX_VALIDATION, "A record of type " + std::to_string(record.type) + " is not submitted");
+  default:
+    break;
+  }
   auto typed = record.decode();
   if (!typed) {
     return Error(E_TX_VALIDATION, "Unknown or malformed transaction payload");
@@ -2225,39 +2260,28 @@ Chain::Roe<void> Chain::checkAdmission(const Ledger::Record &record, int64_t now
       return signed_;
     }
   }
-  const auto &bank = txContext_.bank;
-  return std::visit(
-      [&](const auto &tx) -> Roe<void> {
+  const bool ended = std::visit(
+      [&](const auto &tx) {
         using T = std::decay_t<decltype(tx)>;
         if constexpr (std::is_base_of_v<Ledger::TxIdempotencyWindow, T>) {
-          if (tx.validationTsMax > 0 && nowSec > tx.validationTsMax) {
-            return Error(E_TX_VALIDATION, "Transaction validity window ended");
-          }
+          return tx.validationTsMax > 0 && nowSec > tx.validationTsMax;
+        } else {
+          return false; // in an else: MSVC calls code after a taken `if constexpr` unreachable (C4702)
         }
-        // The payer covers it on the committed state (pending spends are the leader's to weigh).
-        auto covers = [&](uint64_t payer, uint64_t tokenId, uint64_t amount, uint64_t fee) -> Roe<void> {
-          const int64_t native = bank.getBalance(payer, AccountBuffer::ID_GENESIS);
-          // An issuer sending its own token issues it: only the fee needs covering.
-          const bool issuing = AccountBuffer::issuesToken(payer, tokenId);
-          const bool enough = tokenId == AccountBuffer::ID_GENESIS
-                                  ? native >= 0 && static_cast<uint64_t>(native) >= amount + fee
-                                  : (issuing || bank.getBalance(payer, tokenId) >= static_cast<int64_t>(amount)) &&
-                                        native >= 0 && static_cast<uint64_t>(native) >= fee;
-          if (!enough) {
-            return Error(E_TX_TRANSFER, "Account " + std::to_string(payer) + " cannot cover the amount and fee");
-          }
-          return {};
-        };
-        if constexpr (std::is_same_v<T, Ledger::TxDefault>) {
-          if (tx.fromWalletId != AccountBuffer::ID_GENESIS) { // genesis issues the native token
-            return covers(tx.fromWalletId, tx.tokenId, tx.amount, tx.fee);
-          }
-        } else if constexpr (std::is_same_v<T, Ledger::TxNewUser>) {
-          return covers(tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee);
-        }
-        return {};
       },
       typed.value());
+  if (ended) {
+    return Error(E_TX_VALIDATION, "Transaction validity window ended");
+  }
+  if (record.type == Ledger::T_BEACON_CERT) {
+    return {}; // checked as a certificate (offerCertificate); it applies only in the block it is due
+  }
+  // Only what could apply takes a place in the pool: the record through the leader's own apply path
+  // (fee floor, idempotency, amounts, funds, each type's rules) on the committed state. Pending
+  // spends are the leader's to weigh.
+  AccountBuffer scratch;
+  BufferApplyContext ctx{txContext_, getNextBlockId(), getProductionSlot(), chain_block::BlockAdmissionMode::Full};
+  return mapTxVoid(recordHandler_.applyBuffer(record, scratch, ctx));
 }
 
 std::optional<std::pair<uint64_t, uint64_t>> Chain::idempotencyKeyOf(const Ledger::Record &record) const {
@@ -2268,7 +2292,12 @@ std::optional<std::pair<uint64_t, uint64_t>> Chain::idempotencyKeyOf(const Ledge
 Chain::Roe<void> Chain::validateTxSignatures(
     const Ledger::Record &record,
     uint64_t slotLeaderId,
-    chain_block::BlockAdmissionMode admissionMode) const {
+    chain_block::BlockAdmissionMode admissionMode,
+    const AccountBuffer *working) const {
+  // Keys as the state this record applies to holds them (the seal applies on the tip bank, in order).
+  auto bankHolding = [&](uint64_t id) -> const AccountBuffer & {
+    return working && working->hasAccount(id) ? *working : txContext_.bank;
+  };
   if (record.type == Ledger::T_IMPORT) {
     // Unsigned: the predecessor's state root authenticates the import (B032).
     return record.signatures.empty() ? Roe<void>() : Error(E_TX_SIGNATURE, "An import is unsigned");
@@ -2294,7 +2323,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
     if (!tx) {
       return Error(E_TX_VALIDATION, "Malformed account recovery");
     }
-    auto account = txContext_.bank.getAccount(tx.value().walletId);
+    auto account = bankHolding(tx.value().walletId).getAccount(tx.value().walletId);
     if (!account) {
       return chain_block::admissionTxStrict(admissionMode)
                  ? Error(E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(tx.value().walletId))
@@ -2316,7 +2345,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
   }
   const uint64_t signerAccountId = signerAccountIdRoe.value();
 
-  auto accountResult = txContext_.bank.getAccount(signerAccountId);
+  auto accountResult = bankHolding(signerAccountId).getAccount(signerAccountId);
   if (!accountResult) {
     if (chain_block::admissionTxStrict(admissionMode)) {
       if (txContext_.bank.isEmpty() &&

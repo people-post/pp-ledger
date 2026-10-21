@@ -36,7 +36,7 @@ std::ostream &operator<<(std::ostream &os, const Beacon::MountConfig &config) {
 
 Beacon::Beacon() : NodeCore("Beacon") {}
 
-bool Beacon::isBeforeDeliveryDeadline(uint64_t slot) const { return chain_.isBeforeDeliveryDeadline(slot); }
+bool Beacon::isInDeliveryWindow(uint64_t slot) const { return chain_.isInDeliveryWindow(slot); }
 
 Beacon::Roe<void> Beacon::verifyMinerRegistration(const Client::MinerInfo &miner,
                                                  const std::string &networkId) const {
@@ -44,6 +44,12 @@ Beacon::Roe<void> Beacon::verifyMinerRegistration(const Client::MinerInfo &miner
   if (!signed_) {
     return Error(signed_.error().code, "Registration not signed by miner " + std::to_string(miner.id) + ": " +
                                            signed_.error().message);
+  }
+  // Only a miner the chain registered (T_MINER_REGISTER: stake and fee) is one: any other account's
+  // registration would earn a peer the trusted lane.
+  auto account = getAccount(miner.id);
+  if (!account || !account.value().wallet.miner.registered) {
+    return Error("Account " + std::to_string(miner.id) + " is not a registered miner");
   }
   return {};
 }

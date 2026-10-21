@@ -58,8 +58,13 @@ public:
    * after the slot's end. True from the slot's end until end + deliveryWindowMs().
    */
   bool isSlotSealTime(uint64_t slot) const;
-  /** The beacon admits a block for `slot` only until slotEnd + deliveryWindowMs() (its clock). */
-  bool isBeforeDeliveryDeadline(uint64_t slot) const;
+  /**
+   * The beacon admits a block for `slot` only in its delivery window on the beacon's clock: from the
+   * slot's end (less half a window, for a leader's clock a little ahead) until end +
+   * deliveryWindowMs(). Never earlier: a block for a later slot would skip the leaders before it
+   * while their slots run.
+   */
+  bool isInDeliveryWindow(uint64_t slot) const;
   /** Delivery window after a slot ends: min(slotDuration / 3, 2 s). Shorter than a slot, so the
    *  next leader (who seals at the end of its own slot) always seals on a settled tip. */
   int64_t deliveryWindowMs() const;

@@ -235,6 +235,11 @@ void Gateway::apply(const Record &record) {
     }
     break;
   case Record::Certificate: {
+    if (record.s1.empty()) { // the one held no longer stands
+      seen_.reset();
+      seenRecord_.reset();
+      break;
+    }
     auto record_ = utl::binaryUnpack<Ledger::Record>(record.s1);
     if (!record_) {
       break;
@@ -622,14 +627,39 @@ Gateway::Roe<void> Gateway::rebuildTrail() {
   if (!trail) {
     return Error(kUnavailable, "Replaying the authority held: " + trail.error().message);
   }
-  if (seenRecord_ && seen_ && seen_->generation > trail.value().beacon().generation) {
-    if (auto accepted = trail.value().acceptOutOfBand(*seenRecord_); !accepted) {
-      log_.warning << "The certificate held no longer applies: " << accepted.error().message;
+  if (auto stands = heldCertificateStands(trail.value()); !stands) {
+    if (auto dropped = dropHeldCertificate(stands.error().message); !dropped) {
+      return dropped;
     }
+  } else if (seenRecord_) {
+    (void)trail.value().acceptOutOfBand(*seenRecord_); // checked just now: it bounds the tips again
   }
   trail.value().setEquivocation(equivocation_);
   trail_ = std::move(trail.value());
   return {};
+}
+
+Gateway::Roe<void> Gateway::heldCertificateStands(const AuthorityTrail &trail) const {
+  if (!seen_ || !seenRecord_) {
+    return {};
+  }
+  if (seen_->generation <= trail.beacon().generation) {
+    return Error(kUnavailable, "generation " + std::to_string(seen_->generation) + " is in force on chain now");
+  }
+  AuthorityTrail probe = trail;
+  probe.setSeenCertificate(std::nullopt);
+  if (auto accepted = probe.acceptOutOfBand(*seenRecord_); !accepted) {
+    return Error(kUnavailable, accepted.error().message);
+  }
+  return {};
+}
+
+Gateway::Roe<void> Gateway::dropHeldCertificate(const std::string &why) {
+  log_.warning << "Dropping the beacon certificate held (generation " << (seen_ ? seen_->generation : 0)
+               << "): " << why;
+  Record cleared;
+  cleared.kind = Record::Certificate; // empty: none held
+  return append(cleared);
 }
 
 Gateway::Roe<void> Gateway::offerCertificate(const Ledger::Record &record) {
@@ -650,11 +680,22 @@ Gateway::Roe<void> Gateway::offerCertificate(const Ledger::Record &record) {
     return {};
   }
   if (seen_ && generation == seen_->generation) {
-    if (cert.value().ltsToString() != seen_->ltsToString()) {
+    if (cert.value().ltsToString() == seen_->ltsToString()) {
+      return {};
+    }
+    // As a node: the one held stays while the authority in force would still take it; else (its
+    // admin set replaced, a recovery pending) it goes and this one is checked in its place.
+    auto stands = heldCertificateStands(*trail_);
+    if (stands) {
       log_.warning << "Another admin-signed certificate for generation " << generation
                    << " than the one held: keeping the one held";
+      return {};
     }
-    return {};
+    std::lock_guard lock(mutex_);
+    if (auto dropped = dropHeldCertificate(stands.error().message); !dropped) {
+      return dropped;
+    }
+    trail_->setSeenCertificate(std::nullopt);
   }
   {
     std::lock_guard lock(mutex_);
@@ -815,12 +856,8 @@ Gateway::Roe<void> Gateway::advance(const Client::SignedTip &signedTip) {
     }
     return {};
   }
-  // What the certificate or evidence held refuses, before fetching anything.
-  if (seen_ && signedTip.generation < seen_->generation && signedTip.height > seen_->cutoverHeight) {
-    return Error(kUnavailable, "Signed tip at block " + std::to_string(signedTip.height) + " is past block " +
-                                   std::to_string(seen_->cutoverHeight) + ", the last generation " +
-                                   std::to_string(signedTip.generation) + " may sign");
-  }
+  // What the evidence held refuses, before fetching anything. (The certificate held bounds the tip
+  // in verifyTip below, once the blocks' authority changes have re-checked it: they may void it.)
   if (equivocation_ && signedTip.generation == equivocation_->generation() && signedTip.height > equivocation_->height()) {
     return Error(kUnavailable, haltedReason());
   }
@@ -882,6 +919,12 @@ Gateway::Roe<void> Gateway::advance(const Client::SignedTip &signedTip) {
   if (link != signedTip.blockHash) {
     return Error(kUnavailable, "The blocks from the node are not the ones the signed tip names");
   }
+  // The blocks may have changed the authority (a recovery announced or applied, the admin set
+  // replaced): the certificate held stands only if it still would be taken, as a node re-checks it.
+  auto stands = heldCertificateStands(trail);
+  if (!stands) {
+    trail.setSeenCertificate(std::nullopt);
+  }
   if (auto verified = trail.verifyTip(signedTip); !verified) {
     return Error(kUnavailable, "Signed tip at block " + std::to_string(signedTip.height) + ": " + verified.error().message);
   }
@@ -889,6 +932,11 @@ Gateway::Roe<void> Gateway::advance(const Client::SignedTip &signedTip) {
   for (const auto &record : records) {
     if (auto written = append(record); !written) {
       return written;
+    }
+  }
+  if (!stands) {
+    if (auto dropped = dropHeldCertificate(stands.error().message); !dropped) {
+      return dropped;
     }
   }
   trail_ = std::move(trail);
@@ -915,6 +963,9 @@ Gateway::Roe<bool> Gateway::proveAccounts() {
     lastSweep_ = nowSeconds;
   }
   bool ahead = false;
+  // Nodes prove at their tip. Touches are scanned only from when an account is watched, so a proof
+  // of an older block than the one verified here could miss a change: take none below it.
+  const uint64_t floor = facts_.back().height;
   for (uint64_t id : due) {
     auto proof = source_.accountProof(id);
     if (!proof) {
@@ -922,6 +973,11 @@ Gateway::Roe<bool> Gateway::proveAccounts() {
       continue;
     }
     const uint64_t at = proof.value().blockId;
+    if (at < floor) {
+      log_.warning << "Account " << id << ": the node's proof is of block " << at << ", below the verified tip "
+                   << floor << " (again next round)";
+      continue;
+    }
     const Facts *facts = factsAt(at);
     if (!facts) {
       ahead = ahead || at > facts_.back().height;
@@ -930,7 +986,7 @@ Gateway::Roe<bool> Gateway::proveAccounts() {
     Ledger::Block header;
     header.index = at;
     header.stateRoot = facts->stateRoot;
-    auto proven = verify::checkAccountProof(header, proof.value());
+    auto proven = verify::checkAccountProof(header, proof.value(), id);
     if (!proven) {
       log_.warning << "Account " << id << ": the node's proof does not check: " << proven.error().message;
       continue;

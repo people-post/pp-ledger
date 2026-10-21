@@ -314,16 +314,19 @@ TEST(SlotTimingTest, DeliveryWindowIsAThirdOfTheSlotCappedAtTwoSeconds) {
 TEST_F(SlotCommitteeTest, LeaderSealsOnlyAfterItsSlotWithinTheWindow) {
     consensus->setClockOverride(14);  // inside slot 2
     EXPECT_FALSE(consensus->isSlotSealTime(2));
+    EXPECT_FALSE(consensus->isInDeliveryWindow(2)) << "the beacon refuses a block before its slot ends";
+    EXPECT_FALSE(consensus->isInDeliveryWindow(3)) << "or a later slot's, skipping slot 2's leader";
+    EXPECT_FALSE(consensus->isInDeliveryWindow(5));
     EXPECT_EQ(consensus->getProductionSlot(), 2u) << "collecting for slot 2";
     consensus->setClockOverride(15);  // slot 2 just ended
     EXPECT_TRUE(consensus->isSlotSealTime(2));
     EXPECT_EQ(consensus->getProductionSlot(), 2u) << "sealing slot 2 while slot 3 has begun";
     consensus->setClockOverride(16);
     EXPECT_TRUE(consensus->isSlotSealTime(2));
-    EXPECT_TRUE(consensus->isBeforeDeliveryDeadline(2));
+    EXPECT_TRUE(consensus->isInDeliveryWindow(2));
     consensus->setClockOverride(17);  // past 16.666 s
     EXPECT_FALSE(consensus->isSlotSealTime(2));
-    EXPECT_FALSE(consensus->isBeforeDeliveryDeadline(2)) << "the beacon refuses it now";
+    EXPECT_FALSE(consensus->isInDeliveryWindow(2)) << "the beacon refuses it now";
     EXPECT_EQ(consensus->getProductionSlot(), 3u);
 }
 

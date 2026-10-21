@@ -216,6 +216,10 @@ chain_tx::Roe<BeaconCertificate> AuthorityTrail::acceptOutOfBand(const Ledger::R
   if (!cert) {
     return cert.error();
   }
+  // As a node checks one (Chain::verifyBeaconCertificateRecord): none while a recovery is pending.
+  if (auto frozen = chain_tx::requireAdminSetNotFrozen(authority_, "Beacon certificate"); !frozen) {
+    return frozen.error();
+  }
   if (auto signed_ = verifyAdminSigned(record); !signed_) {
     return chain_tx::TxError(chain_err::E_TX_SIGNATURE,
                              "Beacon certificate not signed by the admin set: " + signed_.error().message);

@@ -103,11 +103,11 @@ public:
 
   // ----------------- accessors -------------------------------------
   bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;
-  /** See SlotCommittee::isSlotSealTime / isBeforeDeliveryDeadline / getProductionSlot. */
+  /** See SlotCommittee::isSlotSealTime / isInDeliveryWindow / getProductionSlot. */
   bool isSlotSealTime(uint64_t slot) const;
   /** True when `accountId` is a registered miner due at `slot` (must produce, empty if need be). */
   bool isMinerDue(uint64_t accountId, uint64_t slot) const;
-  bool isBeforeDeliveryDeadline(uint64_t slot) const;
+  bool isInDeliveryWindow(uint64_t slot) const;
   uint64_t getProductionSlot() const;
   /** True when chain config has been loaded (from T_GENESIS or T_CONFIG). */
   bool isChainConfigReady() const;
@@ -144,10 +144,11 @@ public:
   uint64_t getSlotDuration() const;
   uint64_t getStakeholderStake(uint64_t stakeholderId) const;
   /**
-   * What a pool checks before it holds `record` (load-resilience lr4), cheap against the committed
-   * state: it decodes, its validity window has not ended at `nowSec`, its payer can cover the amount
-   * and the fee, and — when `verifySignatures` — its signer's keys signed it. What depends on the
-   * rest of a block (pending spends, fee rules on metadata, idempotent ids) is the leader's to check.
+   * What a pool checks before it holds `record` (load-resilience lr4): a type that is submitted at
+   * all, its validity window not ended at `nowSec`, — when `verifySignatures` — its signer's keys
+   * signed it, and it applies on the committed state through the leader's own apply path (fee floor,
+   * idempotency, amounts, funds, the type's rules). What depends on the rest of a block (pending
+   * spends, ids pending in it) is the leader's to check.
    */
   Roe<void> checkAdmission(const Ledger::Record &record, int64_t nowSec, bool verifySignatures) const;
   /** (payer, idempotent id) of a record that has one (RecordHandler::getIdempotencyKey). */
@@ -541,6 +542,8 @@ private:
   /** After an import block applied: once every account is in, the old leaves must hash to the
    *  predecessor's state root; then the span ends. */
   Roe<void> finishImportBlock();
+  /** Full admission: the block carries its slot leader account's signatures over its hash. */
+  Roe<void> checkProducerSigned(const Ledger::ChainNode &block) const;
   Roe<void> processNormalBlock(const Ledger::ChainNode &block,
                                chain_block::BlockAdmissionMode mode);
   /**
@@ -560,10 +563,16 @@ private:
                         uint64_t blockId, uint64_t blockSlot,
                         uint64_t slotLeaderId,
                         chain_block::BlockAdmissionMode admissionMode);
+  /**
+   * The record's signatures against its signer's keys. `working`: the state the record applies to
+   * when it is not the committed bank (a leader's draft, where earlier records may have changed
+   * keys); accounts it does not hold are read from the committed bank.
+   */
   Roe<void>
   validateTxSignatures(const Ledger::Record &record,
                        uint64_t slotLeaderId,
-                       chain_block::BlockAdmissionMode admissionMode) const;
+                       chain_block::BlockAdmissionMode admissionMode,
+                       const AccountBuffer *working = nullptr) const;
 
   TxContext txContext_{};
 

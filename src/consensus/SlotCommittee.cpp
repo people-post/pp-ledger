@@ -44,8 +44,12 @@ bool SlotCommittee::isSlotSealTime(uint64_t slot) const {
   return now >= slotEnd && now < slotEnd + deliveryWindowMs();
 }
 
-bool SlotCommittee::isBeforeDeliveryDeadline(uint64_t slot) const {
-  return getTimestampMs() < getSlotEndTime(slot) * 1000 + deliveryWindowMs();
+bool SlotCommittee::isInDeliveryWindow(uint64_t slot) const {
+  const int64_t now = getTimestampMs();
+  const int64_t slotEnd = getSlotEndTime(slot) * 1000;
+  // Half a window early at most: the window is at most a third of a slot, so every earlier leader
+  // still has its whole window.
+  return now >= slotEnd - deliveryWindowMs() / 2 && now < slotEnd + deliveryWindowMs();
 }
 
 uint64_t SlotCommittee::getProductionSlot() const {

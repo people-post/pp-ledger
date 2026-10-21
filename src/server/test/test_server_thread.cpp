@@ -160,6 +160,8 @@ public:
   using Server::setRequestLimits;
   using Server::stopAmpServer;
   using Server::requestRestart;
+  using Server::noteMinerPeer;
+  using Server::isTrustedPeer;
   using Server::runStartupSync;
 
   std::atomic<int> active{0};
@@ -284,6 +286,50 @@ TEST(ServerThreadTest, HandlesRequestsFromManyThreadsOneAtATimeOnServerThread) {
   for (const auto& r : replies.items) {
     EXPECT_EQ(r.errorCode, 0);
   }
+}
+
+// A serve turn ends when its budget is spent, even with requests still arriving: the role's run loop
+// (sync, a leader's block) gets its turn between them.
+TEST(ServerThreadTest, AServeTurnEndsWithItsBudgetUnderSteadyArrivals) {
+  // Before the server: it answers what is still queued when it goes.
+  auto served = std::make_shared<std::atomic<int>>(0);
+  EchoServer server;
+  server.handleNow(Client::T_REQ_STATUS, [served](const Client::Request &) {
+    std::this_thread::sleep_for(1ms);
+    ++*served;
+    return Service::Roe<std::string>("slow");
+  });
+  std::atomic<bool> feeding{true};
+  std::thread feeder([&]() {
+    const auto stopAt = std::chrono::steady_clock::now() + 2s; // a turn that never ends still does
+    while (feeding.load() && std::chrono::steady_clock::now() < stopAt) {
+      server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), [](std::string) {});
+      std::this_thread::sleep_for(500us);
+    }
+  });
+  std::this_thread::sleep_for(5ms); // something queued
+  const auto start = std::chrono::steady_clock::now();
+  server.serveRequestsFor(50ms);
+  const auto took = std::chrono::steady_clock::now() - start;
+  feeding = false;
+  feeder.join();
+  EXPECT_LT(took, 500ms) << "the turn ran on while requests kept coming";
+  EXPECT_GT(served->load(), 0);
+}
+
+// A miner's registration trusts the one peer it names; a newer one moves the trust, so one account
+// cannot keep many peers trusted.
+TEST(ServerThreadTest, AMinerHasOneTrustedPeer) {
+  EchoServer server;
+  server.noteMinerPeer(7, "peer-a");
+  EXPECT_TRUE(server.isTrustedPeer("peer-a"));
+  server.noteMinerPeer(7, "peer-b");
+  EXPECT_TRUE(server.isTrustedPeer("peer-b"));
+  EXPECT_FALSE(server.isTrustedPeer("peer-a")) << "the miner moved to peer-b";
+  server.noteMinerPeer(8, "peer-c");
+  EXPECT_TRUE(server.isTrustedPeer("peer-b"));
+  EXPECT_TRUE(server.isTrustedPeer("peer-c")) << "another miner's peer";
+  EXPECT_FALSE(server.isTrustedPeer("peer-d"));
 }
 
 TEST(ServerThreadTest, RepliesBusyWhenQueueIsFull) {

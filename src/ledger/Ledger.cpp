@@ -38,6 +38,17 @@ std::string transactionTypeToHumanString(uint16_t type) {
 
 } // namespace
 
+std::string Ledger::Block::producerSigningMessage(const std::string &networkId, const std::string &blockHash) {
+  return std::string("pp-ledger/block-producer/v1") + utl::binaryPack(networkId) + utl::binaryPack(blockHash);
+}
+
+uint64_t Ledger::Block::boundedBytes() const {
+  const uint64_t all = ltsToString().size();
+  const uint64_t signatures = utl::binaryPack(producerSignatures).size() -
+                              utl::binaryPack(std::vector<std::string>{}).size();
+  return all - signatures;
+}
+
 std::string Ledger::Block::headerToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);

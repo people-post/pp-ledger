@@ -67,6 +67,28 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "System account renewal must be fee-free: " + std::to_string(tx.walletId));
     }
+  } else if (chain_block::admissionTxStrict(admissionMode) && kind == UpsertKind::Renewal) {
+    // The slot leader signs a renewal, not the account: the fee is the chain's renewal fee, never the
+    // leader's choice, and only an account that covers it is renewed (else it is ended, T_END_USER).
+    if (!ctx.optChainConfig.has_value() || !ctx.fnAccountMetaForRecord.has_value()) {
+      return chain_tx::TxError(chain_err::E_INTERNAL, "Chain config required for Full-mode renewal fee validation");
+    }
+    auto due = chain_tx::calculateMinimumFeeForAccountMeta(ctx.ledger, ctx.optChainConfig.value(), bank, tx.walletId,
+                                                           ctx.fnAccountMetaForRecord->fnUser,
+                                                           ctx.fnAccountMetaForRecord->fnGenesis);
+    if (!due) {
+      return due.error();
+    }
+    if (tx.fee != due.value()) {
+      return chain_tx::TxError(chain_err::E_TX_FEE, "Renewal of account " + std::to_string(tx.walletId) +
+                                                        " must carry its renewal fee " + std::to_string(due.value()) +
+                                                        ", not " + std::to_string(tx.fee));
+    }
+    const int64_t held = bank.getBalance(tx.walletId, AccountBuffer::ID_GENESIS);
+    if (held < 0 || static_cast<uint64_t>(held) < tx.fee) {
+      return chain_tx::TxError(chain_err::E_TX_TRANSFER, "Account " + std::to_string(tx.walletId) +
+                                                             " cannot pay its renewal fee (it is ended instead)");
+    }
   } else if (chain_block::admissionTxStrict(admissionMode)) {
     if (auto feeGate = chain_tx::requireMinimumFee(
             ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,

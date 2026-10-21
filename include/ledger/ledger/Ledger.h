@@ -281,7 +281,8 @@ public:
   struct Block {
     // 7: state roots commit to account attachments (account leaf v2, beacon-authority B031).
     // 8: finalAt (projects/finality FN007).
-    static constexpr uint16_t CURRENT_VERSION = 8;
+    // 9: producerSignatures (the slot leader signs its block).
+    static constexpr uint16_t CURRENT_VERSION = 9;
 
     // --- Header (hashed) ---
     uint64_t index{ 0 };
@@ -324,12 +325,26 @@ public:
      * of the accounts (warming up from a checkpoint) takes the epoch's leaders from it.
      */
     std::vector<CommitteeMember> committee;
+    /**
+     * The slot leader account's signatures over producerSigningMessage(networkId, block hash): only
+     * the account elected for the slot produces its block. Not hashed (they sign the hash). Empty in
+     * blocks with no producer (genesis, import blocks).
+     */
+    std::vector<std::string> producerSignatures;
 
     template <typename Archive> void serialize(Archive &ar) {
       ar & index & timestamp & previousHash & slot & slotLeader & epoch &
           txIndex & txRoot & stateRoot & stakeSnapshotHash & epochSeed & finalAt &
-          records & committee;
+          records & committee & producerSignatures;
     }
+
+    /** Domain-separated bytes the slot leader signs: the network and the block's hash. */
+    static std::string producerSigningMessage(const std::string &networkId, const std::string &blockHash);
+    /**
+     * What maxBlockBytes bounds: the block's bytes but its producer's signatures, which come after
+     * the seal (at most one per key of the leader's account, checked with them).
+     */
+    uint64_t boundedBytes() const;
 
     /** Binary LTS of header fields only (used for block hash). */
     std::string headerToString() const;

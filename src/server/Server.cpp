@@ -9,6 +9,7 @@
 #include "ledger/chain/ConfigPolicy.h"
 #include "common/io/Json.h"
 
+#include <algorithm>
 #include <set>
 #include <mutex>
 #include <filesystem>
@@ -348,15 +349,26 @@ bool Server::isTrustedPeer(const std::string& peerId) const {
   return it != minerPeers_.end() && it->second > std::chrono::steady_clock::now();
 }
 
-void Server::noteMinerPeer(const std::string& peerId) {
+void Server::noteMinerPeer(uint64_t minerId, const std::string& peerId) {
   if (peerId.empty()) {
     return;
   }
   const auto now = std::chrono::steady_clock::now();
   std::lock_guard<std::mutex> lock(minerPeersMutex_);
   std::erase_if(minerPeers_, [now](const auto& entry) { return entry.second <= now; });
+  std::erase_if(minerPeerOf_, [this](const auto& entry) { return !minerPeers_.contains(entry.second); });
+  if (auto it = minerPeerOf_.find(minerId); it != minerPeerOf_.end() && it->second != peerId) {
+    const std::string moved = it->second;
+    minerPeerOf_.erase(it);
+    // The miner moved: its old peer stays trusted only for another miner that names it.
+    if (std::none_of(minerPeerOf_.begin(), minerPeerOf_.end(), [&](const auto &entry) { return entry.second == moved; })) {
+      minerPeers_.erase(moved);
+    }
+  }
+  minerPeerOf_[minerId] = peerId;
   minerPeers_[peerId] = now + kMinerPeerTtl;
 }
+
 
 bool Server::isAllowedPeer(const std::string& peerId) const {
   if (!allowedPeers_ || allowedPeers_->contains(peerId)) {
@@ -468,6 +480,11 @@ Service::Roe<void> Server::addUpstream(const std::string& multiaddr) {
   std::lock_guard<std::mutex> lock(upstreamMutex_);
   upstreamPeerIds_.insert(peerId.value());
   return {};
+}
+
+std::string Server::localPeerId() const {
+  auto self = upstreamPeerId(listenMultiaddr());
+  return self ? self.value() : std::string{};
 }
 
 bool Server::isSelf(const std::string& multiaddr) const {
@@ -694,8 +711,13 @@ void Server::serveRequestsFor(std::chrono::milliseconds budget) {
     }
     deadline = std::min(deadline, restartAt_);
   }
+  bool servedOne = false;
   while (!isStopSet()) {
     pollBlockWaits(); // the last item may have moved the tip
+    if (servedOne && RequestQueue::Clock::now() >= deadline) {
+      return; // the budget is spent: the role's duties get their turn even with requests queued
+    }
+    servedOne = true;
     auto item = requests_->popUntil(deadline);
     if (!item) {
       pollBlockWaits(); // holds that ended while idle

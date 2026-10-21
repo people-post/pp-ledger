@@ -56,7 +56,7 @@ They do not learn whether the peer is a relay or the terminal beacon. Relays lik
 their configured upstream as opaque. Only the terminal beacon **realizes** authoritative
 writes; gateways forward or cache per [AMP_TRANSPORT.md](../contracts/AMP_TRANSPORT.md#topology-uniform-upstream).
 
-> **Why this matters:** Miners compete fairly — only the elected miner for a given tick may add a block. Live election is **`SlotCommittee`**: top‑N stakeholders by stake form a committee, then an **equal-weight** deterministic hash lottery picks the slot leader (see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#leader-election-live)). Stake gates committee *entry*, not weight inside the committee. Classic Ouroboros / stake-weighted VRF is a design reference only, not the live path.
+> **Why this matters:** Miners compete fairly — only the elected miner for a given tick may add a block (it signs the block; every node checks the signature). Live election is **`SlotCommittee`**: top‑N stakeholders by stake form a committee, then an **equal-weight** deterministic hash lottery picks the slot leader (see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#leader-election-live)). Stake gates committee *entry*, not weight inside the committee. Classic Ouroboros / stake-weighted VRF is a design reference only, not the live path.
 
 Nodes may be operated by AI agents. The design allows the transport layer to be upgraded later to quantum-resistant communication.
 

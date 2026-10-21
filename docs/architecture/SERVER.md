@@ -189,22 +189,25 @@ node capability is a new request type here plus, when HTTP is wanted, a pp-http 
 | `BLOCK_GET`, `ACCOUNT_GET`, `TX_GET_BY_WALLET`, `TX_GET_BY_INDEX` | serves | serves (fetches up if missing) | serves | Reads; low-priority lane |
 | `CONFIG_GET` | serves | serves | serves | The genesis meta in force at the node's tip — config, any update pending, admin keys, authority (`Chain::genesisMetaInForce`); low-priority lane. Tools build transactions and config updates from it (`pp-client config`) |
 | `ACCOUNT_PROOF` | serves | serves | serves | An account (or its absence) in the tip block's state root, with its Merkle path ([WIRE_SCHEMA.md § Account proofs](../contracts/WIRE_SCHEMA.md#account-proofs)); refused while a block is being sealed; low-priority lane |
-| `PRODUCER_STATS` | serves | serves | serves | Blocks of a range per producer, their fees, misses charged ([WIRE_SCHEMA.md § Producer statistics](../contracts/WIRE_SCHEMA.md#producer-statistics)); at most 10,000 blocks a reply; low-priority lane |
+| `PRODUCER_STATS` | serves | serves | serves | Blocks of a range per producer, their fees, misses charged ([WIRE_SCHEMA.md § Producer statistics](../contracts/WIRE_SCHEMA.md#producer-statistics)); at most 1,000 blocks a reply; low-priority lane |
 | `AUTHORITY_PROOF` | serves | serves | serves | Authority-changing records from genesis up to a block (beacon-authority ba5b); refused by a node that holds the chain from a checkpoint |
 | `BLOCK_WAIT` | serves | serves | — | Held until the tip passes the caller's; blocks propagate down |
 | `BLOCK_ADD` | commits (refused once it stood down, or above the height of equivocation evidence it holds) | forwards up; stores the block when the reply's signed tip covers it | — | Slot leader's block; upward only, idempotent; the reply carries the beacon's signed tip |
 | `TX_ADD` | pools what could apply (a beacon certificate is kept first; refused once it stood down, except a certificate) | checks, then forwards up | forwards up | Into the beacon's pending pool; a beacon certificate is also kept by each node it passes (`CertificateStore`, `data/beacon-cert.dat`) |
 | `TX_PULL` | serves | forwards up | — | Slot leader pulls pending transactions, oldest first, up to a block's records and bytes (`maxTransactionsPerBlock`, `maxBlockBytes`) |
-| `REGISTER` | records | checks the signature (an account it holds), then forwards up | — | Signed by the miner account's keys; renewed every 60 s. The node it was taken through trusts the sender's peer for 10 minutes (§ Request limits) |
+| `REGISTER` | records | checks the signature (an account it holds), then forwards up | — | Signed by the miner account's keys, naming the peer it sends from; only a registered miner on chain (the beacon checks); renewed every 60 s. The node it was taken through trusts that peer — when it sent it — for 10 minutes, one peer per miner (§ Request limits) |
 | `MINER_LIST` | serves | forwards up | — | Registered miner ids (no addresses) |
 | `EQUIVOCATION_ADD` | keeps it and halts | keeps it, forwards up | keeps it, forwards up | Evidence that the beacon key signed two blocks at one height ([BEACON_AUTHORITY.md § Equivocation halt](../contracts/BEACON_AUTHORITY.md#equivocation-halt)); `data/equivocation.dat`; upward only |
 
 **The beacon's pool** (`TxPool`) holds only what could apply (load-resilience lr4). A `TX_ADD` is
-checked first, cheaply and on the committed state (`Chain::checkAdmission`): it decodes, its
-validity window is open, its payer's keys signed it, and the payer can cover the amount and the
-fee; what depends on the rest of a block (pending spends, idempotent ids) is the leader's. Relays
+checked first on the committed state (`Chain::checkAdmission`): it is a type that is submitted at
+all (not a genesis, renewal, account end or import, which the chain writes), its validity window is
+open, its signer's keys signed it, and it applies through the leader's own apply path on a scratch
+state — the fee floor, a non-zero idempotent id not used yet, amounts in range, funds, the type's
+rules. What depends on the rest of a block (pending spends, ids pending in it) is the leader's. Relays
 run the same check before forwarding; miners, which may hold the chain from a checkpoint, pass it
-on. A payer may have at most `maxPerSender` (1,000) records pooled; the pool holds 10,000 records
+on. A payer may have at most `maxPerSender` (1,000) records pooled (the admins' records without an
+id count against the genesis account); the pool holds 10,000 records
 or 16 MiB, each for its validity window or 10 minutes. After each block it commits, the beacon drops
 pooled records whose idempotent id the block used or that no longer apply (the payer spent the
 funds, the window ended), so no leader keeps pulling and refusing them.

@@ -85,7 +85,8 @@ public:
    * § Producer statistics). At most kMaxProducerStatsBlocks a reply: page with nextBlockId.
    */
   static constexpr const uint32_t T_REQ_PRODUCER_STATS = 1006;
-  static constexpr const uint64_t kMaxProducerStatsBlocks = 10000;
+  /** Small enough that one page is a short item on the role thread (blocks are read and decoded). */
+  static constexpr const uint64_t kMaxProducerStatsBlocks = 1000;
 
   static constexpr const uint32_t T_REQ_ACCOUNT_GET = 2001;
   /** The genesis meta in force at the node's tip: config (and any update pending), admin account, authority. */
@@ -250,10 +251,15 @@ public:
     int64_t issuedAt{ 0 };
     /** issuedAt may differ from the receiving node's clock by at most this much. */
     static constexpr std::chrono::minutes kMaxIssuedSkew{ 5 };
+    /**
+     * The AMP peer id the miner sends from (its node's identity). Signed: a node trusts only the
+     * peer a registration names, never whichever peer delivered it. Not in MINER_LIST.
+     */
+    std::string peerId;
     /** Miner account's signatures over signingMessage() (as for its transactions). */
     std::vector<std::string> signatures;
 
-    /** Domain-separated bytes the miner signs: network, id, issuedAt. */
+    /** Domain-separated bytes the miner signs: network, id, issuedAt, peerId. */
     std::string signingMessage(const std::string &networkId) const;
 
     pp::common::Meta ltsToMeta() const;

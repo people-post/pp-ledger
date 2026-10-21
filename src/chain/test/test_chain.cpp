@@ -1206,6 +1206,150 @@ TEST(ChainTest, Renewal_ZeroIdempotentIdAccepted) {
   std::filesystem::remove_all(tempDir, ec);
 }
 
+// A renewal is signed by the slot leader, not the account. The leader re-records a due account for
+// the chain's renewal fee and nothing else: not a higher fee, not one the account cannot cover, not an
+// account that is not due (before the first cutoff, or renewed already).
+TEST(ChainTest, ALeaderRenewsOnlyDueAccountsForTheirRenewalFee) {
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  const std::map<uint64_t, const utl::MlDsaKeyPair *> keys = {{AccountBuffer::ID_GENESIS, &genesisKey},
+                                                             {AccountBuffer::ID_FEE, &feeKey},
+                                                             {AccountBuffer::ID_RESERVE, &reserveKey},
+                                                             {AccountBuffer::ID_RECYCLE, &recycleKey},
+                                                             {kTestMinerId, &reserveKey}};
+  struct Net {
+    Chain chain;
+    std::filesystem::path dir;
+    Ledger::ChainNode tip;
+  };
+  // Genesis and one transfer; accounts last written before block `minBlocks - 1` are then due.
+  auto open = [&](Net &net, uint64_t minBlocks) {
+    Chain::BlockChainConfig config = makeChainConfig(0);
+    config.checkpoint.minBlocks = minBlocks;
+    config.checkpoint.minAgeSeconds = 0;
+    consensus::SlotCommittee::Config consensusConfig;
+    consensusConfig.slotDuration = 5;
+    consensusConfig.slotsPerEpoch = 10;
+    net.chain.initConsensus(consensusConfig);
+    net.dir = pp::test::uniqueTempPath("pp-ledger-chain-test-renewal-fee");
+    std::filesystem::remove_all(net.dir);
+    Ledger::InitConfig ledgerConfig;
+    ledgerConfig.workDir = net.dir.string();
+    ASSERT_TRUE(net.chain.initLedger(ledgerConfig).isOk());
+    net.tip = makeGenesisBlock(net.chain, config, genesisKey, feeKey, reserveKey, recycleKey);
+    ASSERT_TRUE(net.chain.addBlock(net.tip).isOk());
+    Ledger::TxDefault tx;
+    tx.tokenId = AccountBuffer::ID_GENESIS;
+    tx.fromWalletId = AccountBuffer::ID_RESERVE;
+    tx.toWalletId = AccountBuffer::ID_FEE;
+    tx.amount = 10;
+    tx.fee = 1;
+    tx.idempotentId = 1;
+    tx.validationTsMax = 3600;
+    net.chain.refreshStakeholders();
+    net.tip = makeNextBlock(net.chain, net.tip, {makeRecord(Ledger::T_DEFAULT, tx, reserveKey)});
+    ASSERT_TRUE(net.chain.addBlock(net.tip).isOk());
+  };
+  auto signedBy = [&](Chain &chain, uint64_t slot, Ledger::Record r) {
+    EXPECT_TRUE(chain.ensureEpochSeed(chain.getEpochFromSlot(slot)).isOk());
+    const auto &key = *keys.at(chain.getSlotLeader(slot).value());
+    r.signatures = {utl::mlDsaSign(key.privateKey, r.signingMessage(chain.getNetworkId())).value()};
+    return r;
+  };
+  // The block at `slot` holding `records`: sealed, or why not.
+  auto seal = [&](Net &net, uint64_t slot, const std::vector<Ledger::Record> &records) -> Chain::Roe<Ledger::ChainNode> {
+    net.chain.refreshStakeholders(slot);
+    EXPECT_TRUE(net.chain.ensureEpochSeed(net.chain.getEpochFromSlot(slot)).isOk());
+    auto block = net.chain.linkNextBlock(net.tip, slot, net.chain.getSlotLeader(slot).value(),
+                                         net.chain.getSlotEndTime(slot), records);
+    if (auto sealed = net.chain.sealBlock(block); !sealed) {
+      return sealed.error();
+    }
+    return block;
+  };
+
+  Net net;
+  open(net, 2);
+  const uint64_t slot2 = net.tip.block.slot + 1;
+  auto renewals = net.chain.collectRenewals(slot2);
+  ASSERT_TRUE(renewals.isOk()) << renewals.error().message;
+  std::optional<Ledger::Record> user;
+  for (const auto &r : renewals.value()) {
+    if (r.type == Ledger::T_RENEWAL && utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId == kTestMinerId) {
+      user = r;
+    }
+  }
+  ASSERT_TRUE(user.has_value()) << "the genesis miner's account is due";
+  const auto due = utl::binaryUnpack<Ledger::TxRenewal>(user->data).value();
+  ASSERT_GT(due.fee, 0u);
+  const int64_t held = net.chain.getAccount(kTestMinerId).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS);
+
+  // The same renewal charging `fee`, carrying the balance that leaves.
+  auto charging = [&](uint64_t fee) {
+    Ledger::TxRenewal tx = due;
+    Client::UserAccount carried;
+    EXPECT_TRUE(carried.ltsFromString(tx.meta));
+    carried.wallet.mBalances[AccountBuffer::ID_GENESIS] = held - static_cast<int64_t>(fee);
+    tx.fee = fee;
+    tx.meta = carried.ltsToString();
+    Ledger::Record r = *user;
+    r.data = utl::binaryPack(tx);
+    return signedBy(net.chain, slot2, r);
+  };
+  const uint64_t leader = net.chain.getSlotLeader(slot2).value();
+  {
+    AccountBuffer draft;
+    auto added = net.chain.addBufferTransaction(draft, charging(due.fee), leader);
+    EXPECT_TRUE(added.isOk()) << added.error().message;
+  }
+  for (uint64_t fee : {due.fee + 1, static_cast<uint64_t>(held), static_cast<uint64_t>(held) + 5000}) {
+    AccountBuffer draft;
+    EXPECT_FALSE(net.chain.addBufferTransaction(draft, charging(fee), leader).isOk()) << "fee " << fee;
+  }
+
+  // The honest renewal commits (a block of renewals may leave others for later); the account is not
+  // due again in the next block.
+  auto block2 = seal(net, slot2, {signedBy(net.chain, slot2, *user)});
+  ASSERT_TRUE(block2.isOk()) << block2.error().message;
+  ASSERT_TRUE(net.chain.addBlock(block2.value()).isOk());
+  net.tip = block2.value();
+  const uint64_t slot3 = slot2 + 1;
+  auto later = net.chain.collectRenewals(slot3);
+  ASSERT_TRUE(later.isOk()) << later.error().message;
+  for (const auto &r : later.value()) {
+    if (r.type == Ledger::T_RENEWAL) {
+      EXPECT_NE(utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId, kTestMinerId);
+    }
+  }
+  Ledger::TxRenewal again = due;
+  Client::UserAccount carried;
+  ASSERT_TRUE(carried.ltsFromString(again.meta));
+  carried.wallet = net.chain.getAccount(kTestMinerId).value().wallet; // as held now
+  carried.wallet.mBalances[AccountBuffer::ID_GENESIS] -= static_cast<int64_t>(due.fee);
+  again.meta = carried.ltsToString();
+  Ledger::Record renewAgain = *user;
+  renewAgain.data = utl::binaryPack(again);
+  auto early = seal(net, slot3, {signedBy(net.chain, slot3, renewAgain)});
+  ASSERT_FALSE(early.isOk()) << "renewed in the block before";
+  EXPECT_NE(early.error().message.find("too early"), std::string::npos) << early.error().message;
+
+  // Before the first cutoff nothing is due: the same renewal is refused there.
+  Net young;
+  open(young, 3);
+  const uint64_t youngSlot = young.tip.block.slot + 1;
+  auto none = young.chain.collectRenewals(youngSlot);
+  ASSERT_TRUE(none.isOk()) << none.error().message;
+  EXPECT_TRUE(none.value().empty());
+  auto premature = seal(young, youngSlot, {signedBy(young.chain, youngSlot, *user)});
+  ASSERT_FALSE(premature.isOk()) << "no account is due yet";
+  EXPECT_NE(premature.error().message.find("too early"), std::string::npos) << premature.error().message;
+
+  std::filesystem::remove_all(net.dir);
+  std::filesystem::remove_all(young.dir);
+}
+
 // Regression: the recycle account (balance 0) used to get T_END_USER at its
 // first renewal and be deleted, after which every write-off failed. System
 // accounts (AccountIds::isSystemAccount) are never terminated and renew
@@ -1738,6 +1882,7 @@ TEST_F(ChainComposeTest, BadStateRoot_RejectedThenHonestBlockAccepted) {
   Ledger::ChainNode forged = honest;
   forged.block.stateRoot = utl::sha256Raw("forged-state-root");
   forged.hash = peer.calculateHash(forged.block);
+  signAsLeader(forged, peer.getNetworkId()); // the leader's own bad block
 
   const int64_t balanceBefore = reserveBalance(peer);
   const auto stakeBefore = peer.getStakeholders();
@@ -2337,6 +2482,37 @@ TEST_F(ChainComposeTest, Finality_ABlockKeepsTheBoundItWasCommittedUnder) {
 
 // FN007: a block's finalAt is checked as its state root is — another value is refused, whatever its
 // hash says.
+// The elected leader is public; only its account's keys make its block. A block for its slot that
+// it did not sign — whoever sealed it, from public chain data — is refused, and the leader's own
+// block is then still taken.
+TEST_F(ChainComposeTest, OnlyTheSlotLeaderSignsItsBlock) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  const Ledger::ChainNode honest =
+      makeNextBlockAtSlot(producer, harness_.genesis, 1, {makeReserveTransfer(harness_, 10, 1)});
+  ASSERT_EQ(honest.block.producerSignatures.size(), 1u);
+
+  Ledger::ChainNode unsigned_ = honest;
+  unsigned_.block.producerSignatures.clear();
+  auto refused = peer.addBlock(unsigned_);
+  ASSERT_FALSE(refused.isOk()) << "no producer signature";
+  EXPECT_NE(refused.error().message.find("not signed by its slot leader"), std::string::npos)
+      << refused.error().message;
+
+  Ledger::ChainNode byAnother = honest;
+  byAnother.block.producerSignatures = {
+      signMessage(makeKeyPair(), Ledger::Block::producerSigningMessage(peer.getNetworkId(), honest.hash))};
+  EXPECT_FALSE(peer.addBlock(byAnother).isOk()) << "a key that is not the leader's";
+
+  Ledger::ChainNode otherNetwork = honest;
+  otherNetwork.block.producerSignatures = {
+      signMessage(harness_.reserveKey, Ledger::Block::producerSigningMessage("other-net", honest.hash))};
+  EXPECT_FALSE(peer.addBlock(otherNetwork).isOk()) << "the leader's signature for another network";
+
+  auto added = peer.addBlock(honest);
+  EXPECT_TRUE(added.isOk()) << added.error().message;
+}
+
 TEST_F(ChainComposeTest, Finality_ABlockWithAnotherFinalAtIsRefused) {
   auto &producer = harness_.producer;
   auto &peer = harness_.peer;
@@ -2346,6 +2522,7 @@ TEST_F(ChainComposeTest, Finality_ABlockWithAnotherFinalAtIsRefused) {
     Ledger::ChainNode altered = block1;
     altered.block.finalAt += delta;
     altered.hash = chain_block::calculateBlockHash(altered.block);
+    signAsLeader(altered, peer.getNetworkId());
     auto refused = peer.addBlock(altered);
     ASSERT_FALSE(refused.isOk()) << "finalAt " << delta;
     EXPECT_NE(refused.error().message.find("finalAt mismatch"), std::string::npos) << refused.error().message;
@@ -3321,6 +3498,60 @@ TEST_F(ChainComposeTest, MinerStateCannotBeSetByAccountCreationOrUpdate) {
   }
 }
 
+// A leader's draft checks each record against the keys the draft holds, as the seal does: after an
+// update rotates an account's keys, a record signed with the old key is refused in the draft (the
+// seal would refuse it and lose the slot), and one signed with the new key applies.
+TEST_F(ChainComposeTest, ADraftChecksSignaturesAgainstTheKeysItHolds) {
+  auto &producer = harness_.producer;
+  auto leader = producer.getSlotLeader(1);
+  ASSERT_TRUE(leader.isOk());
+  const auto held = producer.getAccount(kTestMinerId).value();
+  const auto nextKey = makeKeyPair();
+
+  // The rotation, then a payment by the rotated account, valid around `at`.
+  auto records = [&](int64_t at, const utl::MlDsaKeyPair &payKey) {
+    Client::UserAccount update;
+    update.wallet = held.wallet;
+    update.wallet.publicKeys = {nextKey.publicKey};
+    update.wallet.minSignatures = 1;
+    update.meta = AccountAttachment::emptySerialized();
+    Ledger::TxUserUpdate uu;
+    uu.walletId = kTestMinerId;
+    uu.fee = 100;
+    uu.meta = update.ltsToString();
+    uu.idempotentId = 3;
+    uu.validationTsMin = at - 60;
+    uu.validationTsMax = at + 60;
+    Ledger::TxDefault pay;
+    pay.tokenId = AccountBuffer::ID_GENESIS;
+    pay.fromWalletId = kTestMinerId;
+    pay.toWalletId = AccountBuffer::ID_RESERVE;
+    pay.amount = 1;
+    pay.fee = 1;
+    pay.idempotentId = 4;
+    pay.validationTsMin = at - 60;
+    pay.validationTsMax = at + 60;
+    return std::vector<Ledger::Record>{
+        makeRecord(Ledger::T_USER_UPDATE, uu, harness_.reserveKey, producer.getNetworkId()),
+        makeRecord(Ledger::T_DEFAULT, pay, payKey, producer.getNetworkId())};
+  };
+
+  // The draft runs on the wall clock.
+  const int64_t now = static_cast<int64_t>(std::time(nullptr));
+  const auto oldKey = records(now, harness_.reserveKey);
+  const auto newKey = records(now, nextKey);
+  AccountBuffer draft;
+  ASSERT_TRUE(producer.addBufferTransaction(draft, oldKey[0], leader.value()).isOk());
+  EXPECT_FALSE(producer.addBufferTransaction(draft, oldKey[1], leader.value()).isOk()) << "the rotated-out key";
+  auto added = producer.addBufferTransaction(draft, newKey[1], leader.value());
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+
+  // The seal (slot 1 of a chain starting at 0) agrees: the new key's payment applies.
+  auto block = makeNextBlockAtSlot(producer, harness_.genesis, 1, records(5, nextKey));
+  ASSERT_TRUE(producer.addBlock(block).isOk());
+  EXPECT_EQ(producer.getAccount(kTestMinerId).value().wallet.publicKeys, std::vector<std::string>{nextKey.publicKey});
+}
+
 // An account update replaces keys and meta; the balances stay the chain's, whatever the update
 // carries — they move while the account's holders sign it (transfers in, renewals, issuing).
 TEST_F(ChainComposeTest, AnAccountUpdateKeepsTheChainsBalances) {
@@ -3382,6 +3613,7 @@ FundedUser addFundedUser(ComposeHarness &h, const Ledger::ChainNode &previous, u
   FundedUser user;
   user.id = id;
   user.key = makeKeyPair();
+  testLeaderKeys()[id] = user.key; // it may lead slots once registered as a miner
   Ledger::TxNewUser nu;
   nu.fromWalletId = AccountBuffer::ID_RESERVE;
   nu.toWalletId = id;
@@ -3736,28 +3968,34 @@ TEST_F(ChainComposeTest, AClientProvesAnAccountFromThePinnedGenesis) {
   ASSERT_TRUE(proof.isOk()) << proof.error().message;
   EXPECT_EQ(proof.value().blockId, height);
   EXPECT_LT(proof.value().siblings.size(), 16u) << "empty subtrees are left out";
-  auto proven = verify::checkAccountProof(tipBlock.block, proof.value());
+  auto proven = verify::checkAccountProof(tipBlock.block, proof.value(), user.id);
   ASSERT_TRUE(proven.isOk()) << proven.error().message;
   ASSERT_TRUE(proven.value().wallet.has_value());
   EXPECT_EQ(proven.value().wallet->mBalances, peer.getAccount(user.id).value().wallet.mBalances);
 
   Client::AccountProof richer = proof.value();
   richer.wallet.mBalances[AccountBuffer::ID_GENESIS] += 1'000'000;
-  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, richer).isOk()) << "a balance the root does not hold";
+  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, richer, user.id).isOk()) << "a balance the root does not hold";
   Client::AccountProof hidden = proof.value();
   hidden.present = false;
-  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, hidden).isOk()) << "the account is there";
-  EXPECT_FALSE(verify::checkAccountProof(genesis.block, proof.value()).isOk()) << "another block";
+  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, hidden, user.id).isOk()) << "the account is there";
+  EXPECT_FALSE(verify::checkAccountProof(genesis.block, proof.value(), user.id).isOk()) << "another block";
   Client::AccountProof longer = proof.value();
   longer.siblings.push_back(std::string(32, '\x03'));
-  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, longer).isOk());
+  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, longer, user.id).isOk());
 
   // An account nobody holds is proven absent.
   auto absent = peer.accountProof(user.id + 1000);
   ASSERT_TRUE(absent.isOk()) << absent.error().message;
-  auto none = verify::checkAccountProof(tipBlock.block, absent.value());
+  auto none = verify::checkAccountProof(tipBlock.block, absent.value(), user.id + 1000);
   ASSERT_TRUE(none.isOk()) << none.error().message;
   EXPECT_FALSE(none.value().wallet.has_value());
+
+  // A genuine proof answers only for the account it is of: not another one, present or absent.
+  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, proof.value(), user.id + 1000).isOk())
+      << "the user's proof for another id";
+  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, absent.value(), user.id).isOk())
+      << "another id's absence for the user";
 }
 
 // projects/account-recovery: an account's recovery set stands above its keys. The keys name the first
@@ -3869,7 +4107,7 @@ TEST_F(MinerLivenessTest, AnAccountsRecoverySetStandsAboveItsKeys) {
   // The owner's wallet sees it, proven.
   auto proof = peer.accountProof(user.id);
   ASSERT_TRUE(proof.isOk()) << proof.error().message;
-  auto proven = verify::checkAccountProof(peer.readBlock(block.block.index).value().block, proof.value());
+  auto proven = verify::checkAccountProof(peer.readBlock(block.block.index).value().block, proof.value(), user.id);
   ASSERT_TRUE(proven.isOk()) << proven.error().message;
   EXPECT_TRUE(proven.value().wallet->recovery.pending);
 
@@ -4029,24 +4267,25 @@ TEST_F(MinerLivenessTest, TheRegistrarGivesIssuedAccountsDomainsProvenBothWays) 
   const Ledger::Block tip = peer.readBlock(block.block.index).value().block;
   auto proof = peer.domainProof("SHOPCO");
   ASSERT_TRUE(proof.isOk()) << proof.error().message;
-  auto proven = verify::checkDomainProof(tip, proof.value());
+  auto proven = verify::checkDomainProof(tip, proof.value(), "SHOPCO");
   ASSERT_TRUE(proven.isOk()) << proven.error().message;
   ASSERT_TRUE(proven.value().accountId.has_value());
   EXPECT_EQ(*proven.value().accountId, plain);
   Client::DomainProof lying = proof.value();
   lying.accountId = acme;
-  EXPECT_FALSE(verify::checkDomainProof(tip, lying).isOk()) << "a node cannot point a domain elsewhere";
+  EXPECT_FALSE(verify::checkDomainProof(tip, lying, "SHOPCO").isOk()) << "a node cannot point a domain elsewhere";
   Client::DomainProof hidden = proof.value();
   hidden.present = false;
-  EXPECT_FALSE(verify::checkDomainProof(tip, hidden).isOk()) << "nor hide it";
+  EXPECT_FALSE(verify::checkDomainProof(tip, hidden, "SHOPCO").isOk()) << "nor hide it";
+  EXPECT_FALSE(verify::checkDomainProof(tip, proof.value(), "ACME").isOk()) << "nor answer for another domain";
   auto absent = peer.domainProof("NOBODY");
   ASSERT_TRUE(absent.isOk());
-  auto none = verify::checkDomainProof(tip, absent.value());
+  auto none = verify::checkDomainProof(tip, absent.value(), "NOBODY");
   ASSERT_TRUE(none.isOk()) << none.error().message;
   EXPECT_FALSE(none.value().accountId.has_value());
   auto accountProof = peer.accountProof(plain);
   ASSERT_TRUE(accountProof.isOk());
-  auto account = verify::checkAccountProof(tip, accountProof.value());
+  auto account = verify::checkAccountProof(tip, accountProof.value(), plain);
   ASSERT_TRUE(account.isOk()) << account.error().message;
   EXPECT_EQ(account.value().wallet->domain, "SHOPCO");
   EXPECT_FALSE(peer.domainProof("shopco").isOk()) << "stored as capitals";

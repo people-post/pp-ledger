@@ -19,7 +19,11 @@ each step only on what the previous one proved:
    authority records itself.
 3. **Signed tips**, by the beacon key in force; a later generation's certificate the node holds
    (STATUS `certificate`, admin-signed) and equivocation evidence (STATUS `equivocation`) are taken
-   first, as a relay takes them, and bound which tips it accepts.
+   first, as a relay takes them, and bound which tips it accepts. As on a node, a held certificate is
+   checked again whenever the authority changes (a recovery announced or applied, the admin set
+   replaced), on restart, and when another certificate of its generation is shown; one the authority
+   in force would no longer take is dropped (journaled), so the current admins' certificate takes its
+   place.
 4. **Every block** from the one it holds to the signed tip, bottom up: each hashes to its hash and
    links to the one below; nothing is kept until the tip verifies over all of them.
 5. **Accounts**, by `ACCOUNT_PROOF` against a block it verified (its state root).
@@ -53,7 +57,10 @@ settled; the `rewind` event's `crossedFinality` says when that rare emergency ha
 A service watches accounts (`PUT /v1/watch/{id}`). For each verified block, the gateway finds the
 watched accounts its records name (the index's rule, `RecordHandler::matchesWalletForIndex`) and
 proves them; it also proves every watched account again every sweep (`--v1-sweep-seconds`). A proof
-shows an account after the block it is of; nodes prove only at their tip, so:
+shows an account after the block it is of. The gateway takes a proof only of the account it asked for
+(`pp::verify::checkAccountProof` binds the id; `checkDomainProof` the domain), and only of a block at or
+above its verified tip when it asks: nodes prove at their tip, and an older proof could miss a change
+made before the account was watched (it is asked again next round). So:
 
 - Named by one block since the last proof: its balances hold **from that block** on.
 - Named by several: they hold from the last; between the first and the last they are **not known**

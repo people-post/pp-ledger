@@ -256,6 +256,15 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
     txSet.records.pop_back();
     createResult = createBlock(slot, txSet.records);
   }
+  // The draft took records the seal refuses (it should not): seal the leader's own records alone
+  // rather than leave the slot empty; the pending ones stay in the beacon's pool.
+  const size_t leaderOwn = slotCache_.leaderRecords.size();
+  if (!createResult && createResult.error().code != E_BLOCK_TOO_LARGE && txSet.records.size() > leaderOwn) {
+    log().error << "Sealing slot " << slot << " with " << txSet.records.size() - leaderOwn
+                << " pending record(s) failed, sealing without them: " << createResult.error().message;
+    txSet.records.resize(leaderOwn);
+    createResult = createBlock(slot, txSet.records);
+  }
   if (!createResult) {
     return Error(7, "Failed to create block: " + createResult.error().message);
   }
@@ -361,6 +370,17 @@ Miner::Roe<Ledger::ChainNode> Miner::createBlock(
       return Error(E_BLOCK_TOO_LARGE, "Failed to seal block: " + sealResult.error().message);
     }
     return Error(12, "Failed to seal block: " + sealResult.error().message);
+  }
+
+  // Only the slot leader's account makes its block: it signs the sealed hash (BLOCK_ADD checks it).
+  const std::string message = Ledger::Block::producerSigningMessage(chain_.getNetworkId(), block.hash);
+  for (const auto &privateKey : config_.privateKeys) {
+    auto signature = utl::mlDsaSign(privateKey, message);
+    if (!signature) {
+      chain_.abandonSeal();
+      return Error(12, "Failed to sign block: " + signature.error().message);
+    }
+    block.block.producerSignatures.push_back(signature.value());
   }
 
   log().debug << "Created block " << block.block.index << " with "

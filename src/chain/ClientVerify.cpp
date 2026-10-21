@@ -80,7 +80,12 @@ chain_tx::Roe<std::vector<std::string>> unpackPath(uint64_t mask, const std::vec
 
 } // namespace
 
-chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block &block, const Client::AccountProof &proof) {
+chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block &block, const Client::AccountProof &proof,
+                                               uint64_t accountId) {
+  if (proof.accountId != accountId) {
+    return refused("The proof is of account " + std::to_string(proof.accountId) + ", not " +
+                   std::to_string(accountId));
+  }
   if (proof.blockId != block.index || proof.stateRoot != block.stateRoot) {
     return refused("The proof is of another block");
   }
@@ -114,7 +119,11 @@ chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block &block, const
   return out;
 }
 
-chain_tx::Roe<ProvenDomain> checkDomainProof(const Ledger::Block &block, const Client::DomainProof &proof) {
+chain_tx::Roe<ProvenDomain> checkDomainProof(const Ledger::Block &block, const Client::DomainProof &proof,
+                                             const std::string &domain) {
+  if (proof.domain != domain) {
+    return refused("The proof is of domain " + proof.domain + ", not " + domain);
+  }
   if (proof.blockId != block.index || proof.stateRoot != block.stateRoot) {
     return refused("The proof is of another block");
   }

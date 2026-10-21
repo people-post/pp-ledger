@@ -448,15 +448,23 @@ TEST(BeaconServerInitTest, RegistrationMustBeSignedByTheMiner) {
   const std::string net = beacon.getNetworkId();
 
   Client::MinerInfo miner;
-  miner.id = AccountBuffer::ID_FEE; // any account with keys works for the signature check
+  miner.id = AccountBuffer::ID_FEE; // keys, but not a miner: signed right, still refused
+  miner.peerId = "12D3KooWMinerPeer";
   auto genuine = signedBy(miner, setup.fee, net);
-  EXPECT_TRUE(beacon.verifyMinerRegistration(genuine, net).isOk());
-  EXPECT_FALSE(beacon.verifyMinerRegistration(genuine, net + "-other").isOk());               // other network
-  EXPECT_FALSE(beacon.verifyMinerRegistration(signedBy(miner, setup.reserve, net), net).isOk()); // not its keys
+  auto refusal = [&](const Client::MinerInfo &info, const std::string &network) {
+    auto verified = beacon.verifyMinerRegistration(info, network);
+    return verified ? std::string() : verified.error().message;
+  };
+  EXPECT_NE(refusal(genuine, net).find("not a registered miner"), std::string::npos) << refusal(genuine, net);
+  EXPECT_NE(refusal(genuine, net + "-other").find("not signed"), std::string::npos); // other network
+  EXPECT_NE(refusal(signedBy(miner, setup.reserve, net), net).find("not signed"), std::string::npos); // not its keys
 
   auto replayedLater = genuine;
   replayedLater.issuedAt += 60; // altered after signing (to dodge the replay check)
-  EXPECT_FALSE(beacon.verifyMinerRegistration(replayedLater, net).isOk());
+  EXPECT_NE(refusal(replayedLater, net).find("not signed"), std::string::npos);
+  auto otherPeer = genuine;
+  otherPeer.peerId = "12D3KooWAnotherPeer"; // the peer is signed too
+  EXPECT_NE(refusal(otherPeer, net).find("not signed"), std::string::npos);
 }
 
 // beacon-authority ba3: once mounted with its signing key, the beacon signs its committed tip (the

@@ -102,8 +102,8 @@ bool Client::Equivocation::ltsFromString(const std::string &str) {
 }
 
 std::string Client::MinerInfo::signingMessage(const std::string &networkId) const {
-  return std::string("pp-ledger/miner-register/v2") + utl::binaryPack(networkId) + utl::binaryPack(id) +
-         utl::binaryPack(issuedAt);
+  return std::string("pp-ledger/miner-register/v3") + utl::binaryPack(networkId) + utl::binaryPack(id) +
+         utl::binaryPack(issuedAt) + utl::binaryPack(peerId);
 }
 
 pp::common::Meta Client::MinerInfo::ltsToMeta() const {
@@ -111,6 +111,9 @@ pp::common::Meta Client::MinerInfo::ltsToMeta() const {
   m.setUIntForJson("id", id);
   m.set("tLastMessage", tLastMessage);
   m.set("issuedAt", issuedAt);
+  if (!peerId.empty()) {
+    m.set("peerId", peerId);
+  }
   m.set("signatures", utl::binaryPack(signatures));
   return m;
 }
@@ -119,6 +122,7 @@ Client::Roe<bool> Client::MinerInfo::ltsFromMeta(const pp::common::Meta &meta) {
   id = meta.getNonNegInt("id").value_or(0);
   tLastMessage = meta.getOrDefault("tLastMessage", int64_t{0});
   issuedAt = meta.getOrDefault("issuedAt", int64_t{0});
+  peerId = meta.getOrDefault("peerId", std::string{});
   signatures.clear();
   if (auto packed = meta.getOrDefault("signatures", std::string{}); !packed.empty()) {
     auto unpacked = utl::binaryUnpack<std::vector<std::string>>(packed);

@@ -408,6 +408,36 @@ TEST_F(MinerPoolTest, AdmissionRefusesWhatCouldNeverApply) {
   garbage.data = "not a transaction";
   EXPECT_FALSE(miner_->checkAdmission(garbage, from, false));
 
+  // What every leader's apply refuses is refused here too, signed or not.
+  auto variant = [&](const std::function<void(Ledger::TxDefault &)> &edit) {
+    auto tx = utl::binaryUnpack<Ledger::TxDefault>(valid.data).value();
+    edit(tx);
+    Ledger::Record out = valid;
+    out.data = utl::binaryPack(tx);
+    return out;
+  };
+  EXPECT_FALSE(miner_->checkAdmission(variant([](Ledger::TxDefault &tx) { tx.fee = 0; }), from, false))
+      << "below the fee floor";
+  EXPECT_FALSE(miner_->checkAdmission(variant([](Ledger::TxDefault &tx) {
+                                        tx.amount = std::numeric_limits<uint64_t>::max();
+                                        tx.fee = 1;
+                                      }),
+                                      from, false))
+      << "an amount past int64 (amount + fee wraps)";
+  EXPECT_FALSE(miner_->checkAdmission(variant([](Ledger::TxDefault &tx) { tx.idempotentId = 0; }), from, false))
+      << "no idempotent id";
+
+  // Records the chain writes itself are never submitted.
+  Ledger::TxImport imported;
+  imported.walletId = AccountIds::ID_FIRST_USER + 100;
+  Ledger::Record import;
+  import.type = Ledger::T_IMPORT;
+  import.data = utl::binaryPack(imported);
+  EXPECT_FALSE(miner_->checkAdmission(import, from, true)) << "an import (unsigned)";
+  Ledger::Record renewal = valid;
+  renewal.type = Ledger::T_RENEWAL;
+  EXPECT_FALSE(miner_->checkAdmission(renewal, from, false)) << "a renewal";
+
   // An issued account (the genesis miner) issues its own token from nothing — the fee it pays in
   // the native token; another issuer's token it must hold.
   auto issue = utl::binaryUnpack<Ledger::TxDefault>(valid.data).value();
@@ -420,6 +450,31 @@ TEST_F(MinerPoolTest, AdmissionRefusesWhatCouldNeverApply) {
   issue.tokenId = kMinerId + 1;
   issuing.data = utl::binaryPack(issue);
   EXPECT_FALSE(miner_->checkAdmission(issuing, from, false)) << "another issuer's token, not held";
+}
+
+// A registration earns a peer the trusted lane only for a miner the chain registered.
+TEST_F(MinerPoolTest, OnlyARegisteredMinersRegistrationIsTaken) {
+  Beacon beacon;
+  Beacon::MountConfig mount;
+  mount.workDir = (root_ / "beacon" / "data").string();
+  ASSERT_TRUE(beacon.mount(mount).isOk());
+  const std::string net = beacon.getNetworkId();
+  auto signedBy = [&](uint64_t id, const std::vector<utl::MlDsaKeyPair> &keys) {
+    Client::MinerInfo info;
+    info.id = id;
+    info.issuedAt = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+    info.peerId = "12D3KooWMinerPeer";
+    for (const auto &key : keys) {
+      info.signatures.push_back(utl::mlDsaSign(key.privateKey, info.signingMessage(net)).value());
+    }
+    return info;
+  };
+  auto miner = beacon.verifyMinerRegistration(signedBy(kMinerId, {minerKey_}), net);
+  EXPECT_TRUE(miner.isOk()) << miner.error().message;
+  auto reserve = beacon.verifyMinerRegistration(signedBy(AccountBuffer::ID_RESERVE, reserveKeys_), net);
+  ASSERT_FALSE(reserve.isOk()) << "an account with keys, not a miner";
+  EXPECT_NE(reserve.error().message.find("not a registered miner"), std::string::npos) << reserve.error().message;
 }
 
 TEST_F(MinerPoolTest, StalePendingTransactionDoesNotStallTheLeader) {

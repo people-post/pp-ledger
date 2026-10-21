@@ -23,8 +23,9 @@ Genesis `previousHash` is `utl::zeroHash()` (32 zero bytes).
 
 ## Block
 
-`Ledger::Block::CURRENT_VERSION` is the on-disk/header version prefix: **8** (7: state roots commit
-to account attachments, account leaf v2; 8: `finalAt`). A block of another version is not read.
+`Ledger::Block::CURRENT_VERSION` is the on-disk/header version prefix: **9** (7: state roots commit
+to account attachments, account leaf v2; 8: `finalAt`; 9: `producerSignatures`). A block of another
+version is not read.
 
 ### Header (hashed)
 
@@ -47,7 +48,7 @@ Block hash = `SHA-256(headerToString())` where `headerToString` packs:
 | `finalAt` | `int64` | Unix seconds from which this block and every block below it are final ([Config updates](#config-updates)) |
 
 Full block LTS for disk also appends the body after the header fields (`Block::ltsToString`,
-version **8**; other versions are refused). Hash does **not** include the body bytes directly.
+version **9**; other versions are refused). Hash does **not** include the body bytes directly.
 
 ### Body
 
@@ -56,6 +57,18 @@ version **8**; other versions are refused). Hash does **not** include the body b
   leaders from, sorted by id — the preimage of `stakeSnapshotHash`; empty in every other block.
   Checked in every admission mode (`chain_block::validateBlockCommittee`): a node warming up from a
   checkpoint, which holds only some accounts, takes each epoch's leaders from it.
+- `producerSignatures`: the slot leader account's signatures (its keys and `minSignatures`, as held
+  before the block) over
+
+  ```
+  "pp-ledger/block-producer/v1" || pack(networkId) || pack(block hash)
+  ```
+
+  Only the account elected for a slot produces its block: the leader is public, so a block anyone
+  sealed from public chain data in its name is refused. Checked in Full admission, on every node
+  (`Chain::checkProducerSigned`); the miner signs right after the seal. Empty only in blocks with no
+  producer (genesis, import blocks). Not hashed, and not counted in `maxBlockBytes` (at most one
+  signature per key of the leader's account).
 
 ### Commitments
 
@@ -231,8 +244,12 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   after `slotStart(x.slot) - checkpoint.minAgeSeconds` (`calculateMaxBlockIdForRenewal`; the
   block's slot time, never a node's clock). The slot leader signs renewals, so a renewal re-records
   the account **as it is**: its keys, threshold, key type and meta must equal the committed ones
-  (the meta recorded at the account's last write); only the renewal fee leaves its balance.
-  Changing them takes the account's own `T_USER_UPDATE`, signed by the keys in force: it replaces the
+  (the meta recorded at the account's last write); only the renewal fee leaves its balance. That fee
+  is **exactly** the account's renewal fee (`calculateMinimumFeeForAccountMeta` on its committed
+  meta), never the leader's choice, and the renewal is valid only when the account's native balance
+  covers it. Only a **due** account is renewed or ended: none before the first cut-off
+  (`maxBlockIdForRenewal` 0), and an account written at or after the cut-off is not due (the
+  checkpoint's genesis renewal excepted). Changing them takes the account's own `T_USER_UPDATE`, signed by the keys in force: it replaces the
   keys, threshold and meta (and names the account's first recovery set: [Account
   recovery](#account-recovery); refused while a recovery is announced), and pays its fee from the account's native balance **as the chain has
   it** — balances in its meta are ignored, so renewals or transfers landing between its making and
@@ -346,9 +363,13 @@ the beacon within the **delivery window** after the slot's end.
 - **Timestamp** (structural, every node, replay included): a block for slot *s* carries its seal
   time, `slotEnd(s) ≤ timestamp` and `timestamp·1000 < slotEnd(s)·1000 + D` (whole seconds,
   rounded down). A timestamp inside the slot is refused.
-- **Delivery deadline** (beacon only, live admission): `BLOCK_ADD` for slot *s* is refused once the
-  beacon's clock passes `slotEnd(s) + D` ("arrived after its delivery deadline"); the slot is then
-  empty. Never checked on replay, late join or by relays: every node follows the beacon's chain.
+- **Delivery window** (beacon only, live admission): `BLOCK_ADD` for slot *s* is taken only in
+  `[slotEnd(s) − D/2, slotEnd(s) + D)` on the beacon's clock ("arrived outside its delivery
+  window"; `SlotCommittee::isInDeliveryWindow`). After it, the slot is empty. Before it — a block
+  for a slot not ended, which would skip the leaders of the slots before it while they run — it is
+  refused; the `D/2` allows a leader's clock a little ahead, and leaves every earlier leader its
+  whole window (`D ≤ slot / 3`). Never checked on replay, late join or by relays: every node
+  follows the beacon's chain.
   An already-held block is still answered as such (idempotent resend).
 - **Leader** (`MinerServer::handleSlotLeaderRole`): pulls the beacon's pool one pull wait
   (`min(1 s, slot / 3)`) before its slot ends, then seals in `[slotEnd, slotEnd + D)`. Its pending
@@ -527,7 +548,7 @@ block; an absent domain is proven absent. `pp-client domain NAME`, `verified-dom
 (block 0 excluded) per account: blocks produced (`slotLeader`), the fees of their transactions,
 and the **misses charged** — the slots it led while due and skipped (§ Miner registration and
 liveness, step 1). Not every empty slot: an idle chain seals about one heartbeat block an epoch, so
-a skipped slot is a miss only for a due leader. A reply covers at most 10,000 blocks
+a skipped slot is a miss only for a due leader. A reply covers at most 1,000 blocks
 (`kMaxProducerStatsBlocks`) and stops at the node's tip; `nextBlockId` says where to ask again.
 
 Misses charged are not on the chain: each node records them as it applies blocks (`Chain`, by block,
@@ -564,19 +585,21 @@ Network-level: a miner announces itself to its upstream. It does not make the ac
 on chain ([Miner registration and liveness](#miner-registration-and-liveness)).
 
 `MinerInfo` (Meta, binary-packed in the request): `id`, `issuedAt` (signer's Unix seconds),
-`signatures` (`binaryPack(vector<string>)`), and `tLastMessage` (set by the
-beacon when recorded).
+`peerId` (the AMP peer id the miner sends from), `signatures` (`binaryPack(vector<string>)`), and
+`tLastMessage` (set by the beacon when recorded). `MINER_LIST` leaves `peerId` out.
 
 Each signature is the miner account key's ML-DSA signature over:
 
 ```
-"pp-ledger/miner-register/v2" || pack(networkId) || pack(id) || pack(issuedAt)
+"pp-ledger/miner-register/v3" || pack(networkId) || pack(id) || pack(issuedAt) || pack(peerId)
 ```
 
 `networkId` is the one the upstream advertises in `STATUS`. Accepted only if the
 signatures satisfy the account's `publicKeys` / `minSignatures` (not a system
-account), `|now − issuedAt| ≤ 5 min`, and
-`issuedAt` is newer than the recorded registration.
+account), the account is a **registered miner on chain** (`T_MINER_REGISTER`; the beacon checks),
+`|now − issuedAt| ≤ 5 min`, and `issuedAt` is newer than the recorded registration. The node a
+registration reached directly trusts **the peer it names** (`peerId`), and only when that peer sent
+it — never whichever peer delivered it; one peer per miner, a newer registration's replacing it.
 
 ## ChainNode / storage envelope
 
