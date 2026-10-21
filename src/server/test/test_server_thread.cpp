@@ -286,6 +286,35 @@ TEST(ServerThreadTest, HandlesRequestsFromManyThreadsOneAtATimeOnServerThread) {
   }
 }
 
+// A serve turn ends when its budget is spent, even with requests still arriving: the role's run loop
+// (sync, a leader's block) gets its turn between them.
+TEST(ServerThreadTest, AServeTurnEndsWithItsBudgetUnderSteadyArrivals) {
+  // Before the server: it answers what is still queued when it goes.
+  auto served = std::make_shared<std::atomic<int>>(0);
+  EchoServer server;
+  server.handleNow(Client::T_REQ_STATUS, [served](const Client::Request &) {
+    std::this_thread::sleep_for(1ms);
+    ++*served;
+    return Service::Roe<std::string>("slow");
+  });
+  std::atomic<bool> feeding{true};
+  std::thread feeder([&]() {
+    const auto stopAt = std::chrono::steady_clock::now() + 2s; // a turn that never ends still does
+    while (feeding.load() && std::chrono::steady_clock::now() < stopAt) {
+      server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), [](std::string) {});
+      std::this_thread::sleep_for(500us);
+    }
+  });
+  std::this_thread::sleep_for(5ms); // something queued
+  const auto start = std::chrono::steady_clock::now();
+  server.serveRequestsFor(50ms);
+  const auto took = std::chrono::steady_clock::now() - start;
+  feeding = false;
+  feeder.join();
+  EXPECT_LT(took, 500ms) << "the turn ran on while requests kept coming";
+  EXPECT_GT(served->load(), 0);
+}
+
 TEST(ServerThreadTest, RepliesBusyWhenQueueIsFull) {
   EchoServer server;
   server.setRequestLimits(2, 8000ms);

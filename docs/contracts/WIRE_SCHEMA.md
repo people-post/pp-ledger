@@ -531,7 +531,7 @@ block; an absent domain is proven absent. `pp-client domain NAME`, `verified-dom
 (block 0 excluded) per account: blocks produced (`slotLeader`), the fees of their transactions,
 and the **misses charged** — the slots it led while due and skipped (§ Miner registration and
 liveness, step 1). Not every empty slot: an idle chain seals about one heartbeat block an epoch, so
-a skipped slot is a miss only for a due leader. A reply covers at most 10,000 blocks
+a skipped slot is a miss only for a due leader. A reply covers at most 1,000 blocks
 (`kMaxProducerStatsBlocks`) and stops at the node's tip; `nextBlockId` says where to ask again.
 
 Misses charged are not on the chain: each node records them as it applies blocks (`Chain`, by block,

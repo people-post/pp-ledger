@@ -85,7 +85,8 @@ public:
    * § Producer statistics). At most kMaxProducerStatsBlocks a reply: page with nextBlockId.
    */
   static constexpr const uint32_t T_REQ_PRODUCER_STATS = 1006;
-  static constexpr const uint64_t kMaxProducerStatsBlocks = 10000;
+  /** Small enough that one page is a short item on the role thread (blocks are read and decoded). */
+  static constexpr const uint64_t kMaxProducerStatsBlocks = 1000;
 
   static constexpr const uint32_t T_REQ_ACCOUNT_GET = 2001;
   /** The genesis meta in force at the node's tip: config (and any update pending), admin account, authority. */

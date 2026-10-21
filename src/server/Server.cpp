@@ -694,8 +694,13 @@ void Server::serveRequestsFor(std::chrono::milliseconds budget) {
     }
     deadline = std::min(deadline, restartAt_);
   }
+  bool servedOne = false;
   while (!isStopSet()) {
     pollBlockWaits(); // the last item may have moved the tip
+    if (servedOne && RequestQueue::Clock::now() >= deadline) {
+      return; // the budget is spent: the role's duties get their turn even with requests queued
+    }
+    servedOne = true;
     auto item = requests_->popUntil(deadline);
     if (!item) {
       pollBlockWaits(); // holds that ended while idle

@@ -23,7 +23,9 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
 - **Inbound:** the pump thread receives a request and pushes it onto the role's
   `RequestQueue` (`AmpLedgerServer::BindAsync`). The server thread handles queued
   requests in `Server::serveRequestsFor()`, which role run loops call in place of
-  sleeping between duties. The reply is posted back to the pump thread.
+  sleeping between duties. A turn ends when its budget is spent, even with requests
+  still queued (after at least one), so the duties run at least once per budget plus
+  one item's time. The reply is posted back to the pump thread.
 - **Back-pressure:** the queue is bounded; when full, a request gets an immediate
   "busy" reply. It has two lanes (`Server::laneFor`): reads (`BLOCK_GET`, `BLOCK_WAIT`,
   account and history queries) wait in a Low lane with a quarter of the capacity
