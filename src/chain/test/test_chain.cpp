@@ -1219,6 +1219,16 @@ TEST(ChainTest, ALeaderRenewsOnlyDueAccountsForTheirRenewalFee) {
                                                              {AccountBuffer::ID_RESERVE, &reserveKey},
                                                              {AccountBuffer::ID_RECYCLE, &recycleKey},
                                                              {kTestMinerId, &reserveKey}};
+  // Removed after the chains close (declared before them): Windows keeps open files.
+  struct Dirs {
+    std::vector<std::filesystem::path> paths;
+    ~Dirs() {
+      for (const auto &p : paths) {
+        std::error_code ec;
+        std::filesystem::remove_all(p, ec);
+      }
+    }
+  } dirs;
   struct Net {
     Chain chain;
     std::filesystem::path dir;
@@ -1233,8 +1243,9 @@ TEST(ChainTest, ALeaderRenewsOnlyDueAccountsForTheirRenewalFee) {
     consensusConfig.slotDuration = 5;
     consensusConfig.slotsPerEpoch = 10;
     net.chain.initConsensus(consensusConfig);
-    net.dir = pp::test::uniqueTempPath("pp-ledger-chain-test-renewal-fee");
-    std::filesystem::remove_all(net.dir);
+    net.dir = pp::test::uniqueTempPath("pp-ledger-chain-test-renewal-fee-" + std::to_string(minBlocks));
+    std::filesystem::remove_all(net.dir); // a run before this one's
+    dirs.paths.push_back(net.dir);
     Ledger::InitConfig ledgerConfig;
     ledgerConfig.workDir = net.dir.string();
     ASSERT_TRUE(net.chain.initLedger(ledgerConfig).isOk());
@@ -1345,9 +1356,6 @@ TEST(ChainTest, ALeaderRenewsOnlyDueAccountsForTheirRenewalFee) {
   auto premature = seal(young, youngSlot, {signedBy(young.chain, youngSlot, *user)});
   ASSERT_FALSE(premature.isOk()) << "no account is due yet";
   EXPECT_NE(premature.error().message.find("too early"), std::string::npos) << premature.error().message;
-
-  std::filesystem::remove_all(net.dir);
-  std::filesystem::remove_all(young.dir);
 }
 
 // Regression: the recycle account (balance 0) used to get T_END_USER at its
