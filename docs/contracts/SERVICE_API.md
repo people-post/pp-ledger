@@ -13,6 +13,13 @@ is a stateless translation of the relay's answers to JSON; it keeps nothing and 
 own. Its routes answer what the relay holds, so they are as trustworthy as the relay the service runs
 — never point it at someone else's node.
 
+**Pin the genesis, twice.** A relay pins block 0 only when configured to (`networkAnchor.genesisHash`
+in its config, or `PP_LEDGER_GENESIS_HASH`); without it, it takes block 0 from whichever beacon it is
+pointed at — a hijacked or mistyped address would make it follow another chain. Start the service's
+relay with the network's genesis hash (from the network's announcement), and have the service check it
+too: `GET /api/chain/blocks?from=0&limit=1` must answer the same `hash`, or the service follows nothing.
+The relay must hold block 0 (follow the network from genesis, not from a checkpoint).
+
 pp-http binds `127.0.0.1` by default; keep it on localhost, in the service's pod.
 
 ## Following the chain

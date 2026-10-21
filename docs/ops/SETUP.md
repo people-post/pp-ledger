@@ -206,9 +206,10 @@ curl -X POST http://localhost:8080/api/tx/build -H 'Content-Type: application/js
 
 ### A service beside the chain (`/api/chain/`)
 
-For a service that credits what the chain says (the bank, the exchange): run **your own relay**, and
-pp-http beside the service on localhost pointed at it ([SERVICE_API.md](../contracts/SERVICE_API.md)).
-The relay verifies the chain; pp-http only translates its answers.
+For a service that credits what the chain says (the bank, the exchange): run **your own relay**, with
+the network's genesis hash pinned (`PP_LEDGER_GENESIS_HASH`), and pp-http beside the service on
+localhost pointed at it ([SERVICE_API.md](../contracts/SERVICE_API.md)). The relay verifies the chain;
+pp-http only translates its answers. The service checks block 0's hash too.
 
 ```bash
 ./app/pp-http --port 8090 \
