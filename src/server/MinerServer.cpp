@@ -558,6 +558,7 @@ MinerServer::Roe<Client::MinerInfo> MinerServer::signedRegistration(const std::s
   minerInfo.issuedAt = std::chrono::duration_cast<std::chrono::seconds>(
                            std::chrono::system_clock::now().time_since_epoch())
                            .count();
+  minerInfo.peerId = localPeerId(); // the peer it sends from: the only one a node trusts for it
   const std::string message = minerInfo.signingMessage(networkId);
   for (const auto &privateKey : config_.privateKeys) {
     auto signature = utl::mlDsaSign(privateKey, message);

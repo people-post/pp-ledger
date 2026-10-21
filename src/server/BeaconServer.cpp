@@ -1451,7 +1451,11 @@ BeaconServer::hRegister(const Client::Request &request) {
     return Error(E_REQUEST, verified.error().message);
   }
   registerServer(minerInfo);
-  noteMinerPeer(request.from); // its sync and blocks now go first (LR009)
+  // Its sync and blocks now go first (LR009) — from the peer it signed, when that peer sent it (through
+  // a relay, the relay trusts it).
+  if (minerInfo.peerId == request.from) {
+    noteMinerPeer(minerInfo.id, request.from);
+  }
   return utl::binaryPack(buildStateResponse().ltsToMeta());
 }
 
@@ -1466,7 +1470,9 @@ BeaconServer::hMinerList(const Client::Request & /*request*/) {
   std::vector<pp::common::Meta> list;
   list.reserve(miners_.miners().size());
   for (const auto &[id, info] : miners_.miners()) {
-    list.push_back(info.ltsToMeta());
+    Client::MinerInfo listed = info;
+    listed.peerId.clear(); // ids only, no addresses or peers
+    list.push_back(listed.ltsToMeta());
   }
   return utl::binaryPack(list);
 }

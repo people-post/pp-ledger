@@ -452,6 +452,31 @@ TEST_F(MinerPoolTest, AdmissionRefusesWhatCouldNeverApply) {
   EXPECT_FALSE(miner_->checkAdmission(issuing, from, false)) << "another issuer's token, not held";
 }
 
+// A registration earns a peer the trusted lane only for a miner the chain registered.
+TEST_F(MinerPoolTest, OnlyARegisteredMinersRegistrationIsTaken) {
+  Beacon beacon;
+  Beacon::MountConfig mount;
+  mount.workDir = (root_ / "beacon" / "data").string();
+  ASSERT_TRUE(beacon.mount(mount).isOk());
+  const std::string net = beacon.getNetworkId();
+  auto signedBy = [&](uint64_t id, const std::vector<utl::MlDsaKeyPair> &keys) {
+    Client::MinerInfo info;
+    info.id = id;
+    info.issuedAt = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+    info.peerId = "12D3KooWMinerPeer";
+    for (const auto &key : keys) {
+      info.signatures.push_back(utl::mlDsaSign(key.privateKey, info.signingMessage(net)).value());
+    }
+    return info;
+  };
+  auto miner = beacon.verifyMinerRegistration(signedBy(kMinerId, {minerKey_}), net);
+  EXPECT_TRUE(miner.isOk()) << miner.error().message;
+  auto reserve = beacon.verifyMinerRegistration(signedBy(AccountBuffer::ID_RESERVE, reserveKeys_), net);
+  ASSERT_FALSE(reserve.isOk()) << "an account with keys, not a miner";
+  EXPECT_NE(reserve.error().message.find("not a registered miner"), std::string::npos) << reserve.error().message;
+}
+
 TEST_F(MinerPoolTest, StalePendingTransactionDoesNotStallTheLeader) {
   auto slot = waitForLeaderSlotAfter(-1);
   ASSERT_TRUE(slot.has_value());

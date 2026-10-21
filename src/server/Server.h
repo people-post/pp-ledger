@@ -249,8 +249,14 @@ protected:
    * a miner's sync or block. Any thread.
    */
   bool isTrustedPeer(const std::string& peerId) const;
-  /** Server thread: `peerId` registered a miner the beacon accepted; trusted until it lapses. */
-  void noteMinerPeer(const std::string& peerId);
+  /**
+   * Server thread: miner `minerId`'s registration, accepted by the beacon, names `peerId` (signed)
+   * and came from it; that peer is trusted until it lapses. One peer per miner: a newer
+   * registration's peer replaces the one before.
+   */
+  void noteMinerPeer(uint64_t minerId, const std::string& peerId);
+  /** This node's AMP peer id (from its listen address; "" before it listens). */
+  std::string localPeerId() const;
   /** A registered miner's peer stays trusted this long without registering again (miners renew sooner). */
   static constexpr std::chrono::minutes kMinerPeerTtl{10};
 
@@ -370,6 +376,8 @@ private:
   /** Peers that registered a miner through this node, and until when they are trusted. */
   mutable std::mutex minerPeersMutex_;
   std::map<std::string, std::chrono::steady_clock::time_point> minerPeers_;
+  /** The peer each miner's latest registration named (one trusted peer per miner). */
+  std::map<uint64_t, std::string> minerPeerOf_;
   size_t requestCapacity_{tuning_.requestQueueCapacity};
   /** A request older than this was given up on by its client: reply without doing the work. */
   std::chrono::milliseconds maxRequestWait_{tuning_.serverQueueExpiry()};

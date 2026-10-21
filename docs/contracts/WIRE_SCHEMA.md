@@ -572,19 +572,21 @@ Network-level: a miner announces itself to its upstream. It does not make the ac
 on chain ([Miner registration and liveness](#miner-registration-and-liveness)).
 
 `MinerInfo` (Meta, binary-packed in the request): `id`, `issuedAt` (signer's Unix seconds),
-`signatures` (`binaryPack(vector<string>)`), and `tLastMessage` (set by the
-beacon when recorded).
+`peerId` (the AMP peer id the miner sends from), `signatures` (`binaryPack(vector<string>)`), and
+`tLastMessage` (set by the beacon when recorded). `MINER_LIST` leaves `peerId` out.
 
 Each signature is the miner account key's ML-DSA signature over:
 
 ```
-"pp-ledger/miner-register/v2" || pack(networkId) || pack(id) || pack(issuedAt)
+"pp-ledger/miner-register/v3" || pack(networkId) || pack(id) || pack(issuedAt) || pack(peerId)
 ```
 
 `networkId` is the one the upstream advertises in `STATUS`. Accepted only if the
 signatures satisfy the account's `publicKeys` / `minSignatures` (not a system
-account), `|now − issuedAt| ≤ 5 min`, and
-`issuedAt` is newer than the recorded registration.
+account), the account is a **registered miner on chain** (`T_MINER_REGISTER`; the beacon checks),
+`|now − issuedAt| ≤ 5 min`, and `issuedAt` is newer than the recorded registration. The node a
+registration reached directly trusts **the peer it names** (`peerId`), and only when that peer sent
+it — never whichever peer delivered it; one peer per miner, a newer registration's replacing it.
 
 ## ChainNode / storage envelope
 

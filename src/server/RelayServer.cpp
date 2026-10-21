@@ -312,12 +312,16 @@ void RelayServer::dRegister(const Client::Request &request, const RequestQueue::
   }
   client_.registerMinerServerAsync(
       minerInfo, completeOnServerThread<Client::BeaconState>(
-                     [this, reply, from = request.from](Client::Roe<Client::BeaconState> state) {
+                     [this, reply, from = request.from, minerId = minerInfo.id,
+                      peerId = minerInfo.peerId](Client::Roe<Client::BeaconState> state) {
                        if (!state) {
                          replyUpstreamError(reply, state.error(), "Upstream register failed: ");
                          return;
                        }
-                       noteMinerPeer(from); // the beacon took it: its sync and blocks go first (LR009)
+                       // The beacon took it: its sync and blocks go first (LR009), from the peer it signed.
+                       if (peerId == from) {
+                         noteMinerPeer(minerId, from);
+                       }
                        registryVersion_ = state.value().registryVersion;
                        if (!state.value().networkId.empty()) {
                          networkId_ = state.value().networkId;

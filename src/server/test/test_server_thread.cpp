@@ -160,6 +160,8 @@ public:
   using Server::setRequestLimits;
   using Server::stopAmpServer;
   using Server::requestRestart;
+  using Server::noteMinerPeer;
+  using Server::isTrustedPeer;
   using Server::runStartupSync;
 
   std::atomic<int> active{0};
@@ -313,6 +315,21 @@ TEST(ServerThreadTest, AServeTurnEndsWithItsBudgetUnderSteadyArrivals) {
   feeder.join();
   EXPECT_LT(took, 500ms) << "the turn ran on while requests kept coming";
   EXPECT_GT(served->load(), 0);
+}
+
+// A miner's registration trusts the one peer it names; a newer one moves the trust, so one account
+// cannot keep many peers trusted.
+TEST(ServerThreadTest, AMinerHasOneTrustedPeer) {
+  EchoServer server;
+  server.noteMinerPeer(7, "peer-a");
+  EXPECT_TRUE(server.isTrustedPeer("peer-a"));
+  server.noteMinerPeer(7, "peer-b");
+  EXPECT_TRUE(server.isTrustedPeer("peer-b"));
+  EXPECT_FALSE(server.isTrustedPeer("peer-a")) << "the miner moved to peer-b";
+  server.noteMinerPeer(8, "peer-c");
+  EXPECT_TRUE(server.isTrustedPeer("peer-b"));
+  EXPECT_TRUE(server.isTrustedPeer("peer-c")) << "another miner's peer";
+  EXPECT_FALSE(server.isTrustedPeer("peer-d"));
 }
 
 TEST(ServerThreadTest, RepliesBusyWhenQueueIsFull) {
