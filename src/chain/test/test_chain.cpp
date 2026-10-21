@@ -3736,28 +3736,34 @@ TEST_F(ChainComposeTest, AClientProvesAnAccountFromThePinnedGenesis) {
   ASSERT_TRUE(proof.isOk()) << proof.error().message;
   EXPECT_EQ(proof.value().blockId, height);
   EXPECT_LT(proof.value().siblings.size(), 16u) << "empty subtrees are left out";
-  auto proven = verify::checkAccountProof(tipBlock.block, proof.value());
+  auto proven = verify::checkAccountProof(tipBlock.block, proof.value(), user.id);
   ASSERT_TRUE(proven.isOk()) << proven.error().message;
   ASSERT_TRUE(proven.value().wallet.has_value());
   EXPECT_EQ(proven.value().wallet->mBalances, peer.getAccount(user.id).value().wallet.mBalances);
 
   Client::AccountProof richer = proof.value();
   richer.wallet.mBalances[AccountBuffer::ID_GENESIS] += 1'000'000;
-  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, richer).isOk()) << "a balance the root does not hold";
+  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, richer, user.id).isOk()) << "a balance the root does not hold";
   Client::AccountProof hidden = proof.value();
   hidden.present = false;
-  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, hidden).isOk()) << "the account is there";
-  EXPECT_FALSE(verify::checkAccountProof(genesis.block, proof.value()).isOk()) << "another block";
+  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, hidden, user.id).isOk()) << "the account is there";
+  EXPECT_FALSE(verify::checkAccountProof(genesis.block, proof.value(), user.id).isOk()) << "another block";
   Client::AccountProof longer = proof.value();
   longer.siblings.push_back(std::string(32, '\x03'));
-  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, longer).isOk());
+  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, longer, user.id).isOk());
 
   // An account nobody holds is proven absent.
   auto absent = peer.accountProof(user.id + 1000);
   ASSERT_TRUE(absent.isOk()) << absent.error().message;
-  auto none = verify::checkAccountProof(tipBlock.block, absent.value());
+  auto none = verify::checkAccountProof(tipBlock.block, absent.value(), user.id + 1000);
   ASSERT_TRUE(none.isOk()) << none.error().message;
   EXPECT_FALSE(none.value().wallet.has_value());
+
+  // A genuine proof answers only for the account it is of: not another one, present or absent.
+  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, proof.value(), user.id + 1000).isOk())
+      << "the user's proof for another id";
+  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, absent.value(), user.id).isOk())
+      << "another id's absence for the user";
 }
 
 // projects/account-recovery: an account's recovery set stands above its keys. The keys name the first
@@ -3869,7 +3875,7 @@ TEST_F(MinerLivenessTest, AnAccountsRecoverySetStandsAboveItsKeys) {
   // The owner's wallet sees it, proven.
   auto proof = peer.accountProof(user.id);
   ASSERT_TRUE(proof.isOk()) << proof.error().message;
-  auto proven = verify::checkAccountProof(peer.readBlock(block.block.index).value().block, proof.value());
+  auto proven = verify::checkAccountProof(peer.readBlock(block.block.index).value().block, proof.value(), user.id);
   ASSERT_TRUE(proven.isOk()) << proven.error().message;
   EXPECT_TRUE(proven.value().wallet->recovery.pending);
 
@@ -4029,24 +4035,25 @@ TEST_F(MinerLivenessTest, TheRegistrarGivesIssuedAccountsDomainsProvenBothWays) 
   const Ledger::Block tip = peer.readBlock(block.block.index).value().block;
   auto proof = peer.domainProof("SHOPCO");
   ASSERT_TRUE(proof.isOk()) << proof.error().message;
-  auto proven = verify::checkDomainProof(tip, proof.value());
+  auto proven = verify::checkDomainProof(tip, proof.value(), "SHOPCO");
   ASSERT_TRUE(proven.isOk()) << proven.error().message;
   ASSERT_TRUE(proven.value().accountId.has_value());
   EXPECT_EQ(*proven.value().accountId, plain);
   Client::DomainProof lying = proof.value();
   lying.accountId = acme;
-  EXPECT_FALSE(verify::checkDomainProof(tip, lying).isOk()) << "a node cannot point a domain elsewhere";
+  EXPECT_FALSE(verify::checkDomainProof(tip, lying, "SHOPCO").isOk()) << "a node cannot point a domain elsewhere";
   Client::DomainProof hidden = proof.value();
   hidden.present = false;
-  EXPECT_FALSE(verify::checkDomainProof(tip, hidden).isOk()) << "nor hide it";
+  EXPECT_FALSE(verify::checkDomainProof(tip, hidden, "SHOPCO").isOk()) << "nor hide it";
+  EXPECT_FALSE(verify::checkDomainProof(tip, proof.value(), "ACME").isOk()) << "nor answer for another domain";
   auto absent = peer.domainProof("NOBODY");
   ASSERT_TRUE(absent.isOk());
-  auto none = verify::checkDomainProof(tip, absent.value());
+  auto none = verify::checkDomainProof(tip, absent.value(), "NOBODY");
   ASSERT_TRUE(none.isOk()) << none.error().message;
   EXPECT_FALSE(none.value().accountId.has_value());
   auto accountProof = peer.accountProof(plain);
   ASSERT_TRUE(accountProof.isOk());
-  auto account = verify::checkAccountProof(tip, accountProof.value());
+  auto account = verify::checkAccountProof(tip, accountProof.value(), plain);
   ASSERT_TRUE(account.isOk()) << account.error().message;
   EXPECT_EQ(account.value().wallet->domain, "SHOPCO");
   EXPECT_FALSE(peer.domainProof("shopco").isOk()) << "stored as capitals";

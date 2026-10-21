@@ -1453,7 +1453,7 @@ int main(int argc, char *argv[]) {
         if (!block) {
           return block.error();
         }
-        auto proven = pp::verify::checkAccountProof(block.value(), proof.value());
+        auto proven = pp::verify::checkAccountProof(block.value(), proof.value(), id);
         if (!proven) {
           return pp::Error(proven.error().message);
         }
@@ -1485,7 +1485,7 @@ int main(int argc, char *argv[]) {
       if (!block) {
         return fail(block.error().message);
       }
-      auto proven = pp::verify::checkDomainProof(block.value(), proof.value());
+      auto proven = pp::verify::checkDomainProof(block.value(), proof.value(), *name);
       if (!proven) {
         return fail(proven.error().message);
       }

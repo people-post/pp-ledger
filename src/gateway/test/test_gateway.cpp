@@ -219,6 +219,49 @@ TEST_F(GatewayTest, FollowsVerifiedBlocksAndProvesTheAccountsItWatches) {
   EXPECT_EQ(gateway.balances(kUser, At{}).error().code, Gateway::kNotFound);
 }
 
+// A node answering for the watched account with a genuine proof of something else: another
+// account, an unused id, or the account at a block older than the one verified here.
+TEST_F(GatewayTest, TakesOnlyAProofOfTheAccountAskedAtTheVerifiedTip) {
+  struct AnsweringSource : ChainSource {
+    using ChainSource::ChainSource;
+    std::optional<Client::AccountProof> answer;
+    Roe<Client::AccountProof> accountProof(uint64_t accountId) override {
+      if (answer) {
+        return *answer;
+      }
+      return ChainSource::accountProof(accountId);
+    }
+  };
+  AnsweringSource source(harness_.producer);
+  Gateway &gateway = open(source);
+  gateway.setClockOverride(slotTime(0));
+  add(1, {newUser(kUser, 1000), newUser(kUser + 1, 5000)});
+  poll();
+  const Client::AccountProof before = harness_.producer.accountProof(kUser).value();
+  add(2, {transfer(kUser, 10)});
+  gateway.setClockOverride(slotTime(2));
+  poll();
+  ASSERT_TRUE(gateway.watch(kUser).isOk());
+
+  source.answer = harness_.producer.accountProof(kUser + 1).value();
+  poll();
+  EXPECT_EQ(gateway.balances(kUser, At{}).error().code, Gateway::kConflict) << "another account's proof";
+  source.answer = harness_.producer.accountProof(kUser + 50).value();
+  poll();
+  EXPECT_EQ(gateway.balances(kUser, At{}).error().code, Gateway::kConflict) << "an unused id's absence";
+  source.answer = before;
+  poll();
+  EXPECT_EQ(gateway.balances(kUser, At{}).error().code, Gateway::kConflict) << "a proof from before block 2";
+
+  source.answer.reset();
+  poll();
+  EXPECT_EQ(balanceAt(kUser, At{}), 1010) << "the node's own proof at its tip";
+  source.answer = before;
+  add(3, {transfer(kUser + 1, 10)}); // not naming the watched account
+  poll();
+  EXPECT_EQ(balanceAt(kUser, At{}), 1010) << "an old proof in a later round changes nothing";
+}
+
 TEST_F(GatewayTest, RefusesWhatItCannotVerify) {
   ChainSource source(harness_.producer);
   open(source, std::string(32, '\x01'));

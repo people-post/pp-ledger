@@ -915,6 +915,9 @@ Gateway::Roe<bool> Gateway::proveAccounts() {
     lastSweep_ = nowSeconds;
   }
   bool ahead = false;
+  // Nodes prove at their tip. Touches are scanned only from when an account is watched, so a proof
+  // of an older block than the one verified here could miss a change: take none below it.
+  const uint64_t floor = facts_.back().height;
   for (uint64_t id : due) {
     auto proof = source_.accountProof(id);
     if (!proof) {
@@ -922,6 +925,11 @@ Gateway::Roe<bool> Gateway::proveAccounts() {
       continue;
     }
     const uint64_t at = proof.value().blockId;
+    if (at < floor) {
+      log_.warning << "Account " << id << ": the node's proof is of block " << at << ", below the verified tip "
+                   << floor << " (again next round)";
+      continue;
+    }
     const Facts *facts = factsAt(at);
     if (!facts) {
       ahead = ahead || at > facts_.back().height;
@@ -930,7 +938,7 @@ Gateway::Roe<bool> Gateway::proveAccounts() {
     Ledger::Block header;
     header.index = at;
     header.stateRoot = facts->stateRoot;
-    auto proven = verify::checkAccountProof(header, proof.value());
+    auto proven = verify::checkAccountProof(header, proof.value(), id);
     if (!proven) {
       log_.warning << "Account " << id << ": the node's proof does not check: " << proven.error().message;
       continue;
