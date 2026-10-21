@@ -58,7 +58,7 @@ set_target_properties(pp-miner PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PP_APP_OUT
 if(PP_LEDGER_BUILD_HTTP)
   add_executable(pp-http
       http.cpp
-      http_gateway.cpp
+      http_chain.cpp
   )
 
   target_include_directories(pp-http PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -66,7 +66,7 @@ if(PP_LEDGER_BUILD_HTTP)
       pp_ledger_common
       pp_client
       pp_ledger
-      pp_gateway
+      pp_chain
       pp_http
       CLI11::CLI11
   )

@@ -42,9 +42,6 @@ Kubernetes secrets); setting both is an error. Lists take commas or newlines.
 | `PP_BEACON_SIGNING_NEXT_KEY` `[_FILE]` | beacon | a key staged for a rotation, instead of `keys/beacon-signing.next.*` |
 | `PP_HTTP_PORT`, `PP_HTTP_BIND`, `PP_HTTP_CORS_ORIGIN`, `PP_HTTP_BEACON`, `PP_HTTP_MINER` | pp-http | `--port`, `--bind`, `--cors-origin`, `--beacon`, `--miner` |
 | `PP_HTTP_METRICS_TARGETS` | pp-http | `--metrics-target` (list of `NAME=MULTIADDR`: more nodes on `/metrics`) |
-| `PP_HTTP_GENESIS_HASH`, `PP_HTTP_V1_DATA_DIR` | pp-http | `--genesis-hash` (block 0's hash, hex; serves `/v1/`, [VERIFIED_API.md](../contracts/VERIFIED_API.md)), `--v1-data-dir` (required with it) |
-| `PP_HTTP_V1_NODE`, `PP_HTTP_V1_TOKEN` | pp-http | `--v1-node` (the node `/v1/` follows; default `--beacon`), `--v1-token` (bearer token `/v1/` requires; keep it out of argv) |
-| `PP_HTTP_V1_POLL_MS`, `PP_HTTP_V1_SWEEP_SECONDS`, `PP_HTTP_V1_KEEP_DAYS` | pp-http | `--v1-poll-ms` (1000), `--v1-sweep-seconds` (300: every watched account proven again), `--v1-keep-days` (30: final blocks kept) |
 
 A command-line option given explicitly wins over its variable. Peer ids can be worked out before
 anything starts: `pp-client peer-id <key>` prints the peer id and public key of a private key (hex

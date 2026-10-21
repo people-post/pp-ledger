@@ -1,6 +1,6 @@
 # Finality — a rewind bound on the chain, and a verifying gateway
 
-**Status:** built. The bound (fn1) is normative in [WIRE_SCHEMA § Config updates](../../docs/contracts/WIRE_SCHEMA.md#config-updates) and [BEACON_AUTHORITY § Rewind](../../docs/contracts/BEACON_AUTHORITY.md#rewind); the gateway (fn2, fn3) in [VERIFIED_API.md](../../docs/contracts/VERIFIED_API.md); since fn4 each header carries when it is final (FN007). Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
+**Status:** built. The bound (fn1) is normative in [WIRE_SCHEMA § Config updates](../../docs/contracts/WIRE_SCHEMA.md#config-updates) and [BEACON_AUTHORITY § Rewind](../../docs/contracts/BEACON_AUTHORITY.md#rewind); since fn4 each header carries when it is final (FN007). The verifying gateway below (fn2, fn3) was removed (FN008): services follow their own relay ([SERVICE_API.md](../../docs/contracts/SERVICE_API.md)); its sections stay as the record of why it was built. Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
 status: [CURRENT_STATE.md](CURRENT_STATE.md).
 
 Services beside the chain — the bank (`nfsc-brief-cashier/app-cashier`, projects/bank b4), the
