@@ -1668,8 +1668,9 @@ Chain::Roe<void> Chain::addBufferTransaction(
     AccountBuffer &bank,
     const Ledger::Record &record,
     uint64_t slotLeaderId) const {
+  // Against the keys this draft holds: an earlier record in it may have changed them, as the seal will.
   auto roe = validateTxSignatures(record, slotLeaderId,
-                                  chain_block::BlockAdmissionMode::Full);
+                                  chain_block::BlockAdmissionMode::Full, &bank);
   if (!roe) {
     return Error(E_TX_SIGNATURE, "Failed to validate buffer transaction: " +
                                      roe.error().message);
@@ -2268,7 +2269,12 @@ std::optional<std::pair<uint64_t, uint64_t>> Chain::idempotencyKeyOf(const Ledge
 Chain::Roe<void> Chain::validateTxSignatures(
     const Ledger::Record &record,
     uint64_t slotLeaderId,
-    chain_block::BlockAdmissionMode admissionMode) const {
+    chain_block::BlockAdmissionMode admissionMode,
+    const AccountBuffer *working) const {
+  // Keys as the state this record applies to holds them (the seal applies on the tip bank, in order).
+  auto bankHolding = [&](uint64_t id) -> const AccountBuffer & {
+    return working && working->hasAccount(id) ? *working : txContext_.bank;
+  };
   if (record.type == Ledger::T_IMPORT) {
     // Unsigned: the predecessor's state root authenticates the import (B032).
     return record.signatures.empty() ? Roe<void>() : Error(E_TX_SIGNATURE, "An import is unsigned");
@@ -2294,7 +2300,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
     if (!tx) {
       return Error(E_TX_VALIDATION, "Malformed account recovery");
     }
-    auto account = txContext_.bank.getAccount(tx.value().walletId);
+    auto account = bankHolding(tx.value().walletId).getAccount(tx.value().walletId);
     if (!account) {
       return chain_block::admissionTxStrict(admissionMode)
                  ? Error(E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(tx.value().walletId))
@@ -2316,7 +2322,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
   }
   const uint64_t signerAccountId = signerAccountIdRoe.value();
 
-  auto accountResult = txContext_.bank.getAccount(signerAccountId);
+  auto accountResult = bankHolding(signerAccountId).getAccount(signerAccountId);
   if (!accountResult) {
     if (chain_block::admissionTxStrict(admissionMode)) {
       if (txContext_.bank.isEmpty() &&

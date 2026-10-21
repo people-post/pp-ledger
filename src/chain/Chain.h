@@ -560,10 +560,16 @@ private:
                         uint64_t blockId, uint64_t blockSlot,
                         uint64_t slotLeaderId,
                         chain_block::BlockAdmissionMode admissionMode);
+  /**
+   * The record's signatures against its signer's keys. `working`: the state the record applies to
+   * when it is not the committed bank (a leader's draft, where earlier records may have changed
+   * keys); accounts it does not hold are read from the committed bank.
+   */
   Roe<void>
   validateTxSignatures(const Ledger::Record &record,
                        uint64_t slotLeaderId,
-                       chain_block::BlockAdmissionMode admissionMode) const;
+                       chain_block::BlockAdmissionMode admissionMode,
+                       const AccountBuffer *working = nullptr) const;
 
   TxContext txContext_{};
 

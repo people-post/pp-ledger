@@ -256,6 +256,15 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
     txSet.records.pop_back();
     createResult = createBlock(slot, txSet.records);
   }
+  // The draft took records the seal refuses (it should not): seal the leader's own records alone
+  // rather than leave the slot empty; the pending ones stay in the beacon's pool.
+  const size_t leaderOwn = slotCache_.leaderRecords.size();
+  if (!createResult && createResult.error().code != E_BLOCK_TOO_LARGE && txSet.records.size() > leaderOwn) {
+    log().error << "Sealing slot " << slot << " with " << txSet.records.size() - leaderOwn
+                << " pending record(s) failed, sealing without them: " << createResult.error().message;
+    txSet.records.resize(leaderOwn);
+    createResult = createBlock(slot, txSet.records);
+  }
   if (!createResult) {
     return Error(7, "Failed to create block: " + createResult.error().message);
   }

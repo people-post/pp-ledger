@@ -3321,6 +3321,60 @@ TEST_F(ChainComposeTest, MinerStateCannotBeSetByAccountCreationOrUpdate) {
   }
 }
 
+// A leader's draft checks each record against the keys the draft holds, as the seal does: after an
+// update rotates an account's keys, a record signed with the old key is refused in the draft (the
+// seal would refuse it and lose the slot), and one signed with the new key applies.
+TEST_F(ChainComposeTest, ADraftChecksSignaturesAgainstTheKeysItHolds) {
+  auto &producer = harness_.producer;
+  auto leader = producer.getSlotLeader(1);
+  ASSERT_TRUE(leader.isOk());
+  const auto held = producer.getAccount(kTestMinerId).value();
+  const auto nextKey = makeKeyPair();
+
+  // The rotation, then a payment by the rotated account, valid around `at`.
+  auto records = [&](int64_t at, const utl::MlDsaKeyPair &payKey) {
+    Client::UserAccount update;
+    update.wallet = held.wallet;
+    update.wallet.publicKeys = {nextKey.publicKey};
+    update.wallet.minSignatures = 1;
+    update.meta = AccountAttachment::emptySerialized();
+    Ledger::TxUserUpdate uu;
+    uu.walletId = kTestMinerId;
+    uu.fee = 100;
+    uu.meta = update.ltsToString();
+    uu.idempotentId = 3;
+    uu.validationTsMin = at - 60;
+    uu.validationTsMax = at + 60;
+    Ledger::TxDefault pay;
+    pay.tokenId = AccountBuffer::ID_GENESIS;
+    pay.fromWalletId = kTestMinerId;
+    pay.toWalletId = AccountBuffer::ID_RESERVE;
+    pay.amount = 1;
+    pay.fee = 1;
+    pay.idempotentId = 4;
+    pay.validationTsMin = at - 60;
+    pay.validationTsMax = at + 60;
+    return std::vector<Ledger::Record>{
+        makeRecord(Ledger::T_USER_UPDATE, uu, harness_.reserveKey, producer.getNetworkId()),
+        makeRecord(Ledger::T_DEFAULT, pay, payKey, producer.getNetworkId())};
+  };
+
+  // The draft runs on the wall clock.
+  const int64_t now = static_cast<int64_t>(std::time(nullptr));
+  const auto oldKey = records(now, harness_.reserveKey);
+  const auto newKey = records(now, nextKey);
+  AccountBuffer draft;
+  ASSERT_TRUE(producer.addBufferTransaction(draft, oldKey[0], leader.value()).isOk());
+  EXPECT_FALSE(producer.addBufferTransaction(draft, oldKey[1], leader.value()).isOk()) << "the rotated-out key";
+  auto added = producer.addBufferTransaction(draft, newKey[1], leader.value());
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+
+  // The seal (slot 1 of a chain starting at 0) agrees: the new key's payment applies.
+  auto block = makeNextBlockAtSlot(producer, harness_.genesis, 1, records(5, nextKey));
+  ASSERT_TRUE(producer.addBlock(block).isOk());
+  EXPECT_EQ(producer.getAccount(kTestMinerId).value().wallet.publicKeys, std::vector<std::string>{nextKey.publicKey});
+}
+
 // An account update replaces keys and meta; the balances stay the chain's, whatever the update
 // carries — they move while the account's holders sign it (transfers in, renewals, issuing).
 TEST_F(ChainComposeTest, AnAccountUpdateKeepsTheChainsBalances) {
