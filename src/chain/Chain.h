@@ -542,6 +542,8 @@ private:
   /** After an import block applied: once every account is in, the old leaves must hash to the
    *  predecessor's state root; then the span ends. */
   Roe<void> finishImportBlock();
+  /** Full admission: the block carries its slot leader account's signatures over its hash. */
+  Roe<void> checkProducerSigned(const Ledger::ChainNode &block) const;
   Roe<void> processNormalBlock(const Ledger::ChainNode &block,
                                chain_block::BlockAdmissionMode mode);
   /**

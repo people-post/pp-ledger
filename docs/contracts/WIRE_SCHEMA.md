@@ -23,8 +23,9 @@ Genesis `previousHash` is `utl::zeroHash()` (32 zero bytes).
 
 ## Block
 
-`Ledger::Block::CURRENT_VERSION` is the on-disk/header version prefix: **8** (7: state roots commit
-to account attachments, account leaf v2; 8: `finalAt`). A block of another version is not read.
+`Ledger::Block::CURRENT_VERSION` is the on-disk/header version prefix: **9** (7: state roots commit
+to account attachments, account leaf v2; 8: `finalAt`; 9: `producerSignatures`). A block of another
+version is not read.
 
 ### Header (hashed)
 
@@ -47,7 +48,7 @@ Block hash = `SHA-256(headerToString())` where `headerToString` packs:
 | `finalAt` | `int64` | Unix seconds from which this block and every block below it are final ([Config updates](#config-updates)) |
 
 Full block LTS for disk also appends the body after the header fields (`Block::ltsToString`,
-version **8**; other versions are refused). Hash does **not** include the body bytes directly.
+version **9**; other versions are refused). Hash does **not** include the body bytes directly.
 
 ### Body
 
@@ -56,6 +57,18 @@ version **8**; other versions are refused). Hash does **not** include the body b
   leaders from, sorted by id — the preimage of `stakeSnapshotHash`; empty in every other block.
   Checked in every admission mode (`chain_block::validateBlockCommittee`): a node warming up from a
   checkpoint, which holds only some accounts, takes each epoch's leaders from it.
+- `producerSignatures`: the slot leader account's signatures (its keys and `minSignatures`, as held
+  before the block) over
+
+  ```
+  "pp-ledger/block-producer/v1" || pack(networkId) || pack(block hash)
+  ```
+
+  Only the account elected for a slot produces its block: the leader is public, so a block anyone
+  sealed from public chain data in its name is refused. Checked in Full admission, on every node
+  (`Chain::checkProducerSigned`); the miner signs right after the seal. Empty only in blocks with no
+  producer (genesis, import blocks). Not hashed, and not counted in `maxBlockBytes` (at most one
+  signature per key of the leader's account).
 
 ### Commitments
 

@@ -887,7 +887,7 @@ chain_tx::Roe<void> checkBlockBodyPolicy(
   }
   const uint64_t maxBytes = optChainConfig.value().maxBlockBytes;
   if (maxBytes > 0) {
-    const uint64_t bytes = block.block.ltsToString().size();
+    const uint64_t bytes = block.block.boundedBytes();
     if (bytes > maxBytes) {
       return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION, "Block takes " + std::to_string(bytes) +
                                                                   " bytes, more than maxBlockBytes (" +

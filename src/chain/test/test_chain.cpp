@@ -1882,6 +1882,7 @@ TEST_F(ChainComposeTest, BadStateRoot_RejectedThenHonestBlockAccepted) {
   Ledger::ChainNode forged = honest;
   forged.block.stateRoot = utl::sha256Raw("forged-state-root");
   forged.hash = peer.calculateHash(forged.block);
+  signAsLeader(forged, peer.getNetworkId()); // the leader's own bad block
 
   const int64_t balanceBefore = reserveBalance(peer);
   const auto stakeBefore = peer.getStakeholders();
@@ -2481,6 +2482,37 @@ TEST_F(ChainComposeTest, Finality_ABlockKeepsTheBoundItWasCommittedUnder) {
 
 // FN007: a block's finalAt is checked as its state root is — another value is refused, whatever its
 // hash says.
+// The elected leader is public; only its account's keys make its block. A block for its slot that
+// it did not sign — whoever sealed it, from public chain data — is refused, and the leader's own
+// block is then still taken.
+TEST_F(ChainComposeTest, OnlyTheSlotLeaderSignsItsBlock) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  const Ledger::ChainNode honest =
+      makeNextBlockAtSlot(producer, harness_.genesis, 1, {makeReserveTransfer(harness_, 10, 1)});
+  ASSERT_EQ(honest.block.producerSignatures.size(), 1u);
+
+  Ledger::ChainNode unsigned_ = honest;
+  unsigned_.block.producerSignatures.clear();
+  auto refused = peer.addBlock(unsigned_);
+  ASSERT_FALSE(refused.isOk()) << "no producer signature";
+  EXPECT_NE(refused.error().message.find("not signed by its slot leader"), std::string::npos)
+      << refused.error().message;
+
+  Ledger::ChainNode byAnother = honest;
+  byAnother.block.producerSignatures = {
+      signMessage(makeKeyPair(), Ledger::Block::producerSigningMessage(peer.getNetworkId(), honest.hash))};
+  EXPECT_FALSE(peer.addBlock(byAnother).isOk()) << "a key that is not the leader's";
+
+  Ledger::ChainNode otherNetwork = honest;
+  otherNetwork.block.producerSignatures = {
+      signMessage(harness_.reserveKey, Ledger::Block::producerSigningMessage("other-net", honest.hash))};
+  EXPECT_FALSE(peer.addBlock(otherNetwork).isOk()) << "the leader's signature for another network";
+
+  auto added = peer.addBlock(honest);
+  EXPECT_TRUE(added.isOk()) << added.error().message;
+}
+
 TEST_F(ChainComposeTest, Finality_ABlockWithAnotherFinalAtIsRefused) {
   auto &producer = harness_.producer;
   auto &peer = harness_.peer;
@@ -2490,6 +2522,7 @@ TEST_F(ChainComposeTest, Finality_ABlockWithAnotherFinalAtIsRefused) {
     Ledger::ChainNode altered = block1;
     altered.block.finalAt += delta;
     altered.hash = chain_block::calculateBlockHash(altered.block);
+    signAsLeader(altered, peer.getNetworkId());
     auto refused = peer.addBlock(altered);
     ASSERT_FALSE(refused.isOk()) << "finalAt " << delta;
     EXPECT_NE(refused.error().message.find("finalAt mismatch"), std::string::npos) << refused.error().message;
@@ -3580,6 +3613,7 @@ FundedUser addFundedUser(ComposeHarness &h, const Ledger::ChainNode &previous, u
   FundedUser user;
   user.id = id;
   user.key = makeKeyPair();
+  testLeaderKeys()[id] = user.key; // it may lead slots once registered as a miner
   Ledger::TxNewUser nu;
   nu.fromWalletId = AccountBuffer::ID_RESERVE;
   nu.toWalletId = id;

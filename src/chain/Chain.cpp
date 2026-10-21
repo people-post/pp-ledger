@@ -1620,6 +1620,25 @@ void Chain::applyDueRecovery(uint64_t epoch) {
   refreshSeenCertificate();
 }
 
+Chain::Roe<void> Chain::checkProducerSigned(const Ledger::ChainNode &block) const {
+  // The elected leader is public: only its account's keys (as held before this block) make a
+  // block of its slot, so no one else can take the slot with a block in its name.
+  auto producer = txContext_.bank.getAccount(block.block.slotLeader);
+  if (!producer) {
+    return Error(E_BLOCK_VALIDATION, "Block " + std::to_string(block.block.index) + ": slot leader " +
+                                         std::to_string(block.block.slotLeader) + " not found");
+  }
+  if (auto signed_ = verifySignaturesAgainstAccount(
+          Ledger::Block::producerSigningMessage(getNetworkId(), block.hash), block.block.producerSignatures,
+          producer.value());
+      !signed_) {
+    return Error(E_BLOCK_VALIDATION, "Block " + std::to_string(block.block.index) +
+                                         " is not signed by its slot leader " +
+                                         std::to_string(block.block.slotLeader) + ": " + signed_.error().message);
+  }
+  return {};
+}
+
 Chain::Roe<void> Chain::processNormalBlock(
     const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode) {
   // A block of a new epoch is checked and applied under that epoch's config.
@@ -1631,6 +1650,11 @@ Chain::Roe<void> Chain::processNormalBlock(
     return Error(E_BLOCK_VALIDATION, "Block validation failed for block " +
                                          std::to_string(block.block.index) +
                                          ": " + roe.error().message);
+  }
+  if (chain_block::admissionRunsConsensusAndBody(mode)) {
+    if (auto produced = checkProducerSigned(block); !produced) {
+      return produced;
+    }
   }
 
   for (const auto &rec : block.block.records) {
