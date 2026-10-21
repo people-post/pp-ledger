@@ -1344,7 +1344,10 @@ void BeaconServer::dTxAdd(const Client::Request &request, const RequestQueue::Re
   }
   txPool_.expire(now);
   const auto key = beacon_.idempotencyKeyOf(record.value());
-  switch (txPool_.add(record.value(), now, key ? std::optional<uint64_t>(key->first) : std::nullopt)) {
+  // Every record counts against a payer's share. Admission refuses keyless records but the admins'
+  // (a config with no id, a certificate): those count against the genesis account.
+  const uint64_t sender = key ? key->first : AccountBuffer::ID_GENESIS;
+  switch (txPool_.add(record.value(), now, sender)) {
   case TxPool::Add::Added:
     reply(packResponse("Transaction submitted"));
     return;
@@ -1356,7 +1359,7 @@ void BeaconServer::dTxAdd(const Client::Request &request, const RequestQueue::Re
     return;
   case TxPool::Add::SenderFull:
     reply(packError(Client::E_POOL_FULL,
-                    "Too many transactions of account " + std::to_string(key->first) + " pooled, please retry later",
+                    "Too many transactions of account " + std::to_string(sender) + " pooled, please retry later",
                     poolRetryAfterMs()));
     return;
   }

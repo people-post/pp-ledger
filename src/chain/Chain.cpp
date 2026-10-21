@@ -2217,6 +2217,16 @@ Chain::Roe<void> Chain::verifyAccountSignatures(uint64_t accountId, const std::s
 
 Chain::Roe<void> Chain::checkAdmission(const Ledger::Record &record, int64_t nowSec,
                                       bool verifySignatures) const {
+  switch (record.type) {
+  case Ledger::T_GENESIS:
+  case Ledger::T_RENEWAL:
+  case Ledger::T_END_USER:
+  case Ledger::T_IMPORT:
+    // Written by a leader or a genesis, never submitted: no leader takes one from the pool.
+    return Error(E_TX_VALIDATION, "A record of type " + std::to_string(record.type) + " is not submitted");
+  default:
+    break;
+  }
   auto typed = record.decode();
   if (!typed) {
     return Error(E_TX_VALIDATION, "Unknown or malformed transaction payload");
@@ -2226,39 +2236,27 @@ Chain::Roe<void> Chain::checkAdmission(const Ledger::Record &record, int64_t now
       return signed_;
     }
   }
-  const auto &bank = txContext_.bank;
-  return std::visit(
-      [&](const auto &tx) -> Roe<void> {
+  const bool ended = std::visit(
+      [&](const auto &tx) {
         using T = std::decay_t<decltype(tx)>;
         if constexpr (std::is_base_of_v<Ledger::TxIdempotencyWindow, T>) {
-          if (tx.validationTsMax > 0 && nowSec > tx.validationTsMax) {
-            return Error(E_TX_VALIDATION, "Transaction validity window ended");
-          }
+          return tx.validationTsMax > 0 && nowSec > tx.validationTsMax;
         }
-        // The payer covers it on the committed state (pending spends are the leader's to weigh).
-        auto covers = [&](uint64_t payer, uint64_t tokenId, uint64_t amount, uint64_t fee) -> Roe<void> {
-          const int64_t native = bank.getBalance(payer, AccountBuffer::ID_GENESIS);
-          // An issuer sending its own token issues it: only the fee needs covering.
-          const bool issuing = AccountBuffer::issuesToken(payer, tokenId);
-          const bool enough = tokenId == AccountBuffer::ID_GENESIS
-                                  ? native >= 0 && static_cast<uint64_t>(native) >= amount + fee
-                                  : (issuing || bank.getBalance(payer, tokenId) >= static_cast<int64_t>(amount)) &&
-                                        native >= 0 && static_cast<uint64_t>(native) >= fee;
-          if (!enough) {
-            return Error(E_TX_TRANSFER, "Account " + std::to_string(payer) + " cannot cover the amount and fee");
-          }
-          return {};
-        };
-        if constexpr (std::is_same_v<T, Ledger::TxDefault>) {
-          if (tx.fromWalletId != AccountBuffer::ID_GENESIS) { // genesis issues the native token
-            return covers(tx.fromWalletId, tx.tokenId, tx.amount, tx.fee);
-          }
-        } else if constexpr (std::is_same_v<T, Ledger::TxNewUser>) {
-          return covers(tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee);
-        }
-        return {};
+        return false;
       },
       typed.value());
+  if (ended) {
+    return Error(E_TX_VALIDATION, "Transaction validity window ended");
+  }
+  if (record.type == Ledger::T_BEACON_CERT) {
+    return {}; // checked as a certificate (offerCertificate); it applies only in the block it is due
+  }
+  // Only what could apply takes a place in the pool: the record through the leader's own apply path
+  // (fee floor, idempotency, amounts, funds, each type's rules) on the committed state. Pending
+  // spends are the leader's to weigh.
+  AccountBuffer scratch;
+  BufferApplyContext ctx{txContext_, getNextBlockId(), getProductionSlot(), chain_block::BlockAdmissionMode::Full};
+  return mapTxVoid(recordHandler_.applyBuffer(record, scratch, ctx));
 }
 
 std::optional<std::pair<uint64_t, uint64_t>> Chain::idempotencyKeyOf(const Ledger::Record &record) const {

@@ -200,11 +200,14 @@ node capability is a new request type here plus, when HTTP is wanted, a pp-http 
 | `EQUIVOCATION_ADD` | keeps it and halts | keeps it, forwards up | keeps it, forwards up | Evidence that the beacon key signed two blocks at one height ([BEACON_AUTHORITY.md § Equivocation halt](../contracts/BEACON_AUTHORITY.md#equivocation-halt)); `data/equivocation.dat`; upward only |
 
 **The beacon's pool** (`TxPool`) holds only what could apply (load-resilience lr4). A `TX_ADD` is
-checked first, cheaply and on the committed state (`Chain::checkAdmission`): it decodes, its
-validity window is open, its payer's keys signed it, and the payer can cover the amount and the
-fee; what depends on the rest of a block (pending spends, idempotent ids) is the leader's. Relays
+checked first on the committed state (`Chain::checkAdmission`): it is a type that is submitted at
+all (not a genesis, renewal, account end or import, which the chain writes), its validity window is
+open, its signer's keys signed it, and it applies through the leader's own apply path on a scratch
+state — the fee floor, a non-zero idempotent id not used yet, amounts in range, funds, the type's
+rules. What depends on the rest of a block (pending spends, ids pending in it) is the leader's. Relays
 run the same check before forwarding; miners, which may hold the chain from a checkpoint, pass it
-on. A payer may have at most `maxPerSender` (1,000) records pooled; the pool holds 10,000 records
+on. A payer may have at most `maxPerSender` (1,000) records pooled (the admins' records without an
+id count against the genesis account); the pool holds 10,000 records
 or 16 MiB, each for its validity window or 10 minutes. After each block it commits, the beacon drops
 pooled records whose idempotent id the block used or that no longer apply (the payer spent the
 funds, the window ended), so no leader keeps pulling and refusing them.

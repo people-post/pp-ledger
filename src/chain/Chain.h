@@ -144,10 +144,11 @@ public:
   uint64_t getSlotDuration() const;
   uint64_t getStakeholderStake(uint64_t stakeholderId) const;
   /**
-   * What a pool checks before it holds `record` (load-resilience lr4), cheap against the committed
-   * state: it decodes, its validity window has not ended at `nowSec`, its payer can cover the amount
-   * and the fee, and — when `verifySignatures` — its signer's keys signed it. What depends on the
-   * rest of a block (pending spends, fee rules on metadata, idempotent ids) is the leader's to check.
+   * What a pool checks before it holds `record` (load-resilience lr4): a type that is submitted at
+   * all, its validity window not ended at `nowSec`, — when `verifySignatures` — its signer's keys
+   * signed it, and it applies on the committed state through the leader's own apply path (fee floor,
+   * idempotency, amounts, funds, the type's rules). What depends on the rest of a block (pending
+   * spends, ids pending in it) is the leader's to check.
    */
   Roe<void> checkAdmission(const Ledger::Record &record, int64_t nowSec, bool verifySignatures) const;
   /** (payer, idempotent id) of a record that has one (RecordHandler::getIdempotencyKey). */
