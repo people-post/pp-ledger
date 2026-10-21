@@ -36,7 +36,7 @@ std::ostream &operator<<(std::ostream &os, const Beacon::MountConfig &config) {
 
 Beacon::Beacon() : NodeCore("Beacon") {}
 
-bool Beacon::isBeforeDeliveryDeadline(uint64_t slot) const { return chain_.isBeforeDeliveryDeadline(slot); }
+bool Beacon::isInDeliveryWindow(uint64_t slot) const { return chain_.isInDeliveryWindow(slot); }
 
 Beacon::Roe<void> Beacon::verifyMinerRegistration(const Client::MinerInfo &miner,
                                                  const std::string &networkId) const {

@@ -350,9 +350,13 @@ the beacon within the **delivery window** after the slot's end.
 - **Timestamp** (structural, every node, replay included): a block for slot *s* carries its seal
   time, `slotEnd(s) ≤ timestamp` and `timestamp·1000 < slotEnd(s)·1000 + D` (whole seconds,
   rounded down). A timestamp inside the slot is refused.
-- **Delivery deadline** (beacon only, live admission): `BLOCK_ADD` for slot *s* is refused once the
-  beacon's clock passes `slotEnd(s) + D` ("arrived after its delivery deadline"); the slot is then
-  empty. Never checked on replay, late join or by relays: every node follows the beacon's chain.
+- **Delivery window** (beacon only, live admission): `BLOCK_ADD` for slot *s* is taken only in
+  `[slotEnd(s) − D/2, slotEnd(s) + D)` on the beacon's clock ("arrived outside its delivery
+  window"; `SlotCommittee::isInDeliveryWindow`). After it, the slot is empty. Before it — a block
+  for a slot not ended, which would skip the leaders of the slots before it while they run — it is
+  refused; the `D/2` allows a leader's clock a little ahead, and leaves every earlier leader its
+  whole window (`D ≤ slot / 3`). Never checked on replay, late join or by relays: every node
+  follows the beacon's chain.
   An already-held block is still answered as such (idempotent resend).
 - **Leader** (`MinerServer::handleSlotLeaderRole`): pulls the beacon's pool one pull wait
   (`min(1 s, slot / 3)`) before its slot ends, then seals in `[slotEnd, slotEnd + D)`. Its pending

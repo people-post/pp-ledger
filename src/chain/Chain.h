@@ -103,11 +103,11 @@ public:
 
   // ----------------- accessors -------------------------------------
   bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;
-  /** See SlotCommittee::isSlotSealTime / isBeforeDeliveryDeadline / getProductionSlot. */
+  /** See SlotCommittee::isSlotSealTime / isInDeliveryWindow / getProductionSlot. */
   bool isSlotSealTime(uint64_t slot) const;
   /** True when `accountId` is a registered miner due at `slot` (must produce, empty if need be). */
   bool isMinerDue(uint64_t accountId, uint64_t slot) const;
-  bool isBeforeDeliveryDeadline(uint64_t slot) const;
+  bool isInDeliveryWindow(uint64_t slot) const;
   uint64_t getProductionSlot() const;
   /** True when chain config has been loaded (from T_GENESIS or T_CONFIG). */
   bool isChainConfigReady() const;

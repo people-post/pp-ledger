@@ -1275,11 +1275,12 @@ BeaconServer::hBlockAdd(const Client::Request &request) {
     break;
   }
   // The beacon decides missed slots: a leader seals once its slot ends and must deliver within
-  // the delivery window. Checked on live admission only (the beacon's clock), never on replay
-  // or by relays, so every node follows the beacon's chain.
-  if (!beacon_.isBeforeDeliveryDeadline(block.block.slot)) {
+  // the delivery window — not before its slot ends either, or it would skip the leaders of the
+  // slots before it while they run. Checked on live admission only (the beacon's clock), never on
+  // replay or by relays, so every node follows the beacon's chain.
+  if (!beacon_.isInDeliveryWindow(block.block.slot)) {
     return Error(E_REQUEST, "Block for slot " + std::to_string(block.block.slot) +
-                                " arrived after its delivery deadline");
+                                " arrived outside its delivery window");
   }
   auto result = beacon_.addBlock(block);
   if (!result) {

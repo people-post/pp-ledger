@@ -74,8 +74,8 @@ bool Chain::isSlotSealTime(uint64_t slot) const {
   return txContext_.consensus.isSlotSealTime(slot);
 }
 
-bool Chain::isBeforeDeliveryDeadline(uint64_t slot) const {
-  return txContext_.consensus.isBeforeDeliveryDeadline(slot);
+bool Chain::isInDeliveryWindow(uint64_t slot) const {
+  return txContext_.consensus.isInDeliveryWindow(slot);
 }
 
 uint64_t Chain::getProductionSlot() const {

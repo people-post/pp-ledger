@@ -84,8 +84,8 @@ public:
   ~Beacon() override = default;
 
   // ----------------- accessors -------------------------------------
-  /** Live admission only: a block for `slot` arrives before slotEnd + delivery window. */
-  bool isBeforeDeliveryDeadline(uint64_t slot) const;
+  /** Live admission only: a block for `slot` arrives in its delivery window (SlotCommittee). */
+  bool isInDeliveryWindow(uint64_t slot) const;
   /**
    * A REGISTER is genuine only if the miner account's keys signed it (as for
    * its transactions): nobody can register a miner id they do not control.
