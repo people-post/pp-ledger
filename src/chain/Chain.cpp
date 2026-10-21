@@ -2265,8 +2265,9 @@ Chain::Roe<void> Chain::checkAdmission(const Ledger::Record &record, int64_t now
         using T = std::decay_t<decltype(tx)>;
         if constexpr (std::is_base_of_v<Ledger::TxIdempotencyWindow, T>) {
           return tx.validationTsMax > 0 && nowSec > tx.validationTsMax;
+        } else {
+          return false; // in an else: MSVC calls code after a taken `if constexpr` unreachable (C4702)
         }
-        return false;
       },
       typed.value());
   if (ended) {
