@@ -1196,7 +1196,8 @@ int main(int argc, char** argv) {
 
   // Custom HTML for unhandled endpoints (404)
   svr.set_error_handler([](const httplib::Request& req, httplib::Response& res) {
-    if (res.status == 404) {
+    // A path no route answers; a route's own 404 (an account not found: JSON) stays as it wrote it.
+    if (res.status == 404 && res.body.empty()) {
       res.set_content(
         makeErrorHtml(404, req.path, "Page not found",
           "The page you're looking for doesn't exist. This might be a typo, or the endpoint may have moved."),
