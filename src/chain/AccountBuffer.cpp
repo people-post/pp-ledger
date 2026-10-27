@@ -152,6 +152,11 @@ AccountBuffer::Roe<void> AccountBuffer::setRecovery(uint64_t accountId, const Cl
 std::vector<uint64_t> AccountBuffer::applyDueRecoveries(uint64_t epoch) {
   std::vector<uint64_t> due;
   for (const auto &[id, account] : mAccounts_) {
+    // System accounts have no account recovery: their keys change only by T_CONFIG and the genesis
+    // recovery set (projects/account-recovery).
+    if (AccountIds::isSystemAccount(id)) {
+      continue;
+    }
     if (account.wallet.recovery.pending && account.wallet.recovery.applyEpoch <= epoch) {
       due.push_back(id);
     }

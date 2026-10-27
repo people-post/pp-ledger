@@ -4499,6 +4499,97 @@ TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
   EXPECT_EQ(carried.pending.config.maxTransactionsPerBlock, before + 1);
 }
 
+// The slot leader signs the genesis renewal: besides the admin set, it carries the genesis
+// recovery and meta as the chain holds them. A renewal planting a pending recovery would hand the
+// admin set to the leader's keys at the next epoch start (and freeze genesis until then).
+TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeTheGenesisRecoveryOrMeta) {
+  auto &producer = harness_.producer;
+  // A genesis renewal needs a valid genesis wallet: rotate genesis to 3 keys first.
+  const std::vector<utl::MlDsaKeyPair> rotated = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
+  Chain::GenesisAccountMeta update;
+  update.config = harness_.chainConfig;
+  update.genesis.wallet = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
+  update.genesis.wallet.publicKeys = {rotated[0].publicKey, rotated[1].publicKey, rotated[2].publicKey};
+  update.genesis.wallet.minSignatures = 2;
+  update.genesis.meta = AccountAttachment::emptySerialized();
+  update.authority = producer.getAuthority().value();
+  Ledger::TxConfig configTx;
+  configTx.meta = update.ltsToString();
+  configTx.idempotentId = 1;
+  configTx.validationTsMin = harness_.chainConfig.genesisTime;
+  configTx.validationTsMax = harness_.chainConfig.genesisTime + 3600;
+  Ledger::ChainNode block = makeNextBlockAtSlot(
+      producer, harness_.genesis, 1,
+      {makeRecord(Ledger::T_CONFIG, configTx, harness_.genesisKey, producer.getNetworkId())});
+  ASSERT_TRUE(producer.addBlock(block).isOk());
+
+  const std::vector<utl::MlDsaKeyPair> attacker = {makeKeyPair(), makeKeyPair(), makeKeyPair(), makeKeyPair()};
+  bool sawGenesis = false;
+  for (uint64_t slot = 2; slot < 10 && !sawGenesis; ++slot) {
+    auto due = producer.collectRenewals(slot);
+    ASSERT_TRUE(due.isOk()) << due.error().message;
+    std::vector<Ledger::Record> records;
+    for (const auto &r : due.value()) {
+      records.push_back(signedByLeader(r));
+    }
+    auto sealWith = [&](const std::function<void(Chain::GenesisAccountMeta &)> &change) {
+      std::vector<Ledger::Record> changed;
+      for (const auto &r : records) {
+        if (!isGenesisRenewal(r)) {
+          changed.push_back(r);
+          continue;
+        }
+        auto tx = utl::binaryUnpack<Ledger::TxRenewal>(r.data).value();
+        Chain::GenesisAccountMeta gm = genesisMetaOf(r);
+        change(gm);
+        tx.meta = gm.ltsToString();
+        Ledger::Record record = r;
+        record.data = utl::binaryPack(tx);
+        changed.push_back(signedByLeader(record));
+      }
+      Ledger::ChainNode candidate =
+          producer.linkNextBlock(block, slot, kTestMinerId, producer.getSlotEndTime(slot), changed);
+      return producer.sealBlock(candidate);
+    };
+    for (const auto &r : records) {
+      sawGenesis = sawGenesis || isGenesisRenewal(r);
+    }
+    if (sawGenesis) {
+      auto planted = sealWith([&](Chain::GenesisAccountMeta &gm) {
+        Client::AccountRecovery &recovery = gm.genesis.wallet.recovery;
+        recovery.publicKeys = {attacker[0].publicKey};
+        recovery.minSignatures = 1;
+        recovery.delaySeconds = 1;
+        recovery.pending = true;
+        recovery.nextPublicKeys = {attacker[1].publicKey, attacker[2].publicKey, attacker[3].publicKey};
+        recovery.nextMinSignatures = 2;
+        recovery.applyEpoch = 0;
+      });
+      ASSERT_FALSE(planted.isOk()) << "a leader-signed renewal planted a recovery on genesis";
+      EXPECT_NE(planted.error().message.find("cannot change the recovery"), std::string::npos)
+          << planted.error().message;
+
+      auto meta = sealWith([](Chain::GenesisAccountMeta &gm) {
+        AccountAttachment attachment;
+        AccountAttachment::ProfileSlot profile;
+        profile.data = "planted";
+        profile.seq = 1;
+        attachment.profiles[AccountBuffer::ID_RESERVE] = profile;
+        gm.genesis.meta = attachment.ltsToString();
+      });
+      ASSERT_FALSE(meta.isOk()) << "a leader-signed renewal rewrote the genesis meta";
+      EXPECT_NE(meta.error().message.find("cannot change the meta"), std::string::npos) << meta.error().message;
+    }
+    block = makeNextBlockAtSlot(producer, block, slot, records);
+    ASSERT_TRUE(producer.addBlock(block).isOk()) << "slot " << slot;
+  }
+  ASSERT_TRUE(sawGenesis) << "genesis never fell due";
+  // The honest renewal changes nothing: the rotated admin set still signs for genesis.
+  const Client::Wallet held = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
+  EXPECT_EQ(held.publicKeys, update.genesis.wallet.publicKeys);
+  EXPECT_FALSE(held.recovery.pending);
+}
+
 // beacon-authority ba5b.2 — late join (BLOCK_PIPELINE): a node mounts at the producer's previous
 // checkpoint and warms up on CheckpointReplay, trusting blocks blindly and without config until the
 // genesis renewal installs it. Every account renews before the current checkpoint, so from there it

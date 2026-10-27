@@ -192,6 +192,14 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "Genesis renewal must carry the admin set in force (keys and threshold)");
     }
+    // Nor its recovery (a pending one would hand the admin set over at the next epoch start) or
+    // its meta: the leader re-records them as the chain holds them.
+    if (carried.recovery != held.recovery) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis renewal cannot change the recovery of genesis");
+    }
+    if (AccountBuffer::attachmentHashOf(gm.genesis.meta) != genesisAccountResult.value().attachmentHash) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis renewal cannot change the meta of genesis");
+    }
   }
 
   // Fee-free like every system account: genesis issues the native token (its

@@ -969,6 +969,40 @@ TEST_F(AccountBufferTest, Overlay_CommitKeepsChanges) {
     EXPECT_EQ(buf.calculateStateRoot(), rootAfter);
 }
 
+// projects/account-recovery: a due recovery replaces a user account's keys, never a system
+// account's — those change only by T_CONFIG and the genesis recovery set. (A leader-signed genesis
+// renewal could otherwise plant a pending recovery and seize the admin set.)
+TEST(AccountBufferRecoveryTest, DueRecoveryAppliesToUserAccountsOnly) {
+    auto withPendingRecovery = [](uint64_t id) {
+        AccountBuffer::Account a;
+        a.id = id;
+        a.wallet.publicKeys = {"old-" + std::to_string(id)};
+        a.wallet.minSignatures = 1;
+        a.wallet.keyType = Crypto::TK_ML_DSA_65;
+        a.wallet.recovery.publicKeys = {"recovery-" + std::to_string(id)};
+        a.wallet.recovery.minSignatures = 1;
+        a.wallet.recovery.pending = true;
+        a.wallet.recovery.nextPublicKeys = {"next-" + std::to_string(id)};
+        a.wallet.recovery.nextMinSignatures = 1;
+        a.wallet.recovery.applyEpoch = 3;
+        return a;
+    };
+    AccountBuffer bank;
+    ASSERT_TRUE(bank.add(withPendingRecovery(AccountBuffer::ID_GENESIS)).isOk());
+    ASSERT_TRUE(bank.add(withPendingRecovery(AccountBuffer::ID_FEE)).isOk());
+    ASSERT_TRUE(bank.add(withPendingRecovery(AccountBuffer::ID_FIRST_USER)).isOk());
+
+    const std::vector<uint64_t> applied = bank.applyDueRecoveries(3);
+
+    EXPECT_EQ(applied, std::vector<uint64_t>{AccountBuffer::ID_FIRST_USER});
+    EXPECT_EQ(bank.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys,
+              std::vector<std::string>{"old-0"}) << "the admin set was replaced by an account recovery";
+    EXPECT_EQ(bank.getAccount(AccountBuffer::ID_FEE).value().wallet.publicKeys,
+              std::vector<std::string>{"old-" + std::to_string(AccountBuffer::ID_FEE)});
+    EXPECT_EQ(bank.getAccount(AccountBuffer::ID_FIRST_USER).value().wallet.publicKeys,
+              std::vector<std::string>{"next-" + std::to_string(AccountBuffer::ID_FIRST_USER)});
+}
+
 // beacon-authority B031: the state root commits to each account's attachment (its hash in the
 // leaf), so two states that differ only in an account's profile have different roots — and the
 // same attachment gives the same root, whatever else an account went through.
