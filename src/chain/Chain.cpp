@@ -1072,11 +1072,17 @@ Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch, std::optional<uint64_t> 
     return {};
   }
 
-  // Start from the newest stored seed before this epoch. Epochs after it had no blocks: each
-  // seed follows from the one before, so a chain survives idle epochs.
-  auto base = readLatestEpochSeed(epoch - 1, end);
+  // An epoch already in a block below `end` takes that block's (validated) seed: deriving it again
+  // could miss a reveal pruned since. Otherwise start from the newest stored seed before this epoch.
+  // Epochs after it had no blocks: each seed follows from the one before, so a chain survives idle
+  // epochs.
+  auto base = readLatestEpochSeed(epoch, end);
   if (!base) {
     return Error(base.error().code, base.error().message);
+  }
+  if (base.value().first == epoch) {
+    txContext_.consensus.setEpochSeed(epoch, base.value().second);
+    return {};
   }
   if (epoch - base.value().first > consensus::kMaxEmptyEpochs + 1) {
     return Error(E_STATE_INIT, "Epoch " + std::to_string(epoch) + " is more than " +

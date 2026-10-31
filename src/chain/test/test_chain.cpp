@@ -6035,3 +6035,33 @@ TEST_F(BeaconSeedTest, ALateRevealCorrectsTheProvisionalSeed) {
   ASSERT_TRUE(producer.ensureEpochSeed(1).isOk()); // a stale cached seed would stay
   EXPECT_EQ(producer.getEpochSeed(), consensus::deriveEpochSeedV2(1, net(), seed0, testBeaconReveal(1)));
 }
+
+// A seed walked across empty epochs mixes the reveal of the first of them, which pruning drops once
+// the epoch's first block applies. The seed of an epoch already in a block is read from that block,
+// so re-deriving it later (the single-seed cache evicted by the clock's next epoch) still agrees.
+TEST_F(BeaconSeedTest, AnEpochsSeedOutlivesThePrunedReveal) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  tip = produce(tip, 3, {transferAt(3), reveal(1)});
+  ASSERT_FALSE(HasFailure());
+  // Epochs 1..4 pass without a block; epoch 5's first block walks the seed from epoch 0's.
+  const uint64_t epoch = 5;
+  const uint64_t slot = epoch * harness_.chainConfig.slotsPerEpoch + 1;
+  tip = produce(tip, slot, {transferAt(slot)});
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(tip.block.epoch, epoch);
+  std::string expected = consensus::deriveEpochSeedV2(1, net(), harness_.genesis.block.epochSeed, testBeaconReveal(1));
+  for (uint64_t e = 2; e <= epoch; ++e) {
+    expected = consensus::deriveEpochSeedV2(e, net(), expected, std::nullopt);
+  }
+  ASSERT_EQ(tip.block.epochSeed, expected);
+  ASSERT_FALSE(producer.getBeaconReveal(1).has_value()) << "pruned with epoch 5's first block";
+
+  // The clock in epoch 6 evicts epoch 5's seed; re-derived, it is still the header's.
+  producer.setClockOverride(producer.getSlotStartTime(slot + harness_.chainConfig.slotsPerEpoch));
+  producer.refreshStakeholders();
+  ASSERT_TRUE(producer.ensureEpochSeed(epoch + 1).isOk());
+  ASSERT_TRUE(producer.ensureEpochSeed(epoch).isOk());
+  EXPECT_EQ(producer.getEpochSeed(), tip.block.epochSeed);
+}
