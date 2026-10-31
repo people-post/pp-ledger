@@ -9,6 +9,8 @@
 #include "common/Logger.h"
 #include "lib/common/FileSync.h"
 #include "ledger/lib/common/Utilities.h"
+#include "ledger/consensus/EpochSeed.h"
+#include <sodium.h>
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -176,6 +178,56 @@ BeaconServer::Roe<std::string> loadOrCreateBeaconSigningKey(const std::string &w
     return pair.error();
   }
   return pair.value().publicKey;
+}
+
+/** A seed chain secret file under `workDir` (hex, 32 bytes); none when it does not exist. */
+BeaconServer::Roe<std::optional<std::string>> loadBeaconSeedSecret(const std::string &workDir,
+                                                                   const std::string &name) {
+  const std::filesystem::path path = std::filesystem::path(workDir) / name;
+  if (!std::filesystem::exists(path)) {
+    return std::optional<std::string>{};
+  }
+  std::ifstream in(path);
+  std::string hex((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  hex.erase(std::remove_if(hex.begin(), hex.end(), [](unsigned char c) { return std::isspace(c); }), hex.end());
+  const std::string secret = utl::hexDecode(hex);
+  if (secret.size() != 32) {
+    return BeaconServer::Error(BeaconServer::E_CONFIG, path.string() + " is not a hex 32-byte seed secret");
+  }
+  return std::optional<std::string>(secret);
+}
+
+/** Every start: the seed chain secret and the staged next one, each when its file exists. */
+BeaconServer::Roe<std::vector<std::string>> loadBeaconSeedSecrets(const std::string &workDir) {
+  std::vector<std::string> secrets;
+  for (const char *name : {BeaconServer::FILE_BEACON_SEED_SECRET, BeaconServer::FILE_BEACON_SEED_NEXT_SECRET}) {
+    auto secret = loadBeaconSeedSecret(workDir, name);
+    if (!secret) {
+      return secret.error();
+    }
+    if (secret.value()) {
+      secrets.push_back(*secret.value());
+    }
+  }
+  return secrets;
+}
+
+/** --init: the seed chain secret, created (0600) when its file does not exist. */
+BeaconServer::Roe<std::string> loadOrCreateBeaconSeedSecret(const std::string &workDir) {
+  auto existing = loadBeaconSeedSecret(workDir, BeaconServer::FILE_BEACON_SEED_SECRET);
+  if (!existing) {
+    return existing.error();
+  }
+  if (existing.value()) {
+    return *existing.value();
+  }
+  std::string secret(32, '\0');
+  randombytes_buf(secret.data(), secret.size());
+  const std::filesystem::path path = std::filesystem::path(workDir) / BeaconServer::FILE_BEACON_SEED_SECRET;
+  if (auto w = utl::writeToNewFile(path.string(), utl::hexEncode(secret) + "\n"); !w) {
+    return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to write " + path.string() + ": " + w.error().message);
+  }
+  return secret;
 }
 
 /** `entry.publicKeys` (hex ML-DSA-65) and optional `minSignatures` (1..count; default all). */
@@ -763,10 +815,20 @@ BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::strin
   initConfig.authority.beacon.generation = 1;
   initConfig.authority.beacon.publicKey = signingKey.value();
   initConfig.authority.beacon.cutoverHeight = 0;
+  auto seedSecret = loadOrCreateBeaconSeedSecret(workDir);
+  if (!seedSecret) {
+    return seedSecret.error();
+  }
+  initConfig.authority.beacon.seedAnchor =
+      consensus::beaconSeedValue(seedSecret.value(), consensus::kDefaultBeaconSeedChainLength);
+  initConfig.authority.beacon.seedAnchorEpoch = 0;
+  initConfig.authority.beacon.seedChainLength = consensus::kDefaultBeaconSeedChainLength;
   log().info << "  Recovery set: " << initConfig.authority.recovery.publicKeys.size() << " key(s), "
              << static_cast<int>(initConfig.authority.recovery.minSignatures) << " to sign, delay "
              << initConfig.authority.recovery.delayEpochs << " epoch(s)";
   log().info << "  Beacon signing key: " << FILE_BEACON_SIGNING_KEY << " (generation 1)";
+  log().info << "  Beacon seed chain: " << FILE_BEACON_SEED_SECRET << " (" << consensus::kDefaultBeaconSeedChainLength
+             << " epochs from epoch 0)";
 
   static_cast<chain_genesis::SystemKeys &>(initConfig.key) = initFileConfig.systemAccounts;
   initConfig.key.names = initFileConfig.systemAccounts.names;
@@ -958,21 +1020,9 @@ Service::Roe<void> BeaconServer::onStart() {
   log().info << "Configuration loaded";
   log().info << "  UDP port: " << config_.network.udp_port;
 
-  // Initialize beacon core with mount config
-  Beacon::MountConfig mountConfig;
-  mountConfig.workDir = getWorkDir() + "/" + DIR_DATA;
-
-  auto beaconMount = beacon_.mount(mountConfig);
-  if (!beaconMount) {
-    return Service::Error(-4, "Failed to mount Beacon: " +
-                                  beaconMount.error().message);
-  }
-
-  log().info << "Beacon core initialized";
-
-  auto signingKeys = loadBeaconSigningKeys(getWorkDir());
+  auto signingKeys = openBeacon(getWorkDir());
   if (!signingKeys) {
-    return Service::Error(E_CONFIG, signingKeys.error().message);
+    return Service::Error(signingKeys.error().code, signingKeys.error().message);
   }
   if (promote_) {
     if (auto promotable = checkPromotion(signingKeys.value()); !promotable) {
@@ -1014,6 +1064,34 @@ Service::Roe<void> BeaconServer::onStart() {
   }
 
   initHandlers();
+  return {};
+}
+
+BeaconServer::Roe<std::vector<utl::MlDsaKeyPair>> BeaconServer::openBeacon(const std::string &workDir) {
+  Beacon::MountConfig mountConfig;
+  mountConfig.workDir = workDir + "/" + DIR_DATA;
+  if (auto mounted = beacon_.mount(mountConfig); !mounted) {
+    return Error(-4, "Failed to mount Beacon: " + mounted.error().message);
+  }
+  log().info << "Beacon core initialized";
+  auto secrets = loadBeaconSeedSecrets(workDir);
+  if (!secrets) {
+    return secrets.error();
+  }
+  seedSecrets_ = std::move(secrets.value());
+  return loadBeaconSigningKeys(workDir);
+}
+
+BeaconServer::Roe<void> BeaconServer::openForTest(const std::string &workDir, std::optional<int64_t> clockSeconds) {
+  auto keys = openBeacon(workDir);
+  if (!keys) {
+    return keys.error();
+  }
+  if (auto signing = beacon_.openTipSigning(keys.value()); !signing) {
+    return Error(-4, "Failed to open tip signing: " + signing.error().message);
+  }
+  beacon_.setClockOverride(clockSeconds);
+  beacon_.refresh();
   return {};
 }
 
@@ -1206,6 +1284,7 @@ void BeaconServer::runLoop() {
     try {
       orderRewindIfDue();
       beacon_.refresh();
+      submitBeaconSeedIfDue();
       serveRequestsFor(std::chrono::milliseconds(100));
     } catch (const std::exception& e) {
       log().error << "Exception in the run loop: " << e.what();
@@ -1336,19 +1415,12 @@ void BeaconServer::dTxAdd(const Client::Request &request, const RequestQueue::Re
     refuse(haltedMessage(*above));
     return;
   }
-  const int64_t now = nowSeconds();
-  // Only what could apply takes a place in the pool (load-resilience lr4): a badly signed or unfunded
-  // record would be pulled by every leader and refused by each, ahead of valid ones, until it expires.
-  if (auto admitted = beacon_.checkAdmission(record.value(), now, /*verifySignatures=*/true); !admitted) {
-    refuse("Transaction refused: " + admitted.error().message);
+  auto admitted = admitToPool(record.value());
+  if (!admitted) {
+    refuse(admitted.error().message);
     return;
   }
-  txPool_.expire(now);
-  const auto key = beacon_.idempotencyKeyOf(record.value());
-  // Every record counts against a payer's share. Admission refuses keyless records but the admins'
-  // (a config with no id, a certificate): those count against the genesis account.
-  const uint64_t sender = key ? key->first : AccountBuffer::ID_GENESIS;
-  switch (txPool_.add(record.value(), now, sender)) {
+  switch (admitted.value()) {
   case TxPool::Add::Added:
     reply(packResponse("Transaction submitted"));
     return;
@@ -1358,13 +1430,97 @@ void BeaconServer::dTxAdd(const Client::Request &request, const RequestQueue::Re
   case TxPool::Add::Full:
     reply(packError(Client::E_POOL_FULL, "Transaction pool full, please retry later", poolRetryAfterMs()));
     return;
-  case TxPool::Add::SenderFull:
+  case TxPool::Add::SenderFull: {
+    const auto key = beacon_.idempotencyKeyOf(record.value());
+    const uint64_t sender = key ? key->first : AccountBuffer::ID_GENESIS;
     reply(packError(Client::E_POOL_FULL,
                     "Too many transactions of account " + std::to_string(sender) + " pooled, please retry later",
                     poolRetryAfterMs()));
     return;
   }
+  }
   refuse("Transaction not accepted");
+}
+
+BeaconServer::Roe<TxPool::Add> BeaconServer::admitToPool(const Ledger::Record &record) {
+  const int64_t now = nowSeconds();
+  // Only what could apply takes a place in the pool (load-resilience lr4): a badly signed or unfunded
+  // record would be pulled by every leader and refused by each, ahead of valid ones, until it expires.
+  if (auto admitted = beacon_.checkAdmission(record, now, /*verifySignatures=*/true); !admitted) {
+    return Error(E_REQUEST, "Transaction refused: " + admitted.error().message);
+  }
+  txPool_.expire(now);
+  const auto key = beacon_.idempotencyKeyOf(record);
+  // Every record counts against a payer's share. Admission refuses keyless records but the admins'
+  // (a config with no id, a certificate) and the beacon's reveals: those count against the genesis
+  // account.
+  const uint64_t sender = key ? key->first : AccountBuffer::ID_GENESIS;
+  return txPool_.add(record, now, sender);
+}
+
+void BeaconServer::submitBeaconSeedIfDue() {
+  // Taking over: the key in force is the old beacon's, so this one cannot sign a reveal yet.
+  if (beacon_.supersededBy() || beacon_.haltedAbove() || beacon_.takingOver()) {
+    return;
+  }
+  const auto authority = beacon_.getAuthority();
+  if (!authority || !authority->beacon.hasSeedChain()) {
+    return;
+  }
+  const BeaconCertificate &cert = authority->beacon;
+  const uint64_t target = beacon_.getCurrentEpoch() + 1;
+  if (target <= cert.seedAnchorEpoch || target - cert.seedAnchorEpoch > cert.seedChainLength ||
+      beacon_.getBeaconReveal(target)) {
+    return;
+  }
+  const uint64_t slot = beacon_.getCurrentSlot();
+  if (seedRecord_ && seedRecordEpoch_ == target && seedPooledSlot_ == slot) {
+    return; // tried this slot already
+  }
+  if (seedMatchedAnchor_ != cert.seedAnchor) {
+    // Up to seedChainLength hashes per secret: once per anchor.
+    seedMatchedAnchor_ = cert.seedAnchor;
+    seedMatchedSecret_.reset();
+    for (const auto &secret : seedSecrets_) {
+      if (consensus::beaconSeedValue(secret, cert.seedChainLength) == cert.seedAnchor) {
+        seedMatchedSecret_ = secret;
+        break;
+      }
+    }
+    if (!seedMatchedSecret_) {
+      log().warning << "Beacon generation " << cert.generation << " commits to a seed chain no secret here matches ("
+                    << FILE_BEACON_SEED_SECRET << ", " << FILE_BEACON_SEED_NEXT_SECRET
+                    << "): this beacon reveals no epoch seed";
+    }
+  }
+  if (!seedMatchedSecret_) {
+    return;
+  }
+  if (!seedRecord_ || seedRecordEpoch_ != target) {
+    Ledger::TxBeaconSeed tx;
+    tx.epoch = target;
+    tx.reveal = consensus::beaconSeedValue(*seedMatchedSecret_, cert.seedChainLength - (target - cert.seedAnchorEpoch));
+    Ledger::Record record;
+    record.type = Ledger::T_BEACON_SEED;
+    record.data = utl::binaryPack(tx);
+    auto signature = beacon_.signAsCertified(record.signingMessage(beacon_.getNetworkId()));
+    if (!signature) {
+      log().debug << "Seed reveal for epoch " << target << " not signed: " << signature.error().message;
+      return;
+    }
+    record.signatures = {signature.value()};
+    seedRecord_ = std::move(record);
+    seedRecordEpoch_ = target;
+    seedPooledSlot_.reset();
+  }
+  // Once a slot: a refusal (the pool full, the slot judged still the epoch before) is retried at the next.
+  seedPooledSlot_ = slot;
+  auto pooled = admitToPool(*seedRecord_);
+  if (!pooled) {
+    log().debug << "Seed reveal for epoch " << target << " not pooled: " << pooled.error().message;
+  } else if (pooled.value() == TxPool::Add::Added) {
+    log().info << "Pooled the beacon's seed reveal for epoch " << target;
+  }
 }
 
 uint32_t BeaconServer::poolRetryAfterMs() const {

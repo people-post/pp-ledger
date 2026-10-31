@@ -68,6 +68,10 @@ public:
   // ----------------- authority -------------------------------------
   /** The beacon generation in force (0 before the chain is loaded). */
   uint64_t getGeneration() const;
+  /** Recovery set and beacon certificate in force; none before genesis is applied. */
+  std::optional<Chain::ChainAuthority> getAuthority() const { return chain_.getAuthority(); }
+  /** The beacon's seed reveal for `epoch` the chain holds (Chain::getBeaconReveal). */
+  std::optional<std::string> getBeaconReveal(uint64_t epoch) const { return chain_.getBeaconReveal(epoch); }
   /** The current certificate for STATUS (Chain::currentCertificateRecord). */
   std::optional<Ledger::Record> getCurrentCertificate() const { return chain_.currentCertificateRecord(); }
   /** The certificate held out of band, above the generation in force (Chain::seenCertificate). */

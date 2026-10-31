@@ -10,6 +10,7 @@
 #include "common/ResultOrError.hpp"
 #include "ledger/lib/common/Meta.h"
 #include <map>
+#include <optional>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -29,6 +30,10 @@ public:
   /** Optional: a key staged for a rotation; signs once a certificate names it. */
   constexpr static const char *FILE_BEACON_SIGNING_NEXT_KEY = "keys/beacon-signing.next.key";
   constexpr static const char *FILE_BEACON_SIGNING_NEXT_PUB = "keys/beacon-signing.next.pub";
+  /** The secret of the beacon's seed hash chain (hex, 32 bytes); its last link is the certificate's anchor. */
+  constexpr static const char *FILE_BEACON_SEED_SECRET = "keys/beacon-seed.secret";
+  /** Optional: the secret of a seed chain staged for a rotation; used once a certificate's anchor is its. */
+  constexpr static const char *FILE_BEACON_SEED_NEXT_SECRET = "keys/beacon-seed.next.secret";
 
   BeaconServer();
   ~BeaconServer() override = default;
@@ -74,6 +79,22 @@ public:
    * ledger's last block as the tip (Beacon::openTipSigning refuses that by default).
    */
   void setAcceptLedgerTip(bool accept) { acceptLedgerTip_ = accept; }
+
+  /**
+   * Server thread (each run loop turn): while the clock is in epoch E-1 and the chain has no reveal
+   * for E, pool this beacon's signed reveal for E — when the certificate in force has a seed chain
+   * covering E and this beacon holds its key and the secret whose last link is its anchor. Nothing
+   * once it stood down or halted.
+   */
+  void submitBeaconSeedIfDue();
+
+  /**
+   * Tests: open `workDir` as a start does (the chain, the signing keys, the seed secrets) with no
+   * config or network, the chain reading `clockSeconds` (none: the real clock).
+   */
+  Roe<void> openForTest(const std::string &workDir, std::optional<int64_t> clockSeconds);
+  /** Tests: what the pool holds for the slot leader. */
+  std::vector<Ledger::Record> pooledForTest() const { return txPool_.pending(SIZE_MAX); }
 
 protected:
   bool useSignatureFile() const override { return false; }
@@ -220,6 +241,11 @@ private:
   /** --promote: config.json becomes config.relay.json; the beacon's is written in its place. */
   Roe<void> writeBeaconConfig(RunFileConfig config) const;
   void initHandlers();
+  /**
+   * A start, before tip signing opens: mount the chain under `workDir` and load the signing keys
+   * (returned) and the seed secrets.
+   */
+  Roe<std::vector<utl::MlDsaKeyPair>> openBeacon(const std::string &workDir);
 
   /**
    * Record (or renew) a miner. Stamped with the beacon's clock; the registry
@@ -242,6 +268,11 @@ private:
   Roe<std::string> hStatus(const Client::Request &request);
   Roe<std::string> hRegister(const Client::Request &request);
   Roe<std::string> hMinerList(const Client::Request &request);
+  /**
+   * What every record the pool takes passes (load-resilience lr4): admission on the committed
+   * state, then the pool's own limits. Signatures are checked here.
+   */
+  Roe<TxPool::Add> admitToPool(const Ledger::Record &record);
   /** TX_ADD reached the top of the tree: hold it in the pool for the slot leader (E_POOL_FULL when it cannot). */
   void dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply);
   /** When a full pool asks a client to try again (LR007): the blocks it takes to drain, in slots. */
@@ -264,6 +295,16 @@ private:
 
   MinerRegistry miners_;
   TxPool txPool_;
+
+  /** Seed chain secrets loaded at start: the current one, then the staged next one (either may be absent). */
+  std::vector<std::string> seedSecrets_;
+  /** The anchor last matched against seedSecrets_, and the secret that hashes to it (none: no match). */
+  std::string seedMatchedAnchor_;
+  std::optional<std::string> seedMatchedSecret_;
+  /** The reveal last built (signed once: a retry pools the same bytes) and the slot it was last offered to the pool. */
+  std::optional<Ledger::Record> seedRecord_;
+  uint64_t seedRecordEpoch_{0};
+  std::optional<uint64_t> seedPooledSlot_;
   /** A miner record not renewed this long is dropped (miners renew every MinerServer::REGISTER_RENEW_INTERVAL). */
   static constexpr std::chrono::minutes MINER_RECORD_TTL{5};
 };

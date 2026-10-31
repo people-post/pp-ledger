@@ -41,18 +41,16 @@ TipSigner::Roe<void> TipSigner::sign(const BeaconCertificate &cert, uint64_t hei
                                  ": the beacon already signed a different block at or above it (height " +
                                  std::to_string(latest_->height) + ")");
   }
-  const auto key = std::find_if(keys_.begin(), keys_.end(),
-                                [&](const auto &held) { return held.publicKey == cert.publicKey; });
-  if (key == keys_.end()) {
-    return Error(E_NOT_CERTIFIED, "Beacon generation " + std::to_string(cert.generation) +
-                                      " certifies a key this beacon does not hold");
+  auto key = certifiedKey(cert);
+  if (!key) {
+    return key.error();
   }
   Client::SignedTip tip;
   tip.networkId = cert.networkId;
   tip.generation = cert.generation;
   tip.height = height;
   tip.blockHash = blockHash;
-  auto signature = utl::mlDsaSign(key->privateKey, tip.signingMessage());
+  auto signature = utl::mlDsaSign(key.value()->privateKey, tip.signingMessage());
   if (!signature) {
     return Error(E_IO, "Failed to sign tip: " + signature.error().message);
   }
@@ -62,6 +60,28 @@ TipSigner::Roe<void> TipSigner::sign(const BeaconCertificate &cert, uint64_t hei
   }
   latest_ = std::move(tip);
   return {};
+}
+
+TipSigner::Roe<std::string> TipSigner::signMessage(const BeaconCertificate &cert, const std::string &message) const {
+  auto key = certifiedKey(cert);
+  if (!key) {
+    return key.error();
+  }
+  auto signature = utl::mlDsaSign(key.value()->privateKey, message);
+  if (!signature) {
+    return Error(E_IO, "Failed to sign: " + signature.error().message);
+  }
+  return signature.value();
+}
+
+TipSigner::Roe<const utl::MlDsaKeyPair *> TipSigner::certifiedKey(const BeaconCertificate &cert) const {
+  const auto key = std::find_if(keys_.begin(), keys_.end(),
+                                [&](const auto &held) { return held.publicKey == cert.publicKey; });
+  if (key == keys_.end()) {
+    return Error(E_NOT_CERTIFIED, "Beacon generation " + std::to_string(cert.generation) +
+                                      " certifies a key this beacon does not hold");
+  }
+  return &*key;
 }
 
 TipSigner::Roe<void> TipSigner::persist(const Client::SignedTip &tip) const {

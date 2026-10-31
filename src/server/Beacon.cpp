@@ -249,6 +249,14 @@ std::optional<Client::SignedTip> Beacon::getSignedTip() const {
   return tipSigner_ ? tipSigner_->latest() : std::nullopt;
 }
 
+TipSigner::Roe<std::string> Beacon::signAsCertified(const std::string &message) const {
+  const auto authority = chain_.getAuthority();
+  if (!tipSigner_ || !authority) {
+    return TipSigner::Error(TipSigner::E_NOT_CERTIFIED, "Tip signing is not open");
+  }
+  return tipSigner_->signMessage(authority->beacon, message);
+}
+
 std::optional<uint64_t> Beacon::supersededBy() const {
   const auto authority = chain_.getAuthority();
   if (!tipSigner_ || !authority) {
