@@ -800,7 +800,11 @@ pp::Roe<Summary> summarize(const Operation &op) {
                {"Beacon key", fingerprint(cert.publicKey)},
                {"Cutover", cert.hasCutover() ? "block " + groupDigits(cert.cutoverHeight) + " (blocks after it are dropped)"
                                              : "none"},
-               {"Dial hints", std::to_string(cert.dialHints.size())}};
+               {"Dial hints", std::to_string(cert.dialHints.size())},
+               {"Seed anchor", cert.hasSeedChain() ? utl::hexEncode(cert.seedAnchor) + ", epoch " +
+                                                         std::to_string(cert.seedAnchorEpoch) + ", " +
+                                                         std::to_string(cert.seedChainLength) + " epochs"
+                                                   : "none"}};
     break;
   }
   case Kind::Recovery: {

@@ -12,6 +12,7 @@
 #include "chain/PredecessorCheck.h"
 #include "chain/StateSnapshot.h"
 #include "ledger/chain/Types.h"
+#include "ledger/consensus/EpochSeed.h"
 #include "ledger/consensus/Types.hpp"
 #include "ledger/network/LedgerAmpRuntime.h"
 #include "ledger/network/amp/AmpIdentity.h"
@@ -22,6 +23,7 @@
 #include "common/io/Json.h"
 
 #include <cli11.hpp>
+#include <sodium.h>
 
 #include <algorithm>
 #include <map>
@@ -371,7 +373,8 @@ static pp::Roe<std::string> describeCutover(pp::Client &client, uint64_t cutover
  */
 static int runMkBeaconCert(const std::string &networkId, uint64_t generation, const std::string &pubkeyArg,
                            uint64_t cutoverHeight, const std::string &cutoverHash,
-                           const std::vector<std::string> &dialHints, const std::string &outputPath) {
+                           const std::vector<std::string> &dialHints, const std::string &seedAnchorArg,
+                           uint64_t seedAnchorEpoch, uint64_t seedChainLength, const std::string &outputPath) {
   pp::BeaconCertificate cert;
   cert.networkId = networkId;
   cert.generation = generation;
@@ -382,6 +385,20 @@ static int runMkBeaconCert(const std::string &networkId, uint64_t generation, co
   if (cert.publicKey.empty()) {
     std::cerr << "Error: --pubkey must be an ML-DSA-65 public key (hex or a .pub file)\n";
     return 1;
+  }
+  if (!seedAnchorArg.empty()) {
+    std::string hex = seedAnchorArg.rfind("0x", 0) == 0 ? seedAnchorArg.substr(2) : seedAnchorArg;
+    cert.seedAnchor = pp::utl::hexDecode(hex);
+    if (cert.seedAnchor.size() != 32) {
+      std::cerr << "Error: --seed-anchor must be 32 bytes (64 hex chars), as beacon-seed-keygen prints it\n";
+      return 1;
+    }
+    if (seedChainLength < 1 || seedChainLength > pp::consensus::kMaxBeaconSeedChainLength) {
+      std::cerr << "Error: --seed-chain-length must be 1 to " << pp::consensus::kMaxBeaconSeedChainLength << "\n";
+      return 1;
+    }
+    cert.seedAnchorEpoch = seedAnchorEpoch;
+    cert.seedChainLength = seedChainLength;
   }
   pp::Ledger::TxBeaconCert tx;
   tx.fee = 0;
@@ -397,6 +414,31 @@ static int runMkBeaconCert(const std::string &networkId, uint64_t generation, co
   }
   std::cout << "Beacon certificate (generation " << generation << ") written to " << outputPath
             << "; sign it with the admin keys (sign-tx --network-id " << networkId << ") and submit-tx\n";
+  if (!cert.hasSeedChain()) {
+    std::cout << "Note: no --seed-anchor, so this beacon will contribute no seed (every epoch uses the absent seed)\n";
+  }
+  return 0;
+}
+
+/** beacon-seed-keygen: a seed chain secret, written like the beacon's own (hex, 0600, never overwritten). */
+static int runBeaconSeedKeygen(const std::string &outputPath, uint64_t length) {
+  if (length < 1 || length > pp::consensus::kMaxBeaconSeedChainLength) {
+    std::cerr << "Error: --length must be 1 to " << pp::consensus::kMaxBeaconSeedChainLength << "\n";
+    return 1;
+  }
+  std::string secret(32, '\0');
+  randombytes_buf(secret.data(), secret.size());
+  auto written = pp::utl::writeToNewFile(outputPath, pp::utl::hexEncode(secret) + "\n");
+  if (!written) {
+    std::cerr << "Error: " << outputPath << ": " << written.error().message << "\n";
+    return 1;
+  }
+  std::cout << "Seed secret written to " << outputPath << " (keep secret; the beacon reads it as keys/beacon-seed.next.secret "
+            << "until promoted)\n"
+            << "Seed anchor (hex):  " << pp::utl::hexEncode(pp::consensus::beaconSeedValue(secret, length)) << "\n"
+            << "Chain length:       " << length << " epochs\n"
+            << "Certify with: mk-beacon-cert --seed-anchor <anchor> --seed-anchor-epoch <an epoch at or before the one the certificate commits in> "
+            << "--seed-chain-length " << length << "\n";
   return 0;
 }
 
@@ -944,7 +986,24 @@ int main(int argc, char *argv[]) {
   mk_cert_cmd->add_option("--dial-hint", mk_cert_hints,
                           "A relay in front of the new beacon (ADP multiaddr), where nodes may look for it; "
                           "repeat for more (at most 8)");
+  std::string mk_cert_seed_anchor;
+  uint64_t mk_cert_seed_anchor_epoch = 0, mk_cert_seed_chain_length = pp::consensus::kDefaultBeaconSeedChainLength;
+  mk_cert_cmd->add_option("--seed-anchor", mk_cert_seed_anchor,
+                          "Anchor (hex) of the new beacon's seed chain, as beacon-seed-keygen prints it. "
+                          "Default: none (the beacon contributes no seed)");
+  mk_cert_cmd->add_option("--seed-anchor-epoch", mk_cert_seed_anchor_epoch,
+                          "Epoch the anchor stands for; reveals count back from it (default 0)");
+  mk_cert_cmd->add_option("--seed-chain-length", mk_cert_seed_chain_length,
+                          "Epochs the chain covers, 1 to 100000 (default 10000)");
   mk_cert_cmd->add_option("-o,--output", mk_cert_output, "Output file (must not exist)")->required();
+
+  // beacon-seed-keygen: the secret behind a certificate's seedAnchor
+  auto* seed_keygen_cmd = app.add_subcommand("beacon-seed-keygen",
+                                             "Generate a beacon seed chain secret and print its anchor");
+  std::string seedKeygenOut;
+  uint64_t seedKeygenLength = pp::consensus::kDefaultBeaconSeedChainLength;
+  seed_keygen_cmd->add_option("-o,--out", seedKeygenOut, "Secret file (hex, 0600; never overwrites)")->required();
+  seed_keygen_cmd->add_option("--length", seedKeygenLength, "Epochs the chain covers, 1 to 100000 (default 10000)");
 
   // mk-recovery (beacon-authority ba7)
   auto* mk_recovery_cmd = app.add_subcommand(
@@ -1194,6 +1253,10 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
+  if (seed_keygen_cmd->parsed()) {
+    return runBeaconSeedKeygen(seedKeygenOut, seedKeygenLength);
+  }
+
   // Handle mk-tx (no server connection needed)
   if (mk_tx_cmd->parsed()) {
     return runMkTx(mk_from, mk_to, mk_amount, mk_output);
@@ -1202,7 +1265,7 @@ int main(int argc, char *argv[]) {
   const bool mkCertNeedsNode = mk_cert_cmd->parsed() && mk_cert_cutover != pp::BeaconCertificate::kNoCutover;
   if (mk_cert_cmd->parsed() && !mkCertNeedsNode) {
     return runMkBeaconCert(mk_cert_network, mk_cert_generation, mk_cert_pubkey, mk_cert_cutover, "", mk_cert_hints,
-                           mk_cert_output);
+                           mk_cert_seed_anchor, mk_cert_seed_anchor_epoch, mk_cert_seed_chain_length, mk_cert_output);
   }
   if (mkCertNeedsNode && !connectToBeacon) {
     std::cerr << "Error: --cutover reads the block from a node: give -b --host <relay or beacon multiaddr>.\n";
@@ -1329,7 +1392,8 @@ int main(int argc, char *argv[]) {
       return 1;
     }
     return runMkBeaconCert(mk_cert_network, mk_cert_generation, mk_cert_pubkey, mk_cert_cutover, hash.value(),
-                           mk_cert_hints, mk_cert_output);
+                           mk_cert_hints, mk_cert_seed_anchor, mk_cert_seed_anchor_epoch, mk_cert_seed_chain_length,
+                           mk_cert_output);
   }
 
   if (op_cmds.parsed()) {

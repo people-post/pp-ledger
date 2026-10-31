@@ -13,8 +13,12 @@ Matches `Chain` / block validation (see
 - Eligible **committee**: all positive-stake accounts if ≤100, else **top 100 by
   stake** (id ascending tie-break).
 - **Epoch seed** (`EpochSeed.h`): 32-byte header field; genesis from network id +
-  config digest; later epochs from prior seed + lookback tip material + stake
-  snapshot.
+  config digest (`deriveGenesisEpochSeed`); later epochs `deriveEpochSeedV2`: prior seed +
+  the beacon's hash-chain reveal (or "absent"), no block hashes and no stake hash.
+  `beaconSeedStep` / `beaconSeedValue` / `verifyBeaconSeedReveal` are the chain `H`, `H^n` and
+  the check against a certificate's anchor.
+- The committee of epoch `E` is fixed one epoch ahead (the state after the last block of
+  epochs ≤ `E-2`), in `Chain::committeeFor`.
 - **Equal weight** within the committee (intentional): leader index from
   `SHA-256("pp-ledger/slot-committee/v2" || slot || epoch || epochSeed)`
   (first 8 bytes BE) mod pool size. Stake gates *entry* to the committee, not

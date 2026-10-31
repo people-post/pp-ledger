@@ -30,7 +30,7 @@ no migration (networks start from a new genesis on a change).
 | Form | Version | Fields, in order | Carried in |
 |------|---------|------------------|-----------|
 | `ChainAuthority` | — (genesis meta v14) | `recovery {publicKeys, minSignatures, delayEpochs}`, `beacon` (a `BeaconCertificate`, unversioned), `hasPendingRecovery`, `pendingRecovery {announcement, announcedAt, applyEpoch}` | `GenesisAccountMeta.authority` ([WIRE_SCHEMA.md § Config updates](WIRE_SCHEMA.md#config-updates)) |
-| `BeaconCertificate` | 2 | `networkId`, `generation`, `publicKey`, `cutoverHeight`, `cutoverHash`, `dialHints` | `T_BEACON_CERT` `meta` |
+| `BeaconCertificate` | 3 | `networkId`, `generation`, `publicKey`, `cutoverHeight`, `cutoverHash`, `dialHints`, `seedAnchor`, `seedAnchorEpoch`, `seedChainLength` | `T_BEACON_CERT` `meta` |
 | `RecoveryAnnouncement` | 1 | `networkId`, `adminPublicKeys`, `adminMinSignatures` (`uint8`) | `T_RECOVERY` `meta` |
 | `SignedTip` | 1 | `networkId`, `generation`, `height`, `blockHash` (raw), `signature` | `STATUS.signedTip`, `data/signed-tip.dat` |
 | `TipReply` | — | `nextBlockId`, `hasSignedTip`, `signedTip` (unversioned) | `BLOCK_WAIT`, `BLOCK_ADD` replies |
@@ -61,16 +61,17 @@ meta, except as the records below change it.
 | `beacon.publicKey` | Raw ML-DSA-65 beacon signing key: neither an admin nor a recovery key |
 | `beacon.cutoverHeight` | 0 at genesis |
 | `beacon.cutoverHash`, `beacon.dialHints` | Empty hash at genesis; hints optional (as below) |
+| `beacon.seedAnchor`, `beacon.seedAnchorEpoch`, `beacon.seedChainLength` | The beacon's seed chain ([§ Seed chain](#seed-chain)); `--init` sets anchor `H^10000(s)`, epoch 0, length 10000 |
 
 Code: `ChainAuthority`, checks in `chain_tx::validateGenesisAuthority`. `pp-beacon --init`
-generates the generation-1 key (`keys/beacon-signing.key`, `.pub`) and certifies it in the
-genesis record.
+generates the generation-1 key (`keys/beacon-signing.key`, `.pub`) and the seed secret
+(`keys/beacon-seed.secret`, hex, 0600), and certifies both in the genesis record.
 
 ## Later generations — `T_BEACON_CERT` (record 18)
 
 The admin set (genesis account, its `minSignatures`) certifies the next beacon. The record's `meta`
-is a `BeaconCertificate` (version `2`, then `networkId`, `generation`, `publicKey`,
-`cutoverHeight`, `cutoverHash`, `dialHints`); fee `0`; when `idempotentId` is non-zero (`mk-beacon-cert` sets one), an
+is a `BeaconCertificate` (version `3`, then `networkId`, `generation`, `publicKey`,
+`cutoverHeight`, `cutoverHash`, `dialHints`, `seedAnchor`, `seedAnchorEpoch`, `seedChainLength`); fee `0`; when `idempotentId` is non-zero (`mk-beacon-cert` sets one), an
 idempotency key (genesis account, `idempotentId`) with the usual validation window — except a certificate
 with a cutover, which has neither: it commits only in block `cutoverHeight` + 1, after the new beacon
 takes over, and binds nodes out of band until then ([§ Taking over](#taking-over)). Rules (`chain_tx::validateNextBeaconCertificate`):
@@ -93,6 +94,8 @@ takes over, and binds nodes out of band until then ([§ Taking over](#taking-ove
 - `dialHints`: at most 8 multiaddrs (each 1–256 bytes) of gateways — relays in front of the new
   beacon, never the beacon itself — where nodes may look for it (`--dial-hint`). Hints only: nodes
   trust tips, not addresses;
+- `seedAnchor` is empty or 32 bytes; with an anchor, `seedChainLength` is 1 to 100000
+  ([§ Seed chain](#seed-chain)). A certificate without one is legal: the beacon contributes no seed;
 - not in the genesis block (that block certifies generation 1);
 - **at most one per block** — a block holding two is refused whole (`validateAuthorityRecordCount`;
   `AuthorityTrail` likewise). The certificate is in force as soon as its block applies; a genesis
@@ -101,6 +104,41 @@ takes over, and binds nodes out of band until then ([§ Taking over](#taking-ove
 Out of band (a certificate a node receives outside a block), `Chain::verifyBeaconCertificateRecord`
 checks the same record against the authority the node has: any generation above the one in force
 passes, so a node that is behind can still recognise a newer beacon.
+
+## Seed chain
+
+The beacon contributes to each epoch's seed without being able to choose it late. The certificate
+commits to a hash chain: `seedAnchor` = `H^N(s)` for a secret `s`, `H(x) = SHA-256("pp-ledger/beacon-seed/v1" || x)`,
+`N` = `seedChainLength`, counted from `seedAnchorEpoch`. The reveal for epoch `e`
+(`seedAnchorEpoch < e ≤ seedAnchorEpoch + N`) is `H^(N − (e − seedAnchorEpoch))(s)`; the beacon
+publishes it during epoch `e − 1` in a `T_BEACON_SEED` record ([WIRE_SCHEMA.md](WIRE_SCHEMA.md#t_beacon_seed-record-22)),
+signed by the certified beacon key, and the seed of `e` mixes it
+([WIRE_SCHEMA.md § Epoch seed](WIRE_SCHEMA.md#epoch-seed)). An empty `seedAnchor`, a chain used up, or
+a missing reveal gives the "absent" seed for that epoch: the network goes on, only without the
+beacon's contribution.
+
+Secret files (hex, 0600, in the beacon's work directory):
+
+| File | Use |
+|------|-----|
+| `keys/beacon-seed.secret` | Written by `--init` (never overwritten); its anchor is in the genesis certificate |
+| `keys/beacon-seed.next.secret` | Optional; staged for a promoted generation |
+
+The beacon matches the certificate in force against both files and pools its reveal for the next
+epoch each turn until the chain records it. If neither matches, it logs a warning and reveals nothing.
+Permissions are not checked on load.
+
+**Promotion.** The new beacon's chain is made before the certificate:
+
+1. `pp-client beacon-seed-keygen -o beacon-seed.next.secret [--length N]` prints the anchor and
+   length (default 10000); the secret is never printed. Copy the file to the promoted beacon's
+   `keys/beacon-seed.next.secret`.
+2. `pp-client mk-beacon-cert ... --seed-anchor <hex> --seed-anchor-epoch <n> --seed-chain-length <N>`;
+   `<n>` is an epoch at or before the one the certificate commits in. Without `--seed-anchor` the
+   certificate has no seed chain and the tool says so.
+3. The admins sign (`sign-tx`) and `submit-tx`, as for any certificate.
+
+This change is for new networks only: certificates before version 3 are not readable.
 
 ## Recovery — `T_RECOVERY` (record 19)
 

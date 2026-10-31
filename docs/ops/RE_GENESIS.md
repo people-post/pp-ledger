@@ -6,6 +6,10 @@ or stolen, and the recovery set cannot act. A new network starts whose accounts 
 a chosen block *H*, and every node checks that they are. Drilled by
 `./scripts/test/pp_ledger_local_test.sh run --suite regenesis` (L-SMOKE-REGENESIS).
 
+The beacon seed chain (certificate version 3, `T_BEACON_SEED`, committee lag) is a new-network-only
+change: certificates, chains and ledgers from before it are not readable, so adopting it is a new
+network, as a re-genesis is.
+
 Not this runbook:
 
 - **The recovery set can act** — it replaces the admin set, then case 2 follows

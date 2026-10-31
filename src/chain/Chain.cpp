@@ -94,8 +94,9 @@ Chain::admissionModeFor(uint64_t blockIndex) const {
   }
   // Late join: loadFromLedger(startingBlockId) sets lastId == currentId ==
   // startingBlockId. Until a later checkpoint rotates currentId forward,
-  // ingest stays CheckpointReplay (structural + soft txs). Tip peers that
-  // started from genesis keep Full for index >= currentId.
+  // ingest stays CheckpointReplay (structural + soft txs); after it, Full.
+  // A replay asks this per block, so it admits each block as live did.
+  // Tip peers that started from genesis keep Full for index >= currentId.
   if (txContext_.checkpoint.currentId == txContext_.checkpoint.lastId) {
     return chain_block::BlockAdmissionMode::CheckpointReplay;
   }
