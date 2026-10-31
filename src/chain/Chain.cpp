@@ -1032,33 +1032,6 @@ void Chain::refreshStakeholders(uint64_t blockSlot) {
   txContext_.consensus.setStakeholders(recorded->second, epoch);
 }
 
-std::vector<std::string>
-Chain::collectPrevEpochLookbackHashes(uint64_t prevEpoch, uint64_t endBlockId) const {
-  std::vector<std::string> newestFirst;
-  const uint64_t nextId = std::min(endBlockId, txContext_.ledger.getNextBlockId());
-  if (nextId == 0) {
-    return {};
-  }
-  for (uint64_t id = nextId; id > 0; --id) {
-    auto blockRoe = txContext_.ledger.readBlock(id - 1);
-    if (!blockRoe) {
-      break;
-    }
-    if (blockRoe->block.epoch > prevEpoch) {
-      continue;
-    }
-    if (blockRoe->block.epoch < prevEpoch) {
-      break;
-    }
-    newestFirst.push_back(blockRoe->hash);
-    if (newestFirst.size() >= consensus::kEpochSeedLookback) {
-      break;
-    }
-  }
-  std::reverse(newestFirst.begin(), newestFirst.end());
-  return newestFirst;
-}
-
 Chain::Roe<std::pair<uint64_t, std::string>> Chain::readLatestEpochSeed(uint64_t maxEpoch, uint64_t endBlockId) const {
   const uint64_t nextId = std::min(endBlockId, txContext_.ledger.getNextBlockId());
   for (uint64_t id = nextId; id > 0; --id) {
@@ -1074,14 +1047,10 @@ Chain::Roe<std::pair<uint64_t, std::string>> Chain::readLatestEpochSeed(uint64_t
   return Error(E_STATE_INIT, "No stored epochSeed at or before epoch " + std::to_string(maxEpoch));
 }
 
-std::string Chain::deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed, const std::string &stakeHash,
-                                       uint64_t endBlockId) const {
+std::string Chain::deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed) const {
   const std::string networkId =
       txContext_.optChainConfig.has_value() ? txContext_.optChainConfig->networkId : std::string{};
-  // No blocks in epoch - 1 → no lookback hashes → empty-prev tip material.
-  auto lookback = collectPrevEpochLookbackHashes(epoch - 1, endBlockId);
-  const std::string tipMaterial = consensus::lookbackTipMaterial(epoch - 1, prevSeed, lookback);
-  return consensus::deriveEpochSeed(epoch, networkId, prevSeed, tipMaterial, stakeHash);
+  return consensus::deriveEpochSeedV2(epoch, networkId, prevSeed, getBeaconReveal(epoch));
 }
 
 Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch, std::optional<uint64_t> endBlockId) {
@@ -1104,7 +1073,7 @@ Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch, std::optional<uint64_t> 
   }
 
   // Start from the newest stored seed before this epoch. Epochs after it had no blocks: each
-  // seed follows from the one before (empty-prev tip material), so a chain survives idle epochs.
+  // seed follows from the one before, so a chain survives idle epochs.
   auto base = readLatestEpochSeed(epoch - 1, end);
   if (!base) {
     return Error(base.error().code, base.error().message);
@@ -1115,22 +1084,9 @@ Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch, std::optional<uint64_t> 
                                    " empty epochs past the last block's epoch " +
                                    std::to_string(base.value().first));
   }
-  // Each epoch's own snapshot, not whatever is installed: the wall-clock refresh installs the
-  // clock epoch's (provisional) stakes before deriving the tip epoch's seed. Epochs with no
-  // recorded snapshot share the provisional one (the bank does not change without blocks).
-  std::optional<std::string> provisionalStakeHash;
   std::string seed = base.value().second;
   for (uint64_t next = base.value().first + 1; next <= epoch; ++next) {
-    std::string stakeHash;
-    if (auto recorded = epochStakeSnapshots_.find(next); recorded != epochStakeSnapshots_.end()) {
-      stakeHash = chain_block::calculateStakeSnapshotHash(recorded->second);
-    } else {
-      if (!provisionalStakeHash) {
-        provisionalStakeHash = chain_block::calculateStakeSnapshotHash(electionCandidates());
-      }
-      stakeHash = *provisionalStakeHash;
-    }
-    seed = deriveNextEpochSeed(next, seed, stakeHash, end);
+    seed = deriveNextEpochSeed(next, seed);
   }
   txContext_.consensus.setEpochSeed(epoch, seed);
   return {};

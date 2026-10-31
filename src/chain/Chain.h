@@ -433,22 +433,14 @@ public:
    */
   void refreshStakeholders(uint64_t blockSlot);
 
-  /**
-   * Collect up to kEpochSeedLookback block hashes from `prevEpoch`
-   * (oldest→newest) for epoch-seed tip material, among the blocks below `endBlockId`.
-   *
-   * The scans run backwards from `endBlockId`: when the ledger holds blocks past the one being
-   * checked (a node replaying its ledger at start), they skip them without reading — from the
-   * ledger's tip, a replay read the rest of the chain for every epoch (load-resilience lr9).
-   */
-  std::vector<std::string> collectPrevEpochLookbackHashes(uint64_t prevEpoch, uint64_t endBlockId) const;
-
   /** The newest stored block seed of an epoch ≤ `maxEpoch` below `endBlockId`: {epoch, seed}. */
   Roe<std::pair<uint64_t, std::string>> readLatestEpochSeed(uint64_t maxEpoch, uint64_t endBlockId) const;
 
-  /** Seed of `epoch` from the seed of `epoch - 1` (WIRE_SCHEMA § Epoch seed), from the blocks below `endBlockId`. */
-  std::string deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed, const std::string &stakeHash,
-                                  uint64_t endBlockId) const;
+  /**
+   * Seed of `epoch` from the seed of `epoch - 1` and the beacon's reveal for `epoch` (WIRE_SCHEMA §
+   * Epoch seed). No block material: the leaders of `epoch - 1` cannot steer it.
+   */
+  std::string deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed) const;
 
 protected:
   /** Block `index` of `epoch` may become the next checkpoint (chain_block::checkpointEligible). */

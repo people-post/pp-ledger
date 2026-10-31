@@ -9,9 +9,6 @@
 namespace pp {
 namespace consensus {
 
-/** Lookback window for prior-epoch tip material (anti-grind). Protocol constant;
- * see docs/architecture/BLOCK_PIPELINE.md — not BlockChainConfig. */
-inline constexpr size_t kEpochSeedLookback = 8;
 /** Most consecutive epochs without a block a seed derives through; a chain idle longer stops. */
 inline constexpr uint64_t kMaxEmptyEpochs = 1024;
 /** Epochs a beacon seed hash chain covers by default (one reveal per epoch). */
@@ -25,23 +22,6 @@ inline constexpr uint64_t kMaxBeaconSeedChainLength = 100000;
  */
 std::string deriveGenesisEpochSeed(const std::string &networkId,
                                    const std::string &genesisConfigDigest);
-
-/** Fallback tip material when epoch E-1 produced no blocks. */
-std::string emptyPrevEpochTipMaterial(uint64_t prevEpoch,
-                                      const std::string &prevEpochSeed);
-
-/**
- * Fold prior-epoch block hashes (oldest→newest, max kEpochSeedLookback)
- * into tip material. Empty hashes → emptyPrevEpochTipMaterial.
- */
-std::string lookbackTipMaterial(uint64_t prevEpoch,
-                                const std::string &prevEpochSeed,
-                                const std::vector<std::string> &blockHashesOldestFirst);
-
-std::string deriveEpochSeed(uint64_t epoch, const std::string &networkId,
-                            const std::string &prevEpochSeed,
-                            const std::string &tipMaterial,
-                            const std::string &stakeSnapshotHash);
 
 /** One beacon hash-chain step: sha256Raw("pp-ledger/beacon-seed/v1" || value). */
 std::string beaconSeedStep(const std::string &value);
