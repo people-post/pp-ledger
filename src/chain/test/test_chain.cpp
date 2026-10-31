@@ -4578,6 +4578,9 @@ protected:
     harness_.SetUp([this](Chain::BlockChainConfig &c) {
       c.checkpoint.minBlocks = 3;
       c.checkpoint.minAgeSeconds = minAgeSeconds_;
+      if (maxValidationTimespanSeconds_ > 0) {
+        c.maxValidationTimespanSeconds = maxValidationTimespanSeconds_;
+      }
     });
     joinerDir_ = pp::test::uniqueTempPath("pp-ledger-checkpoint-joiner");
     std::error_code ec;
@@ -4834,6 +4837,8 @@ protected:
   uint64_t slot_ = 0;
   uint64_t idem_ = 1;
   uint64_t minAgeSeconds_ = 0;
+  /** When > 0, the chain's maxValidationTimespanSeconds (a node seals once its blocks span it). */
+  uint64_t maxValidationTimespanSeconds_ = 0;
   /** Applied to the config the startChain T_CONFIG installs. */
   std::function<void(Chain::BlockChainConfig &)> configUpdate_;
 };
@@ -6077,6 +6082,12 @@ TEST_F(BeaconSeedTest, AnEpochsSeedOutlivesThePrunedReveal) {
 // during the epoch before, so nothing a leader does after it can change who leads which slot.
 class CommitteeLagTest : public CheckpointJoinTest {
 protected:
+  void SetUp() override {
+    // Just above the helpers' record windows (an hour and a minute): a joiner may seal ~74 epochs on.
+    maxValidationTimespanSeconds_ = 3700;
+    CheckpointJoinTest::SetUp();
+  }
+
   /** Account `id` revokes its miner registration, valid at `slot`. */
   Ledger::Record revokeMinerAt(uint64_t slot, uint64_t id, const utl::MlDsaKeyPair &key) {
     Ledger::TxMinerRegister tx;
@@ -6210,4 +6221,67 @@ TEST_F(CommitteeLagTest, AJoinersFirstFullEpochTakesTheBlocksCommittee) {
   ASSERT_FALSE(HasFailure());
   EXPECT_EQ(chain_block::calculateStakeSnapshotHash(joiner_->getStakeholders()), tip.block.stakeSnapshotHash);
   feed(*joiner_, tip.block.index, tip.block.index + 1);
+}
+
+// A joiner restarted from its ledger after its checkpoint rotation replays the blocks it admitted
+// Full as Full: it records the same epoch start snapshots as in its first run, so it can still
+// compute, and seal under, the next epoch's committee itself.
+TEST_F(CommitteeLagTest, AJoinerRestartedAfterItsRotationSealsTheNextEpochsFirstBlock) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  while (producer.getCheckpoint().lastId == 0) {
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure());
+    ASSERT_LT(slot_, 200u) << "no second checkpoint rotation";
+  }
+  const auto checkpoint = producer.getCheckpoint();
+  const uint64_t full = tip.block.epoch;
+  tip = nextLedByGenesisMiner(tip, {registerMinerAt(slot_ + 1, user_.id, user_.key)});
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(tip.block.epoch, full);
+  // A node seals only once its blocks span the transaction validity window: the epoch sealed
+  // starts past it. The epoch before it opens after the rotation, so the joiner admits that block
+  // Full and snapshots its start.
+  const uint64_t slotsPerEpoch = harness_.chainConfig.slotsPerEpoch;
+  const uint64_t windowSlots = harness_.chainConfig.maxValidationTimespanSeconds / harness_.chainConfig.slotDuration;
+  const uint64_t startSlot = producer.readBlock(checkpoint.lastId).value().block.slot;
+  const uint64_t sealEpoch = (startSlot + windowSlots + 1) / slotsPerEpoch + 2;
+  ASSERT_GT(sealEpoch - 1, full + 1);
+  tip = openEpoch(tip, sealEpoch - 1);
+  ASSERT_FALSE(HasFailure());
+  tip = nextLedByGenesisMiner(tip);
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(tip.block.epoch, sealEpoch - 1);
+
+  joiner_ = openJoiner(checkpoint.lastId, /*fresh=*/true);
+  feed(*joiner_, checkpoint.lastId, producer.getNextBlockId());
+  ASSERT_FALSE(HasFailure());
+  joiner_.reset();
+  joiner_ = openJoiner(checkpoint.lastId, /*fresh=*/false);
+  ASSERT_FALSE(HasFailure());
+
+  // The restarted joiner seals epoch sealEpoch's first block; the producer accepts it.
+  slot_ = sealEpoch * slotsPerEpoch - 1;
+  do {
+    ++slot_;
+  } while (!genesisMinerLeads(slot_));
+  ASSERT_EQ(epochOf(slot_), sealEpoch);
+  Chain &joiner = *joiner_;
+  joiner.setClockOverride(joiner.getSlotEndTime(slot_));
+  auto due = joiner.collectRenewals(slot_);
+  ASSERT_TRUE(due.isOk()) << due.error().message;
+  std::vector<Ledger::Record> records = signedRenewals(due.value());
+  records.push_back(transferAt(slot_));
+  auto committee = joiner.refreshStakeholders(slot_);
+  ASSERT_TRUE(committee.isOk()) << committee.error().message;
+  ASSERT_TRUE(joiner.ensureEpochSeed(sealEpoch).isOk());
+  auto block = joiner.linkNextBlock(tip, slot_, kTestMinerId, joiner.getSlotEndTime(slot_), records);
+  auto sealed = joiner.sealBlock(block);
+  ASSERT_TRUE(sealed.isOk()) << sealed.error().message;
+  signAsLeader(block, joiner.getNetworkId());
+  ASSERT_TRUE(joiner.addBlock(block).isOk());
+  EXPECT_EQ(idsOf(block.block.committee), (std::set<uint64_t>{kTestMinerId, user_.id}));
+  auto accepted = producer.addBlock(block);
+  EXPECT_TRUE(accepted.isOk()) << accepted.error().message;
 }

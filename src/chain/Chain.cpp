@@ -1249,12 +1249,6 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   txContext_.checkpoint.currentId = startingBlockId;
   uint64_t blockId = startingBlockId;
   uint64_t logInterval = 1000; // Log every 1000 blocks
-  // Same mode matrix as live late join: genesis→tip is Full; mount at a
-  // checkpoint is CheckpointReplay for the whole replay loop (see
-  // admissionModeFor / BLOCK_PIPELINE.md).
-  const auto replayMode =
-      startingBlockId == 0 ? chain_block::BlockAdmissionMode::Full
-                           : chain_block::BlockAdmissionMode::CheckpointReplay;
   while (true) {
     auto blockResult = txContext_.ledger.readBlock(blockId);
     if (!blockResult) {
@@ -1269,6 +1263,10 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
                                       std::to_string(block.block.index));
     }
 
+    // Each block in the mode it was admitted under live (admissionModeFor / BLOCK_PIPELINE.md):
+    // genesis→tip is Full; from a checkpoint, CheckpointReplay until the next rotation and Full
+    // after it, so the replay records the same epoch start snapshots as the first run did.
+    const auto replayMode = admissionModeFor(blockId);
     if (auto prepared = prepareBlockEpoch(block, replayMode); !prepared) {
       return Error(prepared.error().code, "Block " + std::to_string(blockId) + ": " + prepared.error().message);
     }
