@@ -769,7 +769,9 @@ Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode &block) {
   } else {
     block.block.epoch =
         txContext_.consensus.getEpochFromSlot(block.block.slot);
-    refreshStakeholders(block.block.slot);
+    if (auto committee = refreshStakeholders(block.block.slot); !committee) {
+      return committee;
+    }
     block.block.stakeSnapshotHash = chain_block::calculateStakeSnapshotHash(
         txContext_.consensus.getStakeholders());
     block.block.committee.clear();
@@ -825,7 +827,7 @@ Chain::TipSnapshot Chain::beginTipUpdate() {
   return TipSnapshot{txContext_.consensus.saveTipState(), txContext_.optChainConfig,
                      txContext_.pendingChainConfig, txContext_.issuanceBaseline, txContext_.checkpoint,
                      txContext_.optAuthority, txContext_.importProgress, txContext_.beaconReveals,
-                     txContext_.beaconRevealChain};
+                     txContext_.beaconRevealChain, epochStakeSnapshots_, epochCommittees_};
 }
 
 void Chain::commitTipUpdate() { txContext_.bank.commitOverlay(); }
@@ -841,6 +843,9 @@ void Chain::rollbackTipUpdate(TipSnapshot snapshot) {
   txContext_.importProgress = std::move(snapshot.importProgress);
   txContext_.beaconReveals = std::move(snapshot.beaconReveals);
   txContext_.beaconRevealChain = std::move(snapshot.beaconRevealChain);
+  // A refused block leaves no committee behind: one taken from it would refuse the honest block.
+  epochStakeSnapshots_ = std::move(snapshot.epochStakeSnapshots);
+  epochCommittees_ = std::move(snapshot.epochCommittees);
 }
 
 Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
@@ -984,12 +989,14 @@ std::vector<consensus::Stakeholder> Chain::electionCandidates() const {
 
 void Chain::refreshStakeholders() {
   const uint64_t clockEpoch = txContext_.consensus.getCurrentEpoch();
-  if (auto recorded = epochStakeSnapshots_.find(clockEpoch); recorded != epochStakeSnapshots_.end()) {
+  if (auto recorded = epochCommittees_.find(clockEpoch); recorded != epochCommittees_.end()) {
     txContext_.consensus.setStakeholders(recorded->second, clockEpoch);
   } else if (txContext_.consensus.isStakeUpdateNeeded()) {
-    // Provisional (leader election before this epoch's first block). Not
-    // recorded: blocks of earlier epochs may still arrive and change it.
-    txContext_.consensus.setStakeholders(electionCandidates(), clockEpoch);
+    // Provisional (leader election before this epoch's first block), as that block will validate
+    // it. Not recorded: blocks of earlier epochs may still arrive and change it.
+    if (auto committee = committeeFor(clockEpoch, nullptr)) {
+      txContext_.consensus.setStakeholders(committee.value(), clockEpoch);
+    }
   }
   // Prefer tip epoch (chain progress) over wall-clock epoch so tests and
   // late-start nodes with mismatched genesisTime still keep a usable seed.
@@ -1010,26 +1017,93 @@ void Chain::refreshStakeholders() {
   }
 }
 
-void Chain::recordEpochStakeSnapshot(uint64_t epoch, std::vector<consensus::Stakeholder> stakeholders) {
+void Chain::recordEpochCommittee(uint64_t epoch, std::vector<consensus::Stakeholder> committee) {
   epochStakeSnapshots_.erase(epochStakeSnapshots_.lower_bound(epoch), epochStakeSnapshots_.end());
-  epochStakeSnapshots_.emplace(epoch, std::move(stakeholders));
+  epochCommittees_.erase(epochCommittees_.lower_bound(epoch), epochCommittees_.end());
+  epochCommittees_.emplace(epoch, std::move(committee));
+  if (epoch > kStakeSnapshotsKept) {
+    epochCommittees_.erase(epochCommittees_.begin(), epochCommittees_.lower_bound(epoch - kStakeSnapshotsKept));
+  }
 }
 
-void Chain::refreshStakeholders(uint64_t blockSlot) {
+bool Chain::heldSince(uint64_t epoch, uint64_t endBlockId) const {
+  if (endBlockId == 0) {
+    return false;
+  }
+  auto previous = txContext_.ledger.readBlock(endBlockId - 1);
+  if (!previous) {
+    return true;
+  }
+  if (previous.value().block.epoch < epoch) {
+    return false;
+  }
+  // Genesis and import blocks (epoch 0) take no snapshot and elect no one.
+  return previous.value().block.index != 0 && !isImportBlock(previous.value());
+}
+
+Chain::Roe<std::vector<consensus::Stakeholder>> Chain::committeeFor(uint64_t epoch,
+                                                                    const Ledger::Block *opening) const {
+  return committeeFor(epoch, opening, opening ? opening->index : txContext_.ledger.getNextBlockId());
+}
+
+Chain::Roe<std::vector<consensus::Stakeholder>> Chain::committeeFor(uint64_t epoch, const Ledger::Block *opening,
+                                                                    uint64_t endBlockId) const {
+  if (epoch > 0) {
+    if (auto snapshot = epochStakeSnapshots_.find(epoch - 1); snapshot != epochStakeSnapshots_.end()) {
+      return snapshot->second;
+    }
+  }
+  // No block since epoch - 2 ended: the bank holds that state.
+  if (epoch == 0 || !heldSince(epoch - 1, endBlockId)) {
+    return electionCandidates();
+  }
+  // Epoch - 1's start state was never this node's (it warmed up from a checkpoint): the opening
+  // block's committee, checked against its stakeSnapshotHash.
+  if (opening != nullptr && opening->epoch == epoch && !opening->committee.empty()) {
+    auto committee = chain_block::fromCommittee(opening->committee);
+    if (chain_block::calculateStakeSnapshotHash(committee) != opening->stakeSnapshotHash) {
+      return Error(E_BLOCK_VALIDATION, "Block " + std::to_string(opening->index) + " opens epoch " +
+                                           std::to_string(epoch) + ": its committee does not match stakeSnapshotHash");
+    }
+    return committee;
+  }
+  return Error(E_BLOCK_VALIDATION, "Committee of epoch " + std::to_string(epoch) + " unknown: no stake snapshot of epoch " +
+                                       std::to_string(epoch - 1) + " was taken here");
+}
+
+Chain::Roe<void> Chain::refreshStakeholders(uint64_t blockSlot, const Ledger::Block *block) {
   const uint64_t epoch = txContext_.consensus.getEpochFromSlot(blockSlot);
-  // Snapshots recorded for later epochs predate this block: drop them.
+  const uint64_t endBlockId = block ? block->index : txContext_.ledger.getNextBlockId();
+  // Recorded for later epochs, they predate this block: drop them.
   epochStakeSnapshots_.erase(epochStakeSnapshots_.upper_bound(epoch), epochStakeSnapshots_.end());
-  auto recorded = epochStakeSnapshots_.find(epoch);
-  if (recorded == epochStakeSnapshots_.end()) {
-    // First block of this epoch on this tip: the bank holds the state after
-    // the last block of earlier epochs — the same on every node.
-    recorded = epochStakeSnapshots_.emplace(epoch, electionCandidates()).first;
+  epochCommittees_.erase(epochCommittees_.upper_bound(epoch), epochCommittees_.end());
+  auto recorded = epochCommittees_.find(epoch);
+  if (recorded == epochCommittees_.end()) {
+    const bool exact = admissionModeFor(endBlockId) == chain_block::BlockAdmissionMode::Full;
+    if (exact && !heldSince(epoch, endBlockId)) {
+      // First block of this epoch on this tip: the bank holds the state after the last block of
+      // earlier epochs — the same on every node. Epoch + 1's committee.
+      epochStakeSnapshots_.try_emplace(epoch, electionCandidates());
+    }
+    // A block that is not its epoch's first carries no committee (checkBlockStructural refuses one).
+    auto committee = committeeFor(epoch, block, endBlockId);
+    if (!committee) {
+      return committee.error();
+    }
+    if (!exact) {
+      // A warming node's own state is partial: install, but record only what opening blocks carry.
+      txContext_.consensus.setStakeholders(committee.value(), epoch);
+      return {};
+    }
+    recorded = epochCommittees_.emplace(epoch, std::move(committee.value())).first;
     if (epoch > kStakeSnapshotsKept) {
       epochStakeSnapshots_.erase(epochStakeSnapshots_.begin(),
                                  epochStakeSnapshots_.lower_bound(epoch - kStakeSnapshotsKept));
+      epochCommittees_.erase(epochCommittees_.begin(), epochCommittees_.lower_bound(epoch - kStakeSnapshotsKept));
     }
   }
   txContext_.consensus.setStakeholders(recorded->second, epoch);
+  return {};
 }
 
 Chain::Roe<std::pair<uint64_t, std::string>> Chain::readLatestEpochSeed(uint64_t maxEpoch, uint64_t endBlockId) const {
@@ -1114,6 +1188,7 @@ Chain::Roe<void> Chain::ensureBlockEpochSeed(const Ledger::ChainNode &block) {
 void Chain::initConsensus(const consensus::SlotCommittee::Config &config) {
   txContext_.consensus.init(config);
   epochStakeSnapshots_.clear();
+  epochCommittees_.clear();
 }
 
 void Chain::setClockOverride(std::optional<int64_t> unixSeconds) {
@@ -1162,6 +1237,7 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   txContext_.beaconReveals.clear();
   txContext_.beaconRevealChain.reset();
   epochStakeSnapshots_.clear();
+  epochCommittees_.clear();
   chargedMisses_.clear();
   pendingSeal_.reset();
   authoritySteps_.clear();
@@ -1380,15 +1456,25 @@ Chain::Roe<void> Chain::prepareBlockEpoch(const Ledger::ChainNode &block, chain_
           !committee) {
         return committee;
       }
-      recordEpochStakeSnapshot(block.block.epoch, chain_block::fromCommittee(block.block.committee));
+      recordEpochCommittee(block.block.epoch, chain_block::fromCommittee(block.block.committee));
     }
-    refreshStakeholders(block.block.slot);
+    epochStakeSnapshots_.erase(epochStakeSnapshots_.upper_bound(block.block.epoch), epochStakeSnapshots_.end());
+    epochCommittees_.erase(epochCommittees_.upper_bound(block.block.epoch), epochCommittees_.end());
+    auto committee = epochCommittees_.find(block.block.epoch);
+    if (committee == epochCommittees_.end()) {
+      return Error(E_BLOCK_VALIDATION, "No committee for epoch " + std::to_string(block.block.epoch) +
+                                           ": its opening block was not taken");
+    }
+    txContext_.consensus.setStakeholders(committee->second, block.block.epoch);
     if (block.block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
       txContext_.consensus.setEpochSeed(block.block.epoch, block.block.epochSeed);
     }
     return {};
   }
-  refreshStakeholders(block.block.slot);
+  // Full: this epoch's committee was fixed one epoch ahead (committeeFor).
+  if (auto committee = refreshStakeholders(block.block.slot, &block.block); !committee) {
+    return committee;
+  }
   if (auto seeded = ensureBlockEpochSeed(block); !seeded) {
     return Error(E_BLOCK_VALIDATION, "Failed to ensure epoch seed: " + seeded.error().message);
   }
@@ -1416,6 +1502,7 @@ Chain::Roe<void> Chain::installCheckpointState(const Ledger::ChainNode &block) {
   // Slot timing is fixed at genesis; this node keeps its clock offset.
   txContext_.consensus.setSlotTiming(gm.config.genesisTime, gm.config.slotDuration, gm.config.slotsPerEpoch);
   epochStakeSnapshots_.clear();
+  epochCommittees_.clear();
   // The renewal records genesis as the previous epoch left it (it renews first): in place before
   // the block, so this epoch's issuance baseline is right too.
   if (auto placed = mapTxVoid(chain_tx::replaceGenesisAccount(txContext_.bank, block.block.index, gm.genesis.wallet,

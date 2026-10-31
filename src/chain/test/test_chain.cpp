@@ -3752,10 +3752,11 @@ TEST_F(ChainComposeTest, MinerRegisterAndRevoke) {
   EXPECT_FALSE(producer.getAccount(rich.id).value().wallet.miner.registered);
 }
 
-// Only registered miners are elected; a registration joins the committee at the next epoch's
-// snapshot (its first block), a revoke leaves it the same way. Funded accounts that never
-// registered are never candidates (before: every funded account was, miner or not).
-TEST_F(ChainComposeTest, OnlyRegisteredMinersAreElectedFromTheNextEpoch) {
+// Only registered miners are elected; a registration joins the committee of the epoch after the
+// next (each epoch's committee is the snapshot taken at the previous epoch's first block), a revoke
+// leaves it the same way. Funded accounts that never registered are never candidates (before: every
+// funded account was, miner or not).
+TEST_F(ChainComposeTest, OnlyRegisteredMinersAreElectedFromTheEpochAfterNext) {
   auto &producer = harness_.producer;
   auto committee = [&]() {
     std::set<uint64_t> ids;
@@ -3769,21 +3770,26 @@ TEST_F(ChainComposeTest, OnlyRegisteredMinersAreElectedFromTheNextEpoch) {
   Ledger::ChainNode registered = makeNextBlockAtSlot(producer, idle.block, 3,
                                                      {minerTx(harness_, miner, Ledger::T_MINER_REGISTER, 8, 30)});
   ASSERT_TRUE(producer.addBlock(registered).isOk());
-  EXPECT_EQ(committee(), std::set<uint64_t>{kTestMinerId}) << "epoch 0 snapshot predates the registration";
+  EXPECT_EQ(committee(), std::set<uint64_t>{kTestMinerId}) << "epoch 0's committee predates the registration";
 
-  // Epoch 1 (slots 10..19): its first block takes the snapshot with the new miner.
+  // Epoch 1 (slots 10..19): its committee is epoch 0's snapshot (slot 1), before the registration;
+  // its first block takes epoch 1's snapshot, with the new miner.
   Ledger::ChainNode epoch1 =
       makeNextBlockAtSlot(producer, registered, 10, {makeReserveTransfer(harness_, 5, 31)});
   ASSERT_TRUE(producer.addBlock(epoch1).isOk());
-  EXPECT_EQ(committee(), (std::set<uint64_t>{kTestMinerId, miner.id}));
-  EXPECT_FALSE(committee().contains(idle.id)) << "funded but never registered";
+  EXPECT_EQ(committee(), std::set<uint64_t>{kTestMinerId}) << "fixed at epoch 0's start";
 
   Ledger::ChainNode revoked = makeNextBlockAtSlot(producer, epoch1, 11,
                                                   {minerTx(harness_, miner, Ledger::T_MINER_REVOKE, 1, 32)});
   ASSERT_TRUE(producer.addBlock(revoked).isOk());
-  EXPECT_TRUE(committee().contains(miner.id)) << "still in epoch 1's committee";
+  // Epoch 2: epoch 1's snapshot, registered and not yet revoked.
   Ledger::ChainNode epoch2 = makeNextBlockAtSlot(producer, revoked, 20, {makeReserveTransfer(harness_, 5, 33)});
   ASSERT_TRUE(producer.addBlock(epoch2).isOk());
+  EXPECT_EQ(committee(), (std::set<uint64_t>{kTestMinerId, miner.id}));
+  EXPECT_FALSE(committee().contains(idle.id)) << "funded but never registered";
+  // Epoch 3: epoch 2's snapshot, after the revoke.
+  Ledger::ChainNode epoch3 = makeNextBlockAtSlot(producer, epoch2, 30, {makeReserveTransfer(harness_, 5, 34)});
+  ASSERT_TRUE(producer.addBlock(epoch3).isOk());
   EXPECT_EQ(committee(), std::set<uint64_t>{kTestMinerId});
 }
 
@@ -6064,4 +6070,144 @@ TEST_F(BeaconSeedTest, AnEpochsSeedOutlivesThePrunedReveal) {
   ASSERT_TRUE(producer.ensureEpochSeed(epoch + 1).isOk());
   ASSERT_TRUE(producer.ensureEpochSeed(epoch).isOk());
   EXPECT_EQ(producer.getEpochSeed(), tip.block.epochSeed);
+}
+
+// Each epoch's committee is the state after the last block of the epochs two or more before it:
+// the snapshot taken at the previous epoch's first block. The beacon's reveal for an epoch is public
+// during the epoch before, so nothing a leader does after it can change who leads which slot.
+class CommitteeLagTest : public CheckpointJoinTest {
+protected:
+  /** Account `id` revokes its miner registration, valid at `slot`. */
+  Ledger::Record revokeMinerAt(uint64_t slot, uint64_t id, const utl::MlDsaKeyPair &key) {
+    Ledger::TxMinerRegister tx;
+    tx.walletId = id;
+    tx.fee = 1;
+    tx.idempotentId = idem_++;
+    windowAt(tx, slot);
+    Ledger::Record rec;
+    rec.type = Ledger::T_MINER_REVOKE;
+    rec.data = utl::binaryPack(static_cast<const Ledger::TxMiner &>(tx));
+    rec.signatures = {signMessage(key, rec.signingMessage(harness_.producer.getNetworkId()))};
+    return rec;
+  }
+
+  uint64_t epochOf(uint64_t slot) const { return slot / harness_.chainConfig.slotsPerEpoch; }
+
+  /** The first block of epoch `epoch` (> the tip's), in a slot the genesis miner leads. */
+  Ledger::ChainNode openEpoch(const Ledger::ChainNode &tip, uint64_t epoch, std::vector<Ledger::Record> records = {}) {
+    slot_ = epoch * harness_.chainConfig.slotsPerEpoch - 1;
+    auto block = nextLedByGenesisMiner(tip, std::move(records));
+    EXPECT_EQ(block.block.epoch, epoch) << "no block in epoch " << epoch << "'s slots the genesis miner leads";
+    EXPECT_FALSE(block.block.committee.empty()) << "block " << block.block.index << " opens its epoch";
+    return block;
+  }
+
+  static std::set<uint64_t> idsOf(const std::vector<Ledger::CommitteeMember> &committee) {
+    std::set<uint64_t> ids;
+    for (const auto &m : committee) {
+      ids.insert(m.id);
+    }
+    return ids;
+  }
+  static std::set<uint64_t> idsOf(const std::vector<consensus::Stakeholder> &stakeholders) {
+    std::set<uint64_t> ids;
+    for (const auto &s : stakeholders) {
+      ids.insert(s.id);
+    }
+    return ids;
+  }
+};
+
+TEST_F(CommitteeLagTest, AStakeMoveInTheLastBlockReachesTheCommitteeAnEpochLater) {
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  tip = openEpoch(tip, 1);
+  ASSERT_FALSE(HasFailure());
+  // Epoch 1's last block (after the reveal for epoch 2 is known) registers a miner.
+  const uint64_t last = 2 * harness_.chainConfig.slotsPerEpoch - 1;
+  slot_ = last;
+  tip = produce(tip, last, {transferAt(last), registerMinerAt(last, user_.id, user_.key)});
+  ASSERT_FALSE(HasFailure());
+  ASSERT_TRUE(harness_.producer.getAccount(user_.id).value().wallet.miner.registered);
+
+  tip = openEpoch(tip, 2);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(idsOf(tip.block.committee), std::set<uint64_t>{kTestMinerId}) << "fixed before the registration";
+  tip = openEpoch(tip, 3);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(idsOf(tip.block.committee), (std::set<uint64_t>{kTestMinerId, user_.id}));
+
+  // A peer validating from genesis derives the same committees.
+  feed(harness_.peer, 1, harness_.producer.getNextBlockId());
+}
+
+TEST_F(CommitteeLagTest, AnEmptyPreviousEpochUsesTheStateBeforeIt) {
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  tip = openEpoch(tip, 1);
+  ASSERT_FALSE(HasFailure());
+  tip = nextLedByGenesisMiner(tip, {registerMinerAt(slot_ + 1, user_.id, user_.key)});
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(tip.block.epoch, 1u);
+
+  // Epoch 2 has no block: epoch 3's committee is the state after epoch 1's last block, the state
+  // its first block starts from. That block revokes the miner.
+  tip = openEpoch(tip, 3, {revokeMinerAt(3 * harness_.chainConfig.slotsPerEpoch, user_.id, user_.key)});
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(idsOf(tip.block.committee), (std::set<uint64_t>{kTestMinerId, user_.id}));
+  ASSERT_FALSE(harness_.producer.getAccount(user_.id).value().wallet.miner.registered);
+  // Epoch 4's is the state at epoch 3's start, before the revoke; epoch 5's after it.
+  tip = openEpoch(tip, 4);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(idsOf(tip.block.committee), (std::set<uint64_t>{kTestMinerId, user_.id}));
+  tip = openEpoch(tip, 5);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(idsOf(tip.block.committee), std::set<uint64_t>{kTestMinerId});
+
+  feed(harness_.peer, 1, harness_.producer.getNextBlockId());
+}
+
+TEST_F(CommitteeLagTest, AJoinersFirstFullEpochTakesTheBlocksCommittee) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  while (producer.getCheckpoint().lastId == 0) {
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure());
+    ASSERT_LT(slot_, 200u) << "no second checkpoint rotation";
+  }
+  // The joiner starts at the previous checkpoint and turns Full at the current one, which opens
+  // epoch `full`: blocks after it are checked Full, but it never saw epoch `full`'s start state.
+  const auto checkpoint = producer.getCheckpoint();
+  const uint64_t full = producer.readBlock(checkpoint.currentId).value().block.epoch;
+  ASSERT_EQ(tip.block.epoch, full);
+  // A stake move after the checkpoint, in epoch `full`: it reaches epoch full + 2's committee.
+  tip = nextLedByGenesisMiner(tip, {registerMinerAt(slot_ + 1, user_.id, user_.key)});
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(tip.block.epoch, full);
+
+  joiner_ = openJoiner(checkpoint.lastId, /*fresh=*/true);
+  feed(*joiner_, checkpoint.lastId, producer.getNextBlockId());
+  ASSERT_FALSE(HasFailure());
+
+  // Epoch full + 1: the joiner did not take full's snapshot (it was warming up), so it cannot
+  // compute this committee itself; it takes it from the opening block.
+  auto unknown = joiner_->refreshStakeholders((full + 1) * harness_.chainConfig.slotsPerEpoch);
+  EXPECT_FALSE(unknown.isOk()) << "epoch " << full + 1 << "'s committee needs epoch " << full << "'s snapshot";
+  tip = openEpoch(tip, full + 1);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(idsOf(tip.block.committee), std::set<uint64_t>{kTestMinerId});
+  feed(*joiner_, tip.block.index, tip.block.index + 1);
+  ASSERT_FALSE(HasFailure());
+
+  // Epoch full + 2: computed from the joiner's own state at full + 1's start, as the producer did.
+  const uint64_t nextOpening = (full + 2) * harness_.chainConfig.slotsPerEpoch;
+  joiner_->setClockOverride(producer.getSlotEndTime(nextOpening));
+  auto computed = joiner_->refreshStakeholders(nextOpening);
+  ASSERT_TRUE(computed.isOk()) << computed.error().message;
+  EXPECT_EQ(idsOf(joiner_->getStakeholders()), (std::set<uint64_t>{kTestMinerId, user_.id}));
+  tip = openEpoch(tip, full + 2);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(chain_block::calculateStakeSnapshotHash(joiner_->getStakeholders()), tip.block.stakeSnapshotHash);
+  feed(*joiner_, tip.block.index, tip.block.index + 1);
 }

@@ -422,16 +422,24 @@ public:
   uint64_t getLedgerBlockReadCount() const { return txContext_.ledger.getBlockReadCount(); }
   Roe<void> addBlock(const Ledger::ChainNode &block);
   /**
-   * Live mode (wall-clock epoch): install the epoch's recorded stake snapshot,
-   * or a provisional one for leader election that is never recorded.
+   * Live mode (wall-clock epoch): install the epoch's recorded committee, or a provisional one
+   * (committeeFor) for leader election that is never recorded.
    */
   void refreshStakeholders();
   /**
-   * Block path (seal / validate / replay): install the stake snapshot for the
-   * block's epoch. The first block of an epoch records it from the tip bank,
-   * so every node derives the same snapshot regardless of refresh timing.
+   * Block path (seal / validate / replay): install the committee of the block's epoch. The first
+   * block of an epoch on this tip records the epoch's stake snapshot from the tip bank (Full mode
+   * only) and its committee (committeeFor). `block` is the block being admitted, if any: it bounds
+   * the blocks held before it and, when it opens its epoch, may supply the committee.
    */
-  void refreshStakeholders(uint64_t blockSlot);
+  Roe<void> refreshStakeholders(uint64_t blockSlot, const Ledger::Block *block = nullptr);
+  /**
+   * Committee of `epoch`: the state after the last block of epochs <= epoch - 2, fixed before the
+   * beacon's reveal for `epoch` is known. The stake snapshot of epoch - 1 if recorded; else, when no
+   * block of epoch - 1 is held before `opening` (the tip when null), the current candidates; else
+   * `opening`'s committee (a checkpoint joiner's first Full epoch); else an error.
+   */
+  Roe<std::vector<consensus::Stakeholder>> committeeFor(uint64_t epoch, const Ledger::Block *opening) const;
 
   /** The newest stored block seed of an epoch ≤ `maxEpoch` below `endBlockId`: {epoch, seed}. */
   Roe<std::pair<uint64_t, std::string>> readLatestEpochSeed(uint64_t maxEpoch, uint64_t endBlockId) const;
@@ -491,6 +499,8 @@ private:
     std::optional<ImportProgress> importProgress;
     std::map<uint64_t, std::string> beaconReveals;
     std::optional<BeaconRevealChain> beaconRevealChain;
+    std::map<uint64_t, std::vector<consensus::Stakeholder>> epochStakeSnapshots;
+    std::map<uint64_t, std::vector<consensus::Stakeholder>> epochCommittees;
   };
   /** Open a bank overlay and snapshot the rest of the tip state. */
   TipSnapshot beginTipUpdate();
@@ -505,8 +515,16 @@ private:
    * seed is the block's own (trusted catch-up); under Full it is derived.
    */
   Roe<void> prepareBlockEpoch(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode);
-  /** Record `epoch`'s committee (dropping later epochs' snapshots, which predate it). */
-  void recordEpochStakeSnapshot(uint64_t epoch, std::vector<consensus::Stakeholder> stakeholders);
+  /** Warm-up: record `epoch`'s committee from its opening block (dropping what this and later epochs had). */
+  void recordEpochCommittee(uint64_t epoch, std::vector<consensus::Stakeholder> committee);
+  /** committeeFor, counting only the blocks below `endBlockId`. */
+  Roe<std::vector<consensus::Stakeholder>> committeeFor(uint64_t epoch, const Ledger::Block *opening,
+                                                        uint64_t endBlockId) const;
+  /**
+   * True when a block of `epoch` or later, other than genesis or an import block, is held below
+   * `endBlockId` (or the block before it is not held, so this cannot be told).
+   */
+  bool heldSince(uint64_t epoch, uint64_t endBlockId) const;
   /** A node starting at checkpoint `block`: install what its genesis renewal carries. */
   Roe<void> installCheckpointState(const Ledger::ChainNode &block);
   /**
@@ -616,8 +634,13 @@ private:
    */
   std::map<uint64_t, std::vector<uint64_t>> chargedMisses_;
 
-  /** Stake snapshot per epoch, recorded by the block path only (see refreshStakeholders). */
+  /**
+   * Election candidates at the start of each epoch, recorded at its first block by the block path,
+   * from this node's own exact state (Full mode) only. Epoch k's snapshot is epoch k + 1's committee.
+   */
   std::map<uint64_t, std::vector<consensus::Stakeholder>> epochStakeSnapshots_;
+  /** Committee per epoch, as elections use it (committeeFor; from the opening block in warm-up). */
+  std::map<uint64_t, std::vector<consensus::Stakeholder>> epochCommittees_;
   /** Recorded epochs kept behind the newest one processed. */
   static constexpr uint64_t kStakeSnapshotsKept = 4;
 };
