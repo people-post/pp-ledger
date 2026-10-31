@@ -172,6 +172,12 @@ Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet) {
     return TxError(chain_err::E_TX_VALIDATION,
                    "Genesis account must have at least 2 signatures");
   }
+  // Genesis has no account recovery: its keys change only by T_CONFIG and the genesis recovery set
+  // (the chain authority). Refused on every path that writes the genesis wallet, whoever signed it.
+  if (wallet.recovery != Client::AccountRecovery{}) {
+    return TxError(chain_err::E_TX_VALIDATION,
+                   "The genesis account has no recovery of its own (the genesis recovery set covers it)");
+  }
   return {};
 }
 

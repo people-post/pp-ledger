@@ -88,6 +88,28 @@ TEST(ChainTest, CalculateHash_DeterministicAndSensitive) {
   EXPECT_NE(validator.calculateHash(block), hash1);
 }
 
+// Genesis has no account recovery (its keys change only by T_CONFIG and the genesis recovery set):
+// every path that writes the genesis wallet — genesis, T_CONFIG, the leader-signed renewal — refuses one.
+TEST(ChainTest, GenesisWalletShape_RefusesARecovery) {
+  Client::Wallet wallet;
+  wallet.publicKeys = {makeKeyPair().publicKey, makeKeyPair().publicKey, makeKeyPair().publicKey};
+  wallet.minSignatures = 2;
+  ASSERT_TRUE(chain_tx::validateGenesisWalletShape(wallet).isOk());
+
+  Client::Wallet named = wallet;
+  named.recovery.publicKeys = {makeKeyPair().publicKey};
+  named.recovery.minSignatures = 1;
+  EXPECT_FALSE(chain_tx::validateGenesisWalletShape(named).isOk()) << "a recovery set";
+
+  Client::Wallet pending = wallet;
+  pending.recovery.pending = true;
+  pending.recovery.nextPublicKeys = {makeKeyPair().publicKey};
+  pending.recovery.nextMinSignatures = 1;
+  auto refused = chain_tx::validateGenesisWalletShape(pending);
+  ASSERT_FALSE(refused.isOk()) << "a pending recovery alone";
+  EXPECT_NE(refused.error().message.find("no recovery of its own"), std::string::npos) << refused.error().message;
+}
+
 // beacon-authority ba1: one rule per refusal (B004 / B006).
 TEST(ChainTest, GenesisAuthority_RefusesEveryBadShape) {
   const auto admin = makeKeyPair();
@@ -4566,7 +4588,8 @@ TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeTheGenesisRecoveryOrMeta) {
         recovery.applyEpoch = 0;
       });
       ASSERT_FALSE(planted.isOk()) << "a leader-signed renewal planted a recovery on genesis";
-      EXPECT_NE(planted.error().message.find("cannot change the recovery"), std::string::npos)
+      // The genesis wallet's shape refuses any recovery before the renewal is compared with the held one.
+      EXPECT_NE(planted.error().message.find("no recovery of its own"), std::string::npos)
           << planted.error().message;
 
       auto meta = sealWith([](Chain::GenesisAccountMeta &gm) {
