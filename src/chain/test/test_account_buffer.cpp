@@ -972,7 +972,9 @@ TEST_F(AccountBufferTest, Overlay_CommitKeepsChanges) {
 // projects/account-recovery: a due recovery replaces a user account's keys, never a system
 // account's — those change only by T_CONFIG and the genesis recovery set. (A leader-signed genesis
 // renewal could otherwise plant a pending recovery and seize the admin set.)
-TEST(AccountBufferRecoveryTest, DueRecoveryAppliesToUserAccountsOnly) {
+// Every account may have a way back of its own — the system accounts (reserve, registrar, fee,
+// recycle) included — except genesis, whose way back is the genesis recovery set in the authority.
+TEST(AccountBufferRecoveryTest, DueRecoveryAppliesToEveryAccountButGenesis) {
     auto withPendingRecovery = [](uint64_t id) {
         AccountBuffer::Account a;
         a.id = id;
@@ -994,11 +996,12 @@ TEST(AccountBufferRecoveryTest, DueRecoveryAppliesToUserAccountsOnly) {
 
     const std::vector<uint64_t> applied = bank.applyDueRecoveries(3);
 
-    EXPECT_EQ(applied, std::vector<uint64_t>{AccountBuffer::ID_FIRST_USER});
+    EXPECT_EQ(applied, (std::vector<uint64_t>{AccountBuffer::ID_FEE, AccountBuffer::ID_FIRST_USER}));
     EXPECT_EQ(bank.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys,
               std::vector<std::string>{"old-0"}) << "the admin set was replaced by an account recovery";
     EXPECT_EQ(bank.getAccount(AccountBuffer::ID_FEE).value().wallet.publicKeys,
-              std::vector<std::string>{"old-" + std::to_string(AccountBuffer::ID_FEE)});
+              std::vector<std::string>{"next-" + std::to_string(AccountBuffer::ID_FEE)})
+        << "a system account's own recovery applies like any account's";
     EXPECT_EQ(bank.getAccount(AccountBuffer::ID_FIRST_USER).value().wallet.publicKeys,
               std::vector<std::string>{"next-" + std::to_string(AccountBuffer::ID_FIRST_USER)});
 }

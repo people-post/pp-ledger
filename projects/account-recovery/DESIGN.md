@@ -32,8 +32,9 @@ Part of the account's wallet, as its keys are — so in the account's leaf, prov
 | `pending` | An announcement waiting: the account's next keys, `applyEpoch`, `announcedAt` (its block) |
 
 **The account's keys name the first set** (`T_NEW_USER`, or their own `T_USER_UPDATE`). After that
-**only the set changes itself** (AR006): the account's keys can neither change nor remove it. Only
-user and issued accounts have one (ids from 2²⁰): system accounts are the genesis recovery set's.
+**only the set changes itself** (AR006): the account's keys can neither change nor remove it. Every
+account but genesis may have one — user, issued and the system accounts reserve, registrar, fee and
+recycle (AR009); genesis has the genesis recovery set in the chain authority instead.
 
 ### The set's actions: `T_ACCOUNT_RECOVERY` (AR004)
 

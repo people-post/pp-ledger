@@ -76,6 +76,10 @@ chain_tx::Roe<AccountBuffer::Account> ImportTxHandler::entering(const StateSnaps
     }
     account.wallet.publicKeys = keys->publicKeys;
     account.wallet.minSignatures = keys->minSignatures;
+    // The re-genesis gives it new keys, vouched for by the admin set: the old network's recovery set
+    // (and any announcement) would otherwise take the account back from them. The new keys name a new
+    // set if they want one.
+    account.wallet.recovery = {};
   }
   return account;
 }

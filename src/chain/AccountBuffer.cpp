@@ -152,9 +152,9 @@ AccountBuffer::Roe<void> AccountBuffer::setRecovery(uint64_t accountId, const Cl
 std::vector<uint64_t> AccountBuffer::applyDueRecoveries(uint64_t epoch) {
   std::vector<uint64_t> due;
   for (const auto &[id, account] : mAccounts_) {
-    // System accounts have no account recovery: their keys change only by T_CONFIG and the genesis
-    // recovery set (projects/account-recovery).
-    if (AccountIds::isSystemAccount(id)) {
+    // Genesis has no account recovery: its admin set changes only by T_CONFIG and the genesis recovery
+    // set in the chain authority (T_RECOVERY). Never apply one, however it got there.
+    if (id == ID_GENESIS) {
       continue;
     }
     if (account.wallet.recovery.pending && account.wallet.recovery.applyEpoch <= epoch) {

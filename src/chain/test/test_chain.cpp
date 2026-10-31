@@ -8,6 +8,7 @@
 #include "ledger/chain/Genesis.h"
 #include "ledger/chain/RecordHandler.h"
 #include "chain/StateSnapshot.h"
+#include "chain/ImportTxHandler.h"
 #include "chain/BlockValidation.h"
 #include "ledger/chain/AccountPolicy.h"
 #include "ledger/chain/Domains.h"
@@ -4218,7 +4219,11 @@ TEST(AccountRecoveryPolicyTest, ASetHasKeysAThresholdAndHalfAnEpochOfDelay) {
   set.delaySeconds = 25;
   EXPECT_TRUE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_FIRST_USER, withConfig).isOk());
   EXPECT_TRUE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_FIRST_ISSUED, withConfig).isOk()) << "issuers too";
-  EXPECT_FALSE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_RESERVE, withConfig).isOk()) << "not system accounts";
+  for (uint64_t id : {AccountBuffer::ID_RESERVE, AccountBuffer::ID_REGISTRAR, AccountBuffer::ID_FEE, AccountBuffer::ID_RECYCLE}) {
+    EXPECT_TRUE(chain_tx::validateRecoverySet(set, id, withConfig).isOk()) << "system account " << id;
+  }
+  EXPECT_FALSE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_GENESIS, withConfig).isOk())
+      << "genesis: its way back is the genesis recovery set";
   Client::AccountRecovery short_ = set;
   short_.delaySeconds = 24;
   EXPECT_FALSE(chain_tx::validateRecoverySet(short_, AccountBuffer::ID_FIRST_USER, withConfig).isOk());
@@ -5711,4 +5716,121 @@ TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeAnAccountsKeysOrMeta) {
   });
   ASSERT_FALSE(meta.isOk());
   EXPECT_NE(meta.error().message.find("cannot change the meta"), std::string::npos) << meta.error().message;
+}
+
+// Every system account but genesis may name a recovery set of its own, as any account: lost or stolen
+// keys of the fee, reserve, registrar or recycle account have a way back short of a re-genesis. (Genesis
+// keeps its own: the genesis recovery set in the chain authority.)
+TEST_F(MinerLivenessTest, ASystemAccountHasAWayBackOfItsOwn) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  const uint64_t id = AccountBuffer::ID_FEE;
+  const auto guardian = makeKeyPair();
+  const auto nextKey = makeKeyPair();
+  const int64_t from = harness_.chainConfig.genesisTime;
+  const uint64_t halfEpoch = chain_tx::minRecoveryDelaySeconds(harness_.chainConfig);
+
+  auto update = [&](const utl::MlDsaKeyPair &signer, uint64_t idem, const Client::AccountRecovery &recovery) {
+    Client::UserAccount account{peer.getAccount(id).value().wallet, AccountAttachment::emptySerialized()};
+    account.wallet.recovery = recovery;
+    Ledger::TxUserUpdate uu;
+    uu.walletId = id;
+    uu.fee = 5000;
+    uu.meta = account.ltsToString();
+    uu.idempotentId = idem;
+    uu.validationTsMin = from;
+    uu.validationTsMax = from + 3600;
+    return makeRecord(Ledger::T_USER_UPDATE, uu, signer, producer.getNetworkId());
+  };
+  auto announce = [&](const utl::MlDsaKeyPair &signer, uint64_t idem) {
+    AccountRecoveryAction action;
+    action.kind = AccountRecoveryAction::ANNOUNCE;
+    action.publicKeys = {nextKey.publicKey};
+    action.minSignatures = 1;
+    Ledger::TxAccountRecovery tx;
+    tx.walletId = id;
+    tx.meta = action.ltsToString();
+    tx.fee = minimumFeeFor(harness_.chainConfig, Ledger::TypedTx(tx)).value();
+    tx.idempotentId = idem;
+    tx.validationTsMin = from;
+    tx.validationTsMax = from + 3600;
+    return makeRecord(Ledger::T_ACCOUNT_RECOVERY, tx, signer, producer.getNetworkId());
+  };
+  auto pay = [&](const utl::MlDsaKeyPair &signer, uint64_t idem) {
+    Ledger::TxDefault tx;
+    tx.tokenId = AccountBuffer::ID_GENESIS;
+    tx.fromWalletId = id;
+    tx.toWalletId = AccountBuffer::ID_RESERVE;
+    tx.amount = 10;
+    tx.fee = 1;
+    tx.idempotentId = idem;
+    tx.validationTsMin = from;
+    tx.validationTsMax = from + 3600;
+    return makeRecord(Ledger::T_DEFAULT, tx, signer, producer.getNetworkId());
+  };
+  auto refused = [&](const Ledger::Record &record) {
+    AccountBuffer scratch;
+    return !producer.addBufferTransaction(scratch, record, kTestMinerId).isOk();
+  };
+  auto recovery = [&] { return peer.getAccount(id).value().wallet.recovery; };
+  uint64_t filler = 100;
+  auto upTo = [&](Ledger::ChainNode block, uint64_t slot) {
+    for (uint64_t s = block.block.slot + 1; s < slot; ++s) {
+      block = commit(block, s, {makeReserveTransfer(harness_, 5, filler++)});
+    }
+    return block;
+  };
+
+  // The fee account's own keys name its first set (funded first: the update pays its fee).
+  Ledger::ChainNode block = commit(harness_.genesis, 1, {makeReserveTransfer(harness_, 100000, filler++)});
+  Client::AccountRecovery set;
+  set.publicKeys = {guardian.publicKey};
+  set.minSignatures = 1;
+  set.delaySeconds = halfEpoch;
+  block = commit(block, 2, {update(harness_.feeKey, 10, set)});
+  ASSERT_EQ(recovery(), set);
+
+  // Announced at slot 3 (15 s): epoch 1 starts at 50 s, 35 s later — at least the delay.
+  block = commit(block, 3, {announce(guardian, 20)});
+  ASSERT_TRUE(recovery().pending);
+  EXPECT_EQ(recovery().applyEpoch, 1u);
+  EXPECT_TRUE(refused(pay(harness_.feeKey, 30))) << "frozen while announced";
+
+  // Epoch 1's first block hands the account to the announced key.
+  block = commit(upTo(block, 10), 10, {makeReserveTransfer(harness_, 5, filler++)});
+  EXPECT_FALSE(recovery().pending);
+  EXPECT_EQ(peer.getAccount(id).value().wallet.publicKeys, std::vector<std::string>{nextKey.publicKey});
+  EXPECT_TRUE(refused(pay(harness_.feeKey, 31))) << "the old key signs no more";
+  block = commit(block, 11, {pay(nextKey, 32)});
+}
+
+// A re-genesis gives the system accounts new keys, vouched for by the admin set: the old network's
+// recovery set (and any announcement) does not come along to take them back. Other accounts keep theirs.
+TEST(ImportTest, SystemAccountsEnterWithTheirNewKeysAndNoOldRecovery) {
+  auto withRecovery = [](uint64_t id) {
+    StateSnapshot::Account old;
+    old.id = id;
+    old.wallet.publicKeys = {"old-key"};
+    old.wallet.minSignatures = 1;
+    old.wallet.recovery.publicKeys = {"old-guardian"};
+    old.wallet.recovery.minSignatures = 1;
+    old.wallet.recovery.delaySeconds = 60;
+    old.wallet.recovery.pending = true;
+    old.wallet.recovery.nextPublicKeys = {"announced-key"};
+    old.wallet.recovery.nextMinSignatures = 1;
+    old.wallet.recovery.applyEpoch = 7;
+    return old;
+  };
+  ImportProgress progress;
+  progress.systemKeys = {{AccountBuffer::ID_REGISTRAR, {"new-registrar-key"}, 1}};
+
+  auto registrar = ImportTxHandler::entering(withRecovery(AccountBuffer::ID_REGISTRAR), progress, 1);
+  ASSERT_TRUE(registrar.isOk()) << registrar.error().message;
+  EXPECT_EQ(registrar.value().wallet.publicKeys, std::vector<std::string>{"new-registrar-key"});
+  EXPECT_EQ(registrar.value().wallet.recovery, Client::AccountRecovery{});
+
+  auto user = ImportTxHandler::entering(withRecovery(AccountBuffer::ID_FIRST_USER), progress, 1);
+  ASSERT_TRUE(user.isOk()) << user.error().message;
+  EXPECT_EQ(user.value().wallet.publicKeys, std::vector<std::string>{"old-key"});
+  EXPECT_EQ(user.value().wallet.recovery, withRecovery(AccountBuffer::ID_FIRST_USER).wallet.recovery);
 }
