@@ -173,17 +173,28 @@ struct BeaconCertificate {
    * where nodes may look for it (bp2). Hints only: nodes trust tips, not addresses.
    */
   std::vector<std::string> dialHints;
+  /**
+   * Last link (raw 32 bytes) of the beacon's seed hash chain, whose reveals feed the epoch seed.
+   * Empty: the beacon contributes nothing and every epoch uses the "absent" seed.
+   */
+  std::string seedAnchor;
+  /** Epoch the anchor stands for; reveals count back from it. */
+  uint64_t seedAnchorEpoch{0};
+  /** Number of epochs the chain covers. */
+  uint64_t seedChainLength{0};
+
+  bool hasSeedChain() const { return seedAnchor.size() == 32; }
 
   /** No cutover: the previous generation signs until the certificate commits. */
   constexpr static const uint64_t kNoCutover = UINT64_MAX;
   bool hasCutover() const { return cutoverHeight != kNoCutover; }
 
   template <typename Archive> void serialize(Archive &ar) {
-    ar &networkId &generation &publicKey &cutoverHeight &cutoverHash &dialHints;
+    ar &networkId &generation &publicKey &cutoverHeight &cutoverHash &dialHints &seedAnchor &seedAnchorEpoch &seedChainLength;
   }
 
   /** Versioned form carried in a T_BEACON_CERT record's `meta`. */
-  constexpr static const uint32_t VERSION = 2;
+  constexpr static const uint32_t VERSION = 3;
   std::string ltsToString() const;
   bool ltsFromString(const std::string &str);
 };

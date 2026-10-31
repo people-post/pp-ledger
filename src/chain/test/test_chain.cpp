@@ -121,6 +121,64 @@ TEST(ChainTest, GenesisAuthority_RefusesEveryBadShape) {
   }
 }
 
+TEST(BeaconCertificateTest, SeedAnchorRoundTrips) {
+  BeaconCertificate cert = makeTestAuthority("test-net").beacon;
+  EXPECT_FALSE(cert.hasSeedChain());
+  cert.seedAnchor = std::string(32, 'a');
+  cert.seedAnchorEpoch = 7;
+  cert.seedChainLength = 10000;
+  EXPECT_TRUE(cert.hasSeedChain());
+  BeaconCertificate back;
+  ASSERT_TRUE(back.ltsFromString(cert.ltsToString()));
+  EXPECT_EQ(back.seedAnchor, cert.seedAnchor);
+  EXPECT_EQ(back.seedAnchorEpoch, 7u);
+  EXPECT_EQ(back.seedChainLength, 10000u);
+}
+
+TEST(BeaconCertificateTest, RefusesABadSeedAnchor) {
+  const auto admin = makeKeyPair();
+  Client::Wallet adminWallet;
+  adminWallet.publicKeys = {admin.publicKey};
+  const Chain::ChainAuthority current = makeTestAuthority("test-net");
+  Chain::ChainAuthority genesis = current;
+  BeaconCertificate next = current.beacon;
+  next.generation = current.beacon.generation + 1;
+  next.publicKey = makeKeyPair().publicKey;
+  next.cutoverHeight = BeaconCertificate::kNoCutover;
+  next.cutoverHash.clear();
+  const std::string good(32, 'a');
+  const std::vector<std::function<void(BeaconCertificate &)>> bad = {
+      [&](auto &c) { c.seedAnchor = good.substr(0, 31); c.seedChainLength = 10; },
+      [&](auto &c) { c.seedAnchor = good; c.seedChainLength = 0; },
+      [&](auto &c) { c.seedAnchor = good; c.seedChainLength = consensus::kMaxBeaconSeedChainLength + 1; },
+  };
+  for (const auto &change : bad) {
+    BeaconCertificate cert = current.beacon;
+    change(cert);
+    genesis.beacon = cert;
+    EXPECT_FALSE(chain_tx::validateGenesisAuthority(genesis, adminWallet, "test-net").isOk());
+    BeaconCertificate offered = next;
+    change(offered);
+    EXPECT_FALSE(
+        chain_tx::validateNextBeaconCertificate(offered, current, adminWallet, "test-net", std::nullopt).isOk());
+  }
+  BeaconCertificate ok = next;
+  ok.seedAnchor = good;
+  ok.seedChainLength = consensus::kMaxBeaconSeedChainLength;
+  EXPECT_TRUE(chain_tx::validateNextBeaconCertificate(ok, current, adminWallet, "test-net", std::nullopt).isOk());
+}
+
+TEST(BeaconCertificateTest, AnEmptyAnchorIsValid) {
+  const auto admin = makeKeyPair();
+  Client::Wallet adminWallet;
+  adminWallet.publicKeys = {admin.publicKey};
+  Chain::ChainAuthority authority = makeTestAuthority("test-net");
+  authority.beacon.seedAnchor.clear();
+  authority.beacon.seedAnchorEpoch = 5;
+  authority.beacon.seedChainLength = 0;
+  EXPECT_TRUE(chain_tx::validateGenesisAuthority(authority, adminWallet, "test-net").isOk());
+}
+
 // The genesis record must carry a valid authority; a valid one is in force afterwards.
 TEST(ChainTest, Genesis_SetsTheAuthorityAndRefusesAnInvalidOne) {
   auto genesisKey = makeKeyPair();

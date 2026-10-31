@@ -3,6 +3,7 @@
 #include "ledger/chain/ErrorCodes.h"
 #include "ledger/client/AccountAttachment.h"
 #include "ledger/client/AccountIds.h"
+#include "ledger/consensus/EpochSeed.h"
 #include "ledger/lib/common/Utilities.h"
 
 #include <algorithm>
@@ -175,6 +176,23 @@ Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet) {
   return {};
 }
 
+namespace {
+// An empty anchor means no beacon contribution; the other two fields are then ignored.
+Roe<void> validateSeedAnchor(const BeaconCertificate &cert) {
+  if (cert.seedAnchor.empty()) {
+    return {};
+  }
+  if (cert.seedAnchor.size() != utl::SHA256_DIGEST_SIZE) {
+    return TxError(chain_err::E_TX_VALIDATION, "Beacon certificate seedAnchor must be empty or 32 bytes");
+  }
+  if (cert.seedChainLength < 1 || cert.seedChainLength > consensus::kMaxBeaconSeedChainLength) {
+    return TxError(chain_err::E_TX_VALIDATION, "Beacon certificate seedChainLength must be between 1 and " +
+                                                   std::to_string(consensus::kMaxBeaconSeedChainLength));
+  }
+  return {};
+}
+} // namespace
+
 Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client::Wallet &adminWallet,
                                    const std::string &networkId) {
   auto invalid = [](const std::string &what) { return TxError(chain_err::E_TX_VALIDATION, what); };
@@ -217,6 +235,9 @@ Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client
   if (auto hints = validateCertificateHints(beacon); !hints) {
     return hints;
   }
+  if (auto anchor = validateSeedAnchor(beacon); !anchor) {
+    return anchor;
+  }
   if (beacon.networkId != networkId) {
     return invalid("Beacon certificate networkId does not match the chain");
   }
@@ -254,6 +275,9 @@ Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const Cha
   }
   if (auto shape = validateCertificateHints(next); !shape) {
     return shape;
+  }
+  if (auto anchor = validateSeedAnchor(next); !anchor) {
+    return anchor;
   }
   if (!(next.hasCutover() ? next.cutoverHash.size() == utl::SHA256_DIGEST_SIZE : next.cutoverHash.empty())) {
     return invalid("Beacon certificate cutoverHash must be the 32-byte hash of the cutover block, and "
