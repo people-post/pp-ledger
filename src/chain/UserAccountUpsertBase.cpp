@@ -186,12 +186,12 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
 
 chain_tx::Roe<void> UserAccountUpsertBase::checkRenewalKeepsAccount(const Client::UserAccount &carried,
                                                                     const AccountBuffer::Account &held) const {
-  // The slot leader signs renewals: it may re-record an account, never choose its keys or meta.
+  // The slot leader signs renewals: it may re-record an account, never choose any of it — every
+  // wallet field (the balances are verifyBalance's) and the meta.
   const std::string who = std::to_string(held.id);
-  if (carried.wallet.publicKeys != held.wallet.publicKeys || carried.wallet.minSignatures != held.wallet.minSignatures ||
-      carried.wallet.keyType != held.wallet.keyType) {
+  if (auto changed = chain_tx::renewalChangedWalletField(carried.wallet, held.wallet)) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Renewal cannot change the keys of account " + who);
+                             "Renewal cannot change the " + *changed + " of account " + who);
   }
   // The meta in force is the one the account's last write recorded (what renewal builds from); the
   // account holds its hash (B031), so no block read is needed.

@@ -6,6 +6,7 @@ the entry **superseded by** that doc. Built (ar1–ar2): each rule now in WIRE_S
 ## AR001 — Every user and issued account may have a way back
 
 **Date:** 2026-10-19
+**Status:** Amended by [AR009](#ar009--every-account-but-genesis-may-have-a-way-back): the system accounts other than genesis have one too — the genesis recovery set covers only genesis.
 **Decision:** Opt-in, per account: a recovery set and a delay. User and issued accounts (ids from 2²⁰);
 not system accounts, whose keys the genesis recovery set already covers.
 **Superseded by:** [WIRE_SCHEMA.md § Account recovery](../../docs/contracts/WIRE_SCHEMA.md#account-recovery) (normative; this entry keeps the why).
@@ -94,3 +95,22 @@ delay; at an epoch start, every node applies it at the same block. Slot length i
 so seconds convert to slots exactly.
 **Alternatives:** Whole epochs counted from the epoch after the announcing one (the same guarantee,
 coarser).
+
+## AR009 — Every account but genesis may have a way back
+
+**Date:** 2026-10-31
+**Amends:** AR001.
+**Decision:** The system accounts reserve, registrar, fee and recycle may name a recovery set as any
+account does (their own keys name the first, by `T_USER_UPDATE`; then the set changes itself, and an
+announcement takes over at an epoch start). Genesis may not: its way back is the genesis recovery
+set in the chain authority (`T_RECOVERY`). A re-genesis gives the system accounts new keys and no
+recovery set. Normative: [WIRE_SCHEMA § Account recovery](../../docs/contracts/WIRE_SCHEMA.md#account-recovery).
+**Rationale:** AR001 left the system accounts out because "the genesis recovery set already covers"
+them, but it does not: `T_RECOVERY` replaces the admin set (the genesis account) only, and `T_CONFIG`
+changes only genesis. Lost or stolen keys of the reserve or the registrar had no way back short of a
+re-genesis. Giving them their own recovery keeps powers apart — the admin set cannot touch the
+reserve's funds or the registrar.
+**Alternatives:** Let the admin set (`T_CONFIG`) or the genesis recovery set re-key system accounts
+(simpler for operators, but puts the reserve and the registrar under admin control); keep it and
+document that lost system keys mean a re-genesis.
+

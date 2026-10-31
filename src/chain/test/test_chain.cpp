@@ -8,6 +8,7 @@
 #include "ledger/chain/Genesis.h"
 #include "ledger/chain/RecordHandler.h"
 #include "chain/StateSnapshot.h"
+#include "chain/ImportTxHandler.h"
 #include "chain/BlockValidation.h"
 #include "ledger/chain/AccountPolicy.h"
 #include "ledger/chain/Domains.h"
@@ -86,6 +87,63 @@ TEST(ChainTest, CalculateHash_DeterministicAndSensitive) {
 
   block.txRoot = utl::sha256Raw("txroot-changed");
   EXPECT_NE(validator.calculateHash(block), hash1);
+}
+
+// A slot leader's renewal re-records an account: every wallet field but the balances (verifyBalance's,
+// moved by the renewal fee) must come back as held — named, so a refusal says what was changed.
+TEST(ChainTest, RenewalChangedWalletField_NamesEveryFieldButBalances) {
+  Client::Wallet held;
+  held.publicKeys = {makeKeyPair().publicKey, makeKeyPair().publicKey};
+  held.minSignatures = 2;
+  held.keyType = Crypto::TK_ML_DSA_65;
+  held.mBalances[AccountBuffer::ID_GENESIS] = 1000;
+  held.domain = "ABCD";
+  held.recovery.publicKeys = {makeKeyPair().publicKey};
+  held.recovery.minSignatures = 1;
+  held.recovery.delaySeconds = 60;
+
+  Client::Wallet carried = held;
+  EXPECT_EQ(chain_tx::renewalChangedWalletField(carried, held), std::nullopt);
+  carried.mBalances[AccountBuffer::ID_GENESIS] = 990;  // the fee: verifyBalance's
+  carried.mBalances[42] = 0;                           // a zero entry: verifyBalance reads it as absent
+  EXPECT_EQ(chain_tx::renewalChangedWalletField(carried, held), std::nullopt) << "balances are not compared here";
+
+  const std::vector<std::pair<std::string, std::function<void(Client::Wallet &)>>> changes = {
+      {"keys", [](auto &w) { w.publicKeys.push_back(makeKeyPair().publicKey); }},
+      {"keys", [](auto &w) { w.minSignatures = 1; }},
+      {"keys", [](auto &w) { w.keyType = 0; }},
+      {"miner state", [](auto &w) { w.miner.registered = true; }},
+      {"recovery", [](auto &w) { w.recovery.pending = true; }},
+      {"recovery", [](auto &w) { w.recovery = {}; }},
+      {"domain", [](auto &w) { w.domain = "WXYZ"; }},
+  };
+  for (const auto &[field, change] : changes) {
+    Client::Wallet changed = held;
+    change(changed);
+    EXPECT_EQ(chain_tx::renewalChangedWalletField(changed, held), std::optional<std::string>(field)) << field;
+  }
+}
+
+// Genesis has no account recovery (its keys change only by T_CONFIG and the genesis recovery set):
+// every path that writes the genesis wallet — genesis, T_CONFIG, the leader-signed renewal — refuses one.
+TEST(ChainTest, GenesisWalletShape_RefusesARecovery) {
+  Client::Wallet wallet;
+  wallet.publicKeys = {makeKeyPair().publicKey, makeKeyPair().publicKey, makeKeyPair().publicKey};
+  wallet.minSignatures = 2;
+  ASSERT_TRUE(chain_tx::validateGenesisWalletShape(wallet).isOk());
+
+  Client::Wallet named = wallet;
+  named.recovery.publicKeys = {makeKeyPair().publicKey};
+  named.recovery.minSignatures = 1;
+  EXPECT_FALSE(chain_tx::validateGenesisWalletShape(named).isOk()) << "a recovery set";
+
+  Client::Wallet pending = wallet;
+  pending.recovery.pending = true;
+  pending.recovery.nextPublicKeys = {makeKeyPair().publicKey};
+  pending.recovery.nextMinSignatures = 1;
+  auto refused = chain_tx::validateGenesisWalletShape(pending);
+  ASSERT_FALSE(refused.isOk()) << "a pending recovery alone";
+  EXPECT_NE(refused.error().message.find("no recovery of its own"), std::string::npos) << refused.error().message;
 }
 
 // beacon-authority ba1: one rule per refusal (B004 / B006).
@@ -4161,7 +4219,11 @@ TEST(AccountRecoveryPolicyTest, ASetHasKeysAThresholdAndHalfAnEpochOfDelay) {
   set.delaySeconds = 25;
   EXPECT_TRUE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_FIRST_USER, withConfig).isOk());
   EXPECT_TRUE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_FIRST_ISSUED, withConfig).isOk()) << "issuers too";
-  EXPECT_FALSE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_RESERVE, withConfig).isOk()) << "not system accounts";
+  for (uint64_t id : {AccountBuffer::ID_RESERVE, AccountBuffer::ID_REGISTRAR, AccountBuffer::ID_FEE, AccountBuffer::ID_RECYCLE}) {
+    EXPECT_TRUE(chain_tx::validateRecoverySet(set, id, withConfig).isOk()) << "system account " << id;
+  }
+  EXPECT_FALSE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_GENESIS, withConfig).isOk())
+      << "genesis: its way back is the genesis recovery set";
   Client::AccountRecovery short_ = set;
   short_.delaySeconds = 24;
   EXPECT_FALSE(chain_tx::validateRecoverySet(short_, AccountBuffer::ID_FIRST_USER, withConfig).isOk());
@@ -4497,6 +4559,98 @@ TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
   ASSERT_TRUE(carried.hasPending);
   EXPECT_EQ(carried.pending.activationEpoch, 1u);
   EXPECT_EQ(carried.pending.config.maxTransactionsPerBlock, before + 1);
+}
+
+// The slot leader signs the genesis renewal: besides the admin set, it carries the genesis
+// recovery and meta as the chain holds them. A renewal planting a pending recovery would hand the
+// admin set to the leader's keys at the next epoch start (and freeze genesis until then).
+TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeTheGenesisRecoveryOrMeta) {
+  auto &producer = harness_.producer;
+  // A genesis renewal needs a valid genesis wallet: rotate genesis to 3 keys first.
+  const std::vector<utl::MlDsaKeyPair> rotated = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
+  Chain::GenesisAccountMeta update;
+  update.config = harness_.chainConfig;
+  update.genesis.wallet = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
+  update.genesis.wallet.publicKeys = {rotated[0].publicKey, rotated[1].publicKey, rotated[2].publicKey};
+  update.genesis.wallet.minSignatures = 2;
+  update.genesis.meta = AccountAttachment::emptySerialized();
+  update.authority = producer.getAuthority().value();
+  Ledger::TxConfig configTx;
+  configTx.meta = update.ltsToString();
+  configTx.idempotentId = 1;
+  configTx.validationTsMin = harness_.chainConfig.genesisTime;
+  configTx.validationTsMax = harness_.chainConfig.genesisTime + 3600;
+  Ledger::ChainNode block = makeNextBlockAtSlot(
+      producer, harness_.genesis, 1,
+      {makeRecord(Ledger::T_CONFIG, configTx, harness_.genesisKey, producer.getNetworkId())});
+  ASSERT_TRUE(producer.addBlock(block).isOk());
+
+  const std::vector<utl::MlDsaKeyPair> attacker = {makeKeyPair(), makeKeyPair(), makeKeyPair(), makeKeyPair()};
+  bool sawGenesis = false;
+  for (uint64_t slot = 2; slot < 10 && !sawGenesis; ++slot) {
+    auto due = producer.collectRenewals(slot);
+    ASSERT_TRUE(due.isOk()) << due.error().message;
+    std::vector<Ledger::Record> records;
+    for (const auto &r : due.value()) {
+      records.push_back(signedByLeader(r));
+    }
+    auto sealWith = [&](const std::function<void(Chain::GenesisAccountMeta &)> &change) {
+      std::vector<Ledger::Record> changed;
+      for (const auto &r : records) {
+        if (!isGenesisRenewal(r)) {
+          changed.push_back(r);
+          continue;
+        }
+        auto tx = utl::binaryUnpack<Ledger::TxRenewal>(r.data).value();
+        Chain::GenesisAccountMeta gm = genesisMetaOf(r);
+        change(gm);
+        tx.meta = gm.ltsToString();
+        Ledger::Record record = r;
+        record.data = utl::binaryPack(tx);
+        changed.push_back(signedByLeader(record));
+      }
+      Ledger::ChainNode candidate =
+          producer.linkNextBlock(block, slot, kTestMinerId, producer.getSlotEndTime(slot), changed);
+      return producer.sealBlock(candidate);
+    };
+    for (const auto &r : records) {
+      sawGenesis = sawGenesis || isGenesisRenewal(r);
+    }
+    if (sawGenesis) {
+      auto planted = sealWith([&](Chain::GenesisAccountMeta &gm) {
+        Client::AccountRecovery &recovery = gm.genesis.wallet.recovery;
+        recovery.publicKeys = {attacker[0].publicKey};
+        recovery.minSignatures = 1;
+        recovery.delaySeconds = 1;
+        recovery.pending = true;
+        recovery.nextPublicKeys = {attacker[1].publicKey, attacker[2].publicKey, attacker[3].publicKey};
+        recovery.nextMinSignatures = 2;
+        recovery.applyEpoch = 0;
+      });
+      ASSERT_FALSE(planted.isOk()) << "a leader-signed renewal planted a recovery on genesis";
+      // The genesis wallet's shape refuses any recovery before the renewal is compared with the held one.
+      EXPECT_NE(planted.error().message.find("no recovery of its own"), std::string::npos)
+          << planted.error().message;
+
+      auto meta = sealWith([](Chain::GenesisAccountMeta &gm) {
+        AccountAttachment attachment;
+        AccountAttachment::ProfileSlot profile;
+        profile.data = "planted";
+        profile.seq = 1;
+        attachment.profiles[AccountBuffer::ID_RESERVE] = profile;
+        gm.genesis.meta = attachment.ltsToString();
+      });
+      ASSERT_FALSE(meta.isOk()) << "a leader-signed renewal rewrote the genesis meta";
+      EXPECT_NE(meta.error().message.find("cannot change the meta"), std::string::npos) << meta.error().message;
+    }
+    block = makeNextBlockAtSlot(producer, block, slot, records);
+    ASSERT_TRUE(producer.addBlock(block).isOk()) << "slot " << slot;
+  }
+  ASSERT_TRUE(sawGenesis) << "genesis never fell due";
+  // The honest renewal changes nothing: the rotated admin set still signs for genesis.
+  const Client::Wallet held = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
+  EXPECT_EQ(held.publicKeys, update.genesis.wallet.publicKeys);
+  EXPECT_FALSE(held.recovery.pending);
 }
 
 // beacon-authority ba5b.2 — late join (BLOCK_PIPELINE): a node mounts at the producer's previous
@@ -5562,4 +5716,121 @@ TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeAnAccountsKeysOrMeta) {
   });
   ASSERT_FALSE(meta.isOk());
   EXPECT_NE(meta.error().message.find("cannot change the meta"), std::string::npos) << meta.error().message;
+}
+
+// Every system account but genesis may name a recovery set of its own, as any account: lost or stolen
+// keys of the fee, reserve, registrar or recycle account have a way back short of a re-genesis. (Genesis
+// keeps its own: the genesis recovery set in the chain authority.)
+TEST_F(MinerLivenessTest, ASystemAccountHasAWayBackOfItsOwn) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  const uint64_t id = AccountBuffer::ID_FEE;
+  const auto guardian = makeKeyPair();
+  const auto nextKey = makeKeyPair();
+  const int64_t from = harness_.chainConfig.genesisTime;
+  const uint64_t halfEpoch = chain_tx::minRecoveryDelaySeconds(harness_.chainConfig);
+
+  auto update = [&](const utl::MlDsaKeyPair &signer, uint64_t idem, const Client::AccountRecovery &recovery) {
+    Client::UserAccount account{peer.getAccount(id).value().wallet, AccountAttachment::emptySerialized()};
+    account.wallet.recovery = recovery;
+    Ledger::TxUserUpdate uu;
+    uu.walletId = id;
+    uu.fee = 5000;
+    uu.meta = account.ltsToString();
+    uu.idempotentId = idem;
+    uu.validationTsMin = from;
+    uu.validationTsMax = from + 3600;
+    return makeRecord(Ledger::T_USER_UPDATE, uu, signer, producer.getNetworkId());
+  };
+  auto announce = [&](const utl::MlDsaKeyPair &signer, uint64_t idem) {
+    AccountRecoveryAction action;
+    action.kind = AccountRecoveryAction::ANNOUNCE;
+    action.publicKeys = {nextKey.publicKey};
+    action.minSignatures = 1;
+    Ledger::TxAccountRecovery tx;
+    tx.walletId = id;
+    tx.meta = action.ltsToString();
+    tx.fee = minimumFeeFor(harness_.chainConfig, Ledger::TypedTx(tx)).value();
+    tx.idempotentId = idem;
+    tx.validationTsMin = from;
+    tx.validationTsMax = from + 3600;
+    return makeRecord(Ledger::T_ACCOUNT_RECOVERY, tx, signer, producer.getNetworkId());
+  };
+  auto pay = [&](const utl::MlDsaKeyPair &signer, uint64_t idem) {
+    Ledger::TxDefault tx;
+    tx.tokenId = AccountBuffer::ID_GENESIS;
+    tx.fromWalletId = id;
+    tx.toWalletId = AccountBuffer::ID_RESERVE;
+    tx.amount = 10;
+    tx.fee = 1;
+    tx.idempotentId = idem;
+    tx.validationTsMin = from;
+    tx.validationTsMax = from + 3600;
+    return makeRecord(Ledger::T_DEFAULT, tx, signer, producer.getNetworkId());
+  };
+  auto refused = [&](const Ledger::Record &record) {
+    AccountBuffer scratch;
+    return !producer.addBufferTransaction(scratch, record, kTestMinerId).isOk();
+  };
+  auto recovery = [&] { return peer.getAccount(id).value().wallet.recovery; };
+  uint64_t filler = 100;
+  auto upTo = [&](Ledger::ChainNode block, uint64_t slot) {
+    for (uint64_t s = block.block.slot + 1; s < slot; ++s) {
+      block = commit(block, s, {makeReserveTransfer(harness_, 5, filler++)});
+    }
+    return block;
+  };
+
+  // The fee account's own keys name its first set (funded first: the update pays its fee).
+  Ledger::ChainNode block = commit(harness_.genesis, 1, {makeReserveTransfer(harness_, 100000, filler++)});
+  Client::AccountRecovery set;
+  set.publicKeys = {guardian.publicKey};
+  set.minSignatures = 1;
+  set.delaySeconds = halfEpoch;
+  block = commit(block, 2, {update(harness_.feeKey, 10, set)});
+  ASSERT_EQ(recovery(), set);
+
+  // Announced at slot 3 (15 s): epoch 1 starts at 50 s, 35 s later — at least the delay.
+  block = commit(block, 3, {announce(guardian, 20)});
+  ASSERT_TRUE(recovery().pending);
+  EXPECT_EQ(recovery().applyEpoch, 1u);
+  EXPECT_TRUE(refused(pay(harness_.feeKey, 30))) << "frozen while announced";
+
+  // Epoch 1's first block hands the account to the announced key.
+  block = commit(upTo(block, 10), 10, {makeReserveTransfer(harness_, 5, filler++)});
+  EXPECT_FALSE(recovery().pending);
+  EXPECT_EQ(peer.getAccount(id).value().wallet.publicKeys, std::vector<std::string>{nextKey.publicKey});
+  EXPECT_TRUE(refused(pay(harness_.feeKey, 31))) << "the old key signs no more";
+  block = commit(block, 11, {pay(nextKey, 32)});
+}
+
+// A re-genesis gives the system accounts new keys, vouched for by the admin set: the old network's
+// recovery set (and any announcement) does not come along to take them back. Other accounts keep theirs.
+TEST(ImportTest, SystemAccountsEnterWithTheirNewKeysAndNoOldRecovery) {
+  auto withRecovery = [](uint64_t id) {
+    StateSnapshot::Account old;
+    old.id = id;
+    old.wallet.publicKeys = {"old-key"};
+    old.wallet.minSignatures = 1;
+    old.wallet.recovery.publicKeys = {"old-guardian"};
+    old.wallet.recovery.minSignatures = 1;
+    old.wallet.recovery.delaySeconds = 60;
+    old.wallet.recovery.pending = true;
+    old.wallet.recovery.nextPublicKeys = {"announced-key"};
+    old.wallet.recovery.nextMinSignatures = 1;
+    old.wallet.recovery.applyEpoch = 7;
+    return old;
+  };
+  ImportProgress progress;
+  progress.systemKeys = {{AccountBuffer::ID_REGISTRAR, {"new-registrar-key"}, 1}};
+
+  auto registrar = ImportTxHandler::entering(withRecovery(AccountBuffer::ID_REGISTRAR), progress, 1);
+  ASSERT_TRUE(registrar.isOk()) << registrar.error().message;
+  EXPECT_EQ(registrar.value().wallet.publicKeys, std::vector<std::string>{"new-registrar-key"});
+  EXPECT_EQ(registrar.value().wallet.recovery, Client::AccountRecovery{});
+
+  auto user = ImportTxHandler::entering(withRecovery(AccountBuffer::ID_FIRST_USER), progress, 1);
+  ASSERT_TRUE(user.isOk()) << user.error().message;
+  EXPECT_EQ(user.value().wallet.publicKeys, std::vector<std::string>{"old-key"});
+  EXPECT_EQ(user.value().wallet.recovery, withRecovery(AccountBuffer::ID_FIRST_USER).wallet.recovery);
 }

@@ -104,15 +104,8 @@ struct Wallet {
    */
   std::string domain;
 
-  bool operator==(const Wallet& other) const {
-    return mBalances == other.mBalances &&
-           publicKeys == other.publicKeys &&
-           minSignatures == other.minSignatures &&
-           keyType == other.keyType &&
-           miner == other.miner &&
-           recovery == other.recovery &&
-           domain == other.domain;
-  }
+  /** Every field, including any added later: renewals rely on it (chain_tx::renewalChangedWalletField). */
+  bool operator==(const Wallet& other) const = default;
 
   template <typename Archive> void serialize(Archive &ar) {
     ar & mBalances & publicKeys & minSignatures & keyType & miner & recovery & domain;

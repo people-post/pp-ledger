@@ -37,8 +37,10 @@ public:
   /** A T_IMPORT record for `account` (unsigned). */
   static Ledger::Record makeRecord(const StateSnapshot::Account &account);
 
-private:
-  /** The account as it enters the new state: block `blockId`, keys and miner fields as above. */
+  /**
+   * The account as it enters the new state: block `blockId`, its miner slots reset; a system account
+   * takes the import's keys for it and no recovery (the old network's set would take the new keys back).
+   */
   static chain_tx::Roe<AccountBuffer::Account> entering(const StateSnapshot::Account &old, const ImportProgress &progress,
                                                         uint64_t blockId);
 };

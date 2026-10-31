@@ -461,9 +461,13 @@ warns when its account is not a registered miner.
 
 ## Account recovery
 
-A user or issued account may name a **recovery set**: keys that stand above the account's own. The
-set can give the account new keys — when its keys are lost, or stolen — and only the set changes
-itself (design and rationale: `projects/account-recovery`). It is account state in the account's leaf,
+Any account but genesis — user, issued, and the system accounts reserve, registrar, fee and recycle —
+may name a **recovery set**: keys that stand above the account's own. The set can give the account
+new keys — when its keys are lost, or stolen — and only the set changes itself (design and rationale:
+`projects/account-recovery`). **Genesis has none:** its way back is the genesis recovery set in the
+chain authority ([BEACON_AUTHORITY § Recovery](BEACON_AUTHORITY.md#recovery--t_recovery-record-19)).
+A genesis wallet carrying a recovery is refused on every path that writes it (genesis, `T_CONFIG`,
+the leader-signed renewal), and a due recovery never applies to genesis. It is account state in the account's leaf,
 so proven like a balance ([Account proofs](#account-proofs)): `Wallet.recovery` (`AccountRecovery`,
 `UserAccount` version **4**):
 
