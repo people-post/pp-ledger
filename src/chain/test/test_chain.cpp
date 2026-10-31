@@ -88,6 +88,41 @@ TEST(ChainTest, CalculateHash_DeterministicAndSensitive) {
   EXPECT_NE(validator.calculateHash(block), hash1);
 }
 
+// A slot leader's renewal re-records an account: every wallet field but the balances (verifyBalance's,
+// moved by the renewal fee) must come back as held — named, so a refusal says what was changed.
+TEST(ChainTest, RenewalChangedWalletField_NamesEveryFieldButBalances) {
+  Client::Wallet held;
+  held.publicKeys = {makeKeyPair().publicKey, makeKeyPair().publicKey};
+  held.minSignatures = 2;
+  held.keyType = Crypto::TK_ML_DSA_65;
+  held.mBalances[AccountBuffer::ID_GENESIS] = 1000;
+  held.domain = "ABCD";
+  held.recovery.publicKeys = {makeKeyPair().publicKey};
+  held.recovery.minSignatures = 1;
+  held.recovery.delaySeconds = 60;
+
+  Client::Wallet carried = held;
+  EXPECT_EQ(chain_tx::renewalChangedWalletField(carried, held), std::nullopt);
+  carried.mBalances[AccountBuffer::ID_GENESIS] = 990;  // the fee: verifyBalance's
+  carried.mBalances[42] = 0;                           // a zero entry: verifyBalance reads it as absent
+  EXPECT_EQ(chain_tx::renewalChangedWalletField(carried, held), std::nullopt) << "balances are not compared here";
+
+  const std::vector<std::pair<std::string, std::function<void(Client::Wallet &)>>> changes = {
+      {"keys", [](auto &w) { w.publicKeys.push_back(makeKeyPair().publicKey); }},
+      {"keys", [](auto &w) { w.minSignatures = 1; }},
+      {"keys", [](auto &w) { w.keyType = 0; }},
+      {"miner state", [](auto &w) { w.miner.registered = true; }},
+      {"recovery", [](auto &w) { w.recovery.pending = true; }},
+      {"recovery", [](auto &w) { w.recovery = {}; }},
+      {"domain", [](auto &w) { w.domain = "WXYZ"; }},
+  };
+  for (const auto &[field, change] : changes) {
+    Client::Wallet changed = held;
+    change(changed);
+    EXPECT_EQ(chain_tx::renewalChangedWalletField(changed, held), std::optional<std::string>(field)) << field;
+  }
+}
+
 // Genesis has no account recovery (its keys change only by T_CONFIG and the genesis recovery set):
 // every path that writes the genesis wallet — genesis, T_CONFIG, the leader-signed renewal — refuses one.
 TEST(ChainTest, GenesisWalletShape_RefusesARecovery) {

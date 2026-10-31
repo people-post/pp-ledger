@@ -181,6 +181,31 @@ Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet) {
   return {};
 }
 
+std::optional<std::string> renewalChangedWalletField(const Client::Wallet &carried, const Client::Wallet &held) {
+  if (carried.publicKeys != held.publicKeys || carried.minSignatures != held.minSignatures ||
+      carried.keyType != held.keyType) {
+    return std::string("keys");
+  }
+  if (carried.miner != held.miner) {
+    return std::string("miner state");
+  }
+  if (carried.recovery != held.recovery) {
+    return std::string("recovery");
+  }
+  if (carried.domain != held.domain) {
+    return std::string("domain");
+  }
+  // Anything else but the balances: compare the whole wallets without them.
+  Client::Wallet carriedRest = carried;
+  Client::Wallet heldRest = held;
+  carriedRest.mBalances.clear();
+  heldRest.mBalances.clear();
+  if (carriedRest != heldRest) {
+    return std::string("wallet");
+  }
+  return std::nullopt;
+}
+
 Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client::Wallet &adminWallet,
                                    const std::string &networkId) {
   auto invalid = [](const std::string &what) { return TxError(chain_err::E_TX_VALIDATION, what); };
