@@ -53,6 +53,9 @@ chain_tx::Roe<void> BeaconSeedTxHandler::check(const Ledger::TxBeaconSeed &tx, c
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "The beacon's seed chain does not cover epoch " + std::to_string(tx.epoch));
   }
+  // Complete for a node that checks this: it replays from a checkpoint and turns Full at the next,
+  // both the first block of their epoch (checkpointEligible), so it has applied every earlier block
+  // of this epoch — any reveal for tx.epoch included.
   if (ctx.beaconReveals.count(tx.epoch) != 0) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "A beacon seed reveal for epoch " + std::to_string(tx.epoch) + " is already recorded");

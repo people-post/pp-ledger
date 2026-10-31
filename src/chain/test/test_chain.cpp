@@ -5844,3 +5844,61 @@ TEST_F(BeaconSeedTest, AFailedBlockLeavesNoReveal) {
   EXPECT_FALSE(peer.getBeaconReveal(1).has_value());
   EXPECT_FALSE(producer.getBeaconReveal(1).has_value());
 }
+
+// A joiner starts at a checkpoint and turns Full at the next one; both are the first block of their
+// epoch (checkpointEligible), so the warm-up replays every block of the epoch before the Full one,
+// and the joiner holds the reveals a tip node holds: it refuses the same duplicates and has the
+// same reveal for the next epoch.
+TEST_F(BeaconSeedTest, ACheckpointJoinerHoldsTheRevealsItNeeds) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  // Every epoch's first block produced here carries the reveal for the next epoch.
+  auto nextWithReveal = [&](const Ledger::ChainNode &previous) {
+    ++slot_;
+    std::vector<Ledger::Record> records = {transferAt(slot_)};
+    const uint64_t epoch = producer.getEpochFromSlot(slot_);
+    if (!producer.getBeaconReveal(epoch + 1).has_value()) {
+      records.push_back(reveal(epoch + 1));
+    }
+    return produce(previous, slot_, records);
+  };
+  while (producer.getCheckpoint().lastId == 0 || producer.getNextBlockId() < producer.getCheckpoint().currentId + 2) {
+    tip = nextWithReveal(tip);
+    ASSERT_FALSE(HasFailure()) << "producing slot " << slot_;
+    ASSERT_LT(slot_, 200u) << "no second checkpoint rotation";
+  }
+  const auto checkpoint = producer.getCheckpoint();
+  const uint64_t fullEpoch = producer.readBlock(checkpoint.currentId).value().block.epoch;
+  ASSERT_LT(producer.readBlock(checkpoint.lastId).value().block.epoch, fullEpoch);
+  ASSERT_TRUE(producer.getBeaconReveal(fullEpoch).has_value()) << "recorded during the warm-up";
+
+  joiner_ = openJoiner(checkpoint.lastId, /*fresh=*/true);
+  feed(*joiner_, checkpoint.lastId, checkpoint.currentId);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(joiner_->getBeaconReveal(fullEpoch), producer.getBeaconReveal(fullEpoch))
+      << "the warm-up held the whole epoch before the Full one";
+  feed(*joiner_, checkpoint.currentId, producer.getNextBlockId());
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(joiner_->getCheckpoint().currentId, checkpoint.currentId) << "validating Full";
+
+  // Into the next epoch: its first block carries the reveal after it, which the joiner checks Full.
+  slot_ = (slot_ / harness_.chainConfig.slotsPerEpoch + 1) * harness_.chainConfig.slotsPerEpoch - 1;
+  tip = nextWithReveal(tip);
+  ASSERT_FALSE(HasFailure());
+  feed(*joiner_, tip.block.index, tip.block.index + 1);
+  ASSERT_FALSE(HasFailure());
+  const uint64_t tipEpoch = tip.block.epoch;
+  for (uint64_t e = fullEpoch; e <= tipEpoch + 1; ++e) {
+    ASSERT_TRUE(producer.getBeaconReveal(e).has_value()) << "epoch " << e;
+    EXPECT_EQ(joiner_->getBeaconReveal(e), producer.getBeaconReveal(e)) << "epoch " << e;
+  }
+
+  // A second reveal for the next epoch: refused by both, for the same reason.
+  ++slot_;
+  for (Chain *node : {&producer, joiner_.get()}) {
+    node->setClockOverride(producer.getSlotEndTime(slot_));
+    expectRefused(node->checkAdmission(reveal(tipEpoch + 1), producer.getSlotStartTime(slot_), true),
+                  "already recorded");
+  }
+}
