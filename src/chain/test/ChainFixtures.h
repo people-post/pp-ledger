@@ -10,6 +10,7 @@
 #include "chain/Chain.h"
 #include "ledger/client/AccountAttachment.h"
 #include "ledger/client/Client.h"
+#include "ledger/consensus/EpochSeed.h"
 #include "testing/TestTempPath.h"
 
 #include <gtest/gtest.h>
@@ -115,7 +116,38 @@ inline const utl::MlDsaKeyPair &testRecoveryKey() {
   return key;
 }
 
-/** A valid genesis authority for `networkId`: a 1-of-1 recovery set (testRecoveryKey()) and testBeaconKey(). */
+/** The secret of the test beacon's seed hash chain (64 epochs from epoch 0). */
+inline const std::string &testBeaconSeedSecret() {
+  static const std::string secret(32, '\x5a');
+  return secret;
+}
+
+/** Epochs the test beacon's seed chain covers. */
+constexpr uint64_t kTestBeaconSeedChainLength = 64;
+
+/** The test beacon's reveal for `epoch` (1..64). */
+inline std::string testBeaconReveal(uint64_t epoch) {
+  return consensus::beaconSeedValue(testBeaconSeedSecret(), kTestBeaconSeedChainLength - epoch);
+}
+
+/** A T_BEACON_SEED for `epoch` carrying `reveal`, signed by `signer`. */
+inline Ledger::Record makeBeaconSeedRecord(uint64_t epoch, const std::string &reveal,
+                                           const utl::MlDsaKeyPair &signer, const std::string &networkId) {
+  Ledger::TxBeaconSeed tx;
+  tx.epoch = epoch;
+  tx.reveal = reveal;
+  return makeRecord(Ledger::T_BEACON_SEED, tx, signer, networkId);
+}
+
+/** The test beacon's signed reveal for `epoch`. */
+inline Ledger::Record makeBeaconSeedRecord(uint64_t epoch, const std::string &networkId) {
+  return makeBeaconSeedRecord(epoch, testBeaconReveal(epoch), testBeaconKey(), networkId);
+}
+
+/**
+ * A valid genesis authority for `networkId`: a 1-of-1 recovery set (testRecoveryKey()) and
+ * testBeaconKey(), with a seed chain of 64 epochs from epoch 0 (testBeaconSeedSecret()).
+ */
 inline Chain::ChainAuthority makeTestAuthority(const std::string &networkId) {
   Chain::ChainAuthority authority;
   authority.recovery.publicKeys = {testRecoveryKey().publicKey};
@@ -125,6 +157,9 @@ inline Chain::ChainAuthority makeTestAuthority(const std::string &networkId) {
   authority.beacon.generation = 1;
   authority.beacon.publicKey = testBeaconKey().publicKey;
   authority.beacon.cutoverHeight = 0;
+  authority.beacon.seedAnchor = consensus::beaconSeedValue(testBeaconSeedSecret(), kTestBeaconSeedChainLength);
+  authority.beacon.seedAnchorEpoch = 0;
+  authority.beacon.seedChainLength = kTestBeaconSeedChainLength;
   return authority;
 }
 
@@ -291,6 +326,8 @@ struct ComposeHarness {
   std::filesystem::path producerDir;
   std::filesystem::path peerDir;
   Ledger::ChainNode genesis;
+  /** Edits the genesis meta before SetUp seals it (e.g. another authority). */
+  std::function<void(Chain::GenesisAccountMeta &)> tweakGenesisMeta;
 
   void SetUp(const std::function<void(Chain::BlockChainConfig &)> &tweakConfig = {}) {
     chainConfig = makeChainConfig(/*genesisTime=*/0);
@@ -335,8 +372,14 @@ struct ComposeHarness {
     peerLedger.startingBlockId = 0;
     ASSERT_TRUE(peer.initLedger(peerLedger).isOk());
 
-    genesis = makeGenesisBlock(producer, chainConfig, genesisKey, feeKey,
-                               reserveKey, recycleKey);
+    if (tweakGenesisMeta) {
+      genesis = buildUnsealedGenesis(chainConfig, genesisKey, feeKey, reserveKey, recycleKey, nullptr, nullptr,
+                                     tweakGenesisMeta);
+      ASSERT_TRUE(producer.sealBlock(genesis).isOk());
+    } else {
+      genesis = makeGenesisBlock(producer, chainConfig, genesisKey, feeKey,
+                                 reserveKey, recycleKey);
+    }
     ASSERT_TRUE(producer.addBlock(genesis).isOk());
 
     // Peer applies the same genesis bytes (unsealed path) so tip banks match.

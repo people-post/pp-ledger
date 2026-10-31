@@ -693,7 +693,8 @@ chain_tx::Roe<void> validateAccountRenewals(
   }
 
   // Due renewals may wait when they do not fit (B035): a block leaving any out holds renewals only
-  // (and at most a beacon certificate, which a takeover's block needs), at least one.
+  // (and at most a beacon certificate, which a takeover's block needs, and the beacon's seed reveal,
+  // which must land in its epoch), at least one.
   for (uint64_t accountId : accountsNeedingRenewal) {
     if (accountsRenewedInBlock.find(accountId) != accountsRenewedInBlock.end()) {
       continue;
@@ -701,7 +702,7 @@ chain_tx::Roe<void> validateAccountRenewals(
     for (const auto &rec : block.block.records) {
       const ITxHandler *handler = rec.type < RecordHandler::kNumTxTypes ? recordHandler.get(rec.type) : nullptr;
       const bool renewal = handler != nullptr && handler->participatesInAccountRenewalValidation();
-      if (!renewal && rec.type != Ledger::T_BEACON_CERT) {
+      if (!renewal && rec.type != Ledger::T_BEACON_CERT && rec.type != Ledger::T_BEACON_SEED) {
         return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
                                  "Missing required account renewal: account " + std::to_string(accountId) +
                                      " meets renewal deadline, and a block leaving due renewals out holds "
@@ -743,15 +744,20 @@ chain_tx::Roe<void> validateEmptyHeartbeatPolicy(const Ledger::ChainNode &block,
 chain_tx::Roe<void> validateAuthorityRecordCount(const Ledger::Block &block) {
   size_t certificates = 0;
   size_t recoveries = 0;
+  size_t reveals = 0;
   for (const auto &record : block.records) {
     certificates += record.type == Ledger::T_BEACON_CERT ? 1 : 0;
     recoveries += record.type == Ledger::T_RECOVERY ? 1 : 0;
+    reveals += record.type == Ledger::T_BEACON_SEED ? 1 : 0;
   }
   if (certificates > 1) {
     return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION, "A block holds at most one beacon certificate");
   }
   if (recoveries > 1) {
     return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION, "A block holds at most one recovery announcement");
+  }
+  if (reveals > 1) {
+    return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION, "A block holds at most one beacon seed reveal");
   }
   return {};
 }

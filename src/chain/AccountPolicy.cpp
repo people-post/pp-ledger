@@ -408,6 +408,20 @@ Roe<void> verifyRecoverySigned(const Ledger::Record &record, const RecoverySet &
   return verifySignaturesAgainstAccount(record.signingMessage(networkId), record.signatures, signer, crypto, logger);
 }
 
+Roe<void> verifyBeaconSigned(const Ledger::Record &record, const BeaconCertificate &cert,
+                             const std::string &networkId, const Crypto &crypto, logging::Logger &logger) {
+  // The beacon key alone signs: a second signature would make the record's bytes malleable.
+  if (record.signatures.size() != 1) {
+    return TxError(chain_err::E_TX_SIGNATURE, "A beacon record carries exactly one signature");
+  }
+  AccountBuffer::Account signer;
+  signer.id = AccountBuffer::ID_GENESIS;
+  signer.wallet.publicKeys = {cert.publicKey};
+  signer.wallet.minSignatures = 1;
+  signer.wallet.keyType = Crypto::TK_ML_DSA_65;
+  return verifySignaturesAgainstAccount(record.signingMessage(networkId), record.signatures, signer, crypto, logger);
+}
+
 Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,
                          uint64_t blockId, const Client::Wallet &wallet,
                          const std::string &attachment, std::string_view addFailurePrefix) {

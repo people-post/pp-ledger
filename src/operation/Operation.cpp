@@ -228,6 +228,8 @@ Kind kindOf(const Ledger::Record &record) {
     return Kind::Recovery;
   case Ledger::T_GENESIS:
     return Kind::Genesis;
+  case Ledger::T_BEACON_SEED:
+    return Kind::Other; // the beacon publishes it itself, never through an operation file
   default:
     return Kind::Other;
   }
@@ -263,6 +265,8 @@ std::optional<uint64_t> signerAccountOf(const Ledger::Record &record) {
   case Ledger::T_BEACON_CERT:
   case Ledger::T_GENESIS:
     return AccountIds::ID_GENESIS;
+  case Ledger::T_BEACON_SEED:
+    return std::nullopt; // the beacon key signs it, not an account
   default:
     return std::nullopt;
   }

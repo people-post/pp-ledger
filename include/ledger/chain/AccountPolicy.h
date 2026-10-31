@@ -153,6 +153,10 @@ void advanceAuthorityToEpoch(ChainAuthority &authority, Client::Wallet &admin, u
 Roe<void> verifyRecoverySigned(const Ledger::Record &record, const RecoverySet &recovery,
                                const std::string &networkId, const Crypto &crypto, logging::Logger &logger);
 
+/** `record` carries exactly one signature, by the beacon key `cert.publicKey` (over its signing message for `networkId`). */
+Roe<void> verifyBeaconSigned(const Ledger::Record &record, const BeaconCertificate &cert,
+                             const std::string &networkId, const Crypto &crypto, logging::Logger &logger);
+
 /** Remove + re-add an account with the given wallet and attachment (its bytes as recorded) at `blockId`. */
 Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,
                          uint64_t blockId, const Client::Wallet &wallet,

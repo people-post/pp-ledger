@@ -46,6 +46,7 @@ public:
   constexpr static uint16_t T_RECOVERY = 19;       // Recovery set announces a new admin set
   constexpr static uint16_t T_IMPORT = 20;         // Re-genesis: one account of the predecessor network
   constexpr static uint16_t T_ACCOUNT_RECOVERY = 21; // An account's recovery set announces its next keys
+  constexpr static uint16_t T_BEACON_SEED = 22;      // The beacon reveals its seed for the next epoch
 
   struct TxCommon {
     uint64_t fee{ 0 };          // Transaction fee, always in native token, always goes to system fee account
@@ -206,6 +207,19 @@ public:
   };
 
   /**
+   * T_BEACON_SEED: the beacon's hash-chain reveal for `epoch`, published during epoch `epoch` - 1 and
+   * signed by the beacon key (chain layer checks it against the certificate's anchor). No fee.
+   */
+  struct TxBeaconSeed {
+    uint64_t epoch{ 0 };
+    std::string reveal; // 32 raw bytes
+
+    template <typename Archive> void serialize(Archive &ar) { ar & epoch & reveal; }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  /**
    * T_DOMAIN_ASSIGN (projects/domains): the registrar gives issued account `walletId` the domain
    * `domain` (4–7 letters, never given before). Signed by the registrar; the fee from the registrar.
    */
@@ -222,12 +236,12 @@ public:
 
   /**
    * In-memory typed transaction payload for centralized dispatch. Variant order is not the
-   * record type id (16..21 follow 0..6, then 7; 8..15 are reserved): use typeOf().
+   * record type id (16..21 follow 0..6, then 7, then 22; 8..15 are reserved): use typeOf().
    */
   using TypedTx = std::variant<TxDefault, TxGenesis, TxNewUser, TxConfig,
                                TxUserUpdate, TxRenewal, TxEndUser,
                                TxMinerRegister, TxMinerRevoke, TxBeaconCert, TxRecovery, TxImport,
-                               TxAccountRecovery, TxDomainAssign>;
+                               TxAccountRecovery, TxDomainAssign, TxBeaconSeed>;
   /** Record type id (T_*) of a typed transaction. */
   static uint16_t typeOf(const TypedTx &tx);
 

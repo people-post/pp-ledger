@@ -142,6 +142,8 @@ public:
       return 0; // keys only: not custom metadata (an update's keys are not billed either)
     case Ledger::T_DOMAIN_ASSIGN:
       return std::get<Ledger::TxDomainAssign>(tx).meta.size();
+    case Ledger::T_BEACON_SEED:
+      return 0; // no meta, no fee
     default:
       return chain_tx::TxError(chain_err::E_INTERNAL,
                                "Unknown typed transaction variant");

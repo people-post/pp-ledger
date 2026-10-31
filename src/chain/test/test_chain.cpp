@@ -123,7 +123,9 @@ TEST(ChainTest, GenesisAuthority_RefusesEveryBadShape) {
 
 TEST(BeaconCertificateTest, SeedAnchorRoundTrips) {
   BeaconCertificate cert = makeTestAuthority("test-net").beacon;
-  EXPECT_FALSE(cert.hasSeedChain());
+  EXPECT_TRUE(cert.hasSeedChain()) << "the fixture's beacon has a seed chain";
+  cert.seedAnchor.clear();
+  EXPECT_FALSE(cert.hasSeedChain()) << "an empty anchor is none";
   cert.seedAnchor = std::string(32, 'a');
   cert.seedAnchorEpoch = 7;
   cert.seedChainLength = 10000;
@@ -3964,7 +3966,15 @@ TEST_F(MinerLivenessTest, ProducerStatsCountBlocksFeesAndChargedMisses) {
   uint64_t fees = 0;
   for (const auto &block : blocks) {
     for (const auto &record : block.block.records) {
-      fees += std::visit([](const auto &tx) -> uint64_t { return tx.fee; }, record.decode().value());
+      fees += std::visit(
+          [](const auto &tx) -> uint64_t {
+            if constexpr (std::is_base_of_v<Ledger::TxCommon, std::decay_t<decltype(tx)>>) {
+              return tx.fee;
+            } else {
+              return 0;
+            }
+          },
+          record.decode().value());
     }
   }
   const uint64_t next = blocks.back().block.index + 1;
@@ -5620,4 +5630,217 @@ TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeAnAccountsKeysOrMeta) {
   });
   ASSERT_FALSE(meta.isOk());
   EXPECT_NE(meta.error().message.find("cannot change the meta"), std::string::npos) << meta.error().message;
+}
+
+// beacon epoch seed: during epoch E-1 the beacon publishes its hash-chain reveal for epoch E in a
+// T_BEACON_SEED, signed by the beacon key and checked against the anchor in its certificate. The
+// fixture's seed chain covers epochs 1..64 from epoch 0 (testBeaconSeedSecret()).
+class BeaconSeedTest : public CheckpointJoinTest {
+protected:
+  std::string net() const { return harness_.producer.getNetworkId(); }
+  Ledger::Record reveal(uint64_t epoch) const { return makeBeaconSeedRecord(epoch, net()); }
+
+  /** What the producer's pool says of `record` while `slot` is produced. */
+  Chain::Roe<void> admit(const Ledger::Record &record, uint64_t slot) {
+    auto &producer = harness_.producer;
+    producer.setClockOverride(producer.getSlotEndTime(slot));
+    return producer.checkAdmission(record, producer.getSlotStartTime(slot), /*verifySignatures=*/true);
+  }
+
+  /** Seals a block at `slot` on `tip` (the renewals due, then `records`); a block that seals is abandoned. */
+  Chain::Roe<void> trySeal(const Ledger::ChainNode &tip, uint64_t slot, const std::vector<Ledger::Record> &records) {
+    auto &producer = harness_.producer;
+    producer.setClockOverride(producer.getSlotEndTime(slot));
+    auto due = producer.collectRenewals(slot);
+    EXPECT_TRUE(due.isOk());
+    std::vector<Ledger::Record> all = due.isOk() ? signedRenewals(due.value()) : std::vector<Ledger::Record>{};
+    all.insert(all.end(), records.begin(), records.end());
+    producer.refreshStakeholders(slot);
+    EXPECT_TRUE(producer.ensureEpochSeed(producer.getEpochFromSlot(slot)).isOk());
+    Ledger::ChainNode block = producer.linkNextBlock(tip, slot, kTestMinerId, producer.getSlotEndTime(slot), all);
+    auto sealed = producer.sealBlock(block);
+    if (sealed.isOk()) {
+      producer.abandonSeal();
+    }
+    return sealed;
+  }
+
+  static void expectRefused(const Chain::Roe<void> &result, const std::string &why) {
+    ASSERT_FALSE(result.isOk()) << why;
+    EXPECT_NE(result.error().message.find(why), std::string::npos) << result.error().message;
+  }
+};
+
+TEST_F(BeaconSeedTest, TheBeaconsRevealForTheNextEpochIsAdmitted) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  auto admitted = admit(reveal(1), 1);
+  EXPECT_TRUE(admitted.isOk()) << admitted.error().message;
+  Ledger::ChainNode block = produce(harness_.genesis, 1, {reveal(1)});
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(producer.getBeaconReveal(1), std::optional<std::string>(testBeaconReveal(1)));
+  EXPECT_FALSE(producer.getBeaconReveal(2).has_value());
+
+  // A peer checking the block in full records the same.
+  peer.setClockOverride(producer.getSlotEndTime(1));
+  auto added = peer.addBlock(block);
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+  EXPECT_EQ(peer.getBeaconReveal(1), std::optional<std::string>(testBeaconReveal(1)));
+
+  // The next epoch's reveal checks against the last one.
+  admitted = admit(reveal(2), 11);
+  EXPECT_TRUE(admitted.isOk()) << admitted.error().message;
+  block = produce(block, 11, {reveal(2)});
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(producer.getBeaconReveal(2), std::optional<std::string>(testBeaconReveal(2)));
+}
+
+TEST_F(BeaconSeedTest, RefusesAWrongSignerAWrongEpochOrAForgedReveal) {
+  expectRefused(admit(makeBeaconSeedRecord(1, testBeaconReveal(1), harness_.genesisKey, net()), 1), "signature");
+  Ledger::Record twice = reveal(1);
+  twice.signatures.push_back(twice.signatures.front());
+  expectRefused(admit(twice, 1), "exactly one signature");
+
+  expectRefused(admit(reveal(2), 1), "epoch");
+  expectRefused(admit(makeBeaconSeedRecord(0, std::string(32, 'r'), testBeaconKey(), net()), 1), "epoch");
+
+  expectRefused(admit(makeBeaconSeedRecord(1, testBeaconReveal(2), testBeaconKey(), net()), 1),
+                "does not match");
+  expectRefused(admit(makeBeaconSeedRecord(1, testBeaconReveal(1).substr(1), testBeaconKey(), net()), 1),
+                "does not match");
+
+  // A leader is held to the same.
+  expectRefused(trySeal(harness_.genesis, 1, {makeBeaconSeedRecord(1, testBeaconReveal(2), testBeaconKey(), net())}),
+                "does not match");
+  expectRefused(trySeal(harness_.genesis, 1, {reveal(2)}), "epoch");
+  EXPECT_FALSE(trySeal(harness_.genesis, 1, {makeBeaconSeedRecord(1, testBeaconReveal(1), harness_.genesisKey, net())})
+                   .isOk());
+}
+
+TEST_F(BeaconSeedTest, OneRevealPerEpoch) {
+  auto &producer = harness_.producer;
+  producer.setClockOverride(producer.getSlotEndTime(1));
+  AccountBuffer draft;
+  auto first = producer.addBufferTransaction(draft, reveal(1), kTestMinerId);
+  ASSERT_TRUE(first.isOk()) << first.error().message;
+  expectRefused(producer.addBufferTransaction(draft, reveal(1), kTestMinerId), "one beacon seed reveal");
+
+  expectRefused(trySeal(harness_.genesis, 1, {reveal(1), reveal(1)}), "already");
+  Ledger::Block two;
+  two.records = {reveal(1), reveal(1)};
+  EXPECT_FALSE(chain_block::validateAuthorityRecordCount(two).isOk()) << "a peer refuses it before apply";
+
+  Ledger::ChainNode block = produce(harness_.genesis, 1, {reveal(1)});
+  ASSERT_FALSE(HasFailure());
+  expectRefused(admit(reveal(1), 2), "already");
+  expectRefused(trySeal(block, 2, {reveal(1)}), "already");
+}
+
+TEST_F(BeaconSeedTest, NoChainOrAnExhaustedChainRefusesReveals) {
+  struct Guard {
+    ComposeHarness &h;
+    ~Guard() { h.TearDown(); }
+  };
+  {
+    ComposeHarness h; // a beacon without a seed chain: every epoch takes the absent seed
+    h.tweakGenesisMeta = [](Chain::GenesisAccountMeta &gm) {
+      gm.authority.beacon.seedAnchor.clear();
+      gm.authority.beacon.seedChainLength = 0;
+    };
+    h.SetUp();
+    Guard guard{h};
+    ASSERT_FALSE(HasFailure());
+    h.producer.setClockOverride(h.producer.getSlotEndTime(1));
+    expectRefused(h.producer.checkAdmission(makeBeaconSeedRecord(1, h.producer.getNetworkId()),
+                                            h.producer.getSlotStartTime(1), true),
+                  "no seed chain");
+  }
+  {
+    const std::string secret(32, '\x33');
+    ComposeHarness h; // a two-epoch chain: reveals for epochs 1 and 2, then none
+    h.tweakGenesisMeta = [&](Chain::GenesisAccountMeta &gm) {
+      gm.authority.beacon.seedAnchor = consensus::beaconSeedValue(secret, 2);
+      gm.authority.beacon.seedAnchorEpoch = 0;
+      gm.authority.beacon.seedChainLength = 2;
+    };
+    h.SetUp();
+    Guard guard{h};
+    ASSERT_FALSE(HasFailure());
+    auto &producer = h.producer;
+    const std::string network = producer.getNetworkId();
+    producer.setClockOverride(producer.getSlotEndTime(1));
+    Ledger::ChainNode block = makeNextBlockAtSlot(
+        producer, h.genesis, 1, {makeBeaconSeedRecord(1, consensus::beaconSeedValue(secret, 1), testBeaconKey(), network)});
+    ASSERT_TRUE(producer.addBlock(block).isOk());
+    producer.setClockOverride(producer.getSlotEndTime(11));
+    block = makeNextBlockAtSlot(producer, block, 11, {makeBeaconSeedRecord(2, secret, testBeaconKey(), network)});
+    ASSERT_TRUE(producer.addBlock(block).isOk());
+    EXPECT_EQ(producer.getBeaconReveal(2), std::optional<std::string>(secret));
+    producer.setClockOverride(producer.getSlotEndTime(21));
+    expectRefused(producer.checkAdmission(makeBeaconSeedRecord(3, std::string(32, 'x'), testBeaconKey(), network),
+                                          producer.getSlotStartTime(21), true),
+                  "does not cover epoch 3");
+  }
+}
+
+// B035: a block leaving due renewals out holds renewals only — and the beacon's reveal, which must
+// land in its epoch.
+TEST_F(BeaconSeedTest, ARenewalsOnlyBlockMayCarryTheReveal) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  std::vector<Ledger::Record> due;
+  while (true) { // a slot with two renewals due, outside a checkpoint
+    producer.setClockOverride(producer.getSlotEndTime(slot_ + 1));
+    auto collected = producer.collectRenewals(slot_ + 1);
+    ASSERT_TRUE(collected.isOk());
+    due = signedRenewals(collected.value());
+    if (due.size() >= 2 && !chain_block::isGenesisRenewal(due.front())) {
+      break;
+    }
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure());
+    ASSERT_LT(slot_, 200u);
+  }
+  ++slot_;
+  const uint64_t epoch = producer.getEpochFromSlot(slot_);
+  Ledger::ChainNode block = producer.linkNextBlock(tip, slot_, kTestMinerId, producer.getSlotEndTime(slot_),
+                                                   {due.front(), reveal(epoch + 1)});
+  auto sealed = producer.sealBlock(block);
+  ASSERT_TRUE(sealed.isOk()) << sealed.error().message;
+  signAsLeader(block, net());
+  auto added = producer.addBlock(block);
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+  EXPECT_EQ(producer.getBeaconReveal(epoch + 1), std::optional<std::string>(testBeaconReveal(epoch + 1)));
+}
+
+TEST_F(BeaconSeedTest, AFailedBlockLeavesNoReveal) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  // A leader's draft failing on a record after the reveal.
+  Ledger::TxDefault overdraft;
+  overdraft.tokenId = AccountBuffer::ID_GENESIS;
+  overdraft.fromWalletId = AccountBuffer::ID_FEE;
+  overdraft.toWalletId = AccountBuffer::ID_RESERVE;
+  overdraft.amount = 1'000'000;
+  overdraft.fee = 1;
+  overdraft.idempotentId = 1;
+  windowAt(overdraft, 1);
+  EXPECT_FALSE(
+      trySeal(harness_.genesis, 1, {reveal(1), makeRecord(Ledger::T_DEFAULT, overdraft, harness_.feeKey, net())})
+          .isOk());
+  EXPECT_FALSE(producer.getBeaconReveal(1).has_value());
+
+  // A peer's block failing after its records applied (a wrong state root).
+  producer.setClockOverride(producer.getSlotEndTime(1));
+  Ledger::ChainNode block = makeNextBlockAtSlot(producer, harness_.genesis, 1, {reveal(1)});
+  ASSERT_FALSE(HasFailure());
+  producer.abandonSeal();
+  block.block.stateRoot = std::string(32, 'x');
+  block.hash = chain_block::calculateBlockHash(block.block);
+  signAsLeader(block, net());
+  peer.setClockOverride(producer.getSlotEndTime(1));
+  expectRefused(peer.addBlock(block), "stateRoot");
+  EXPECT_FALSE(peer.getBeaconReveal(1).has_value());
+  EXPECT_FALSE(producer.getBeaconReveal(1).has_value());
 }

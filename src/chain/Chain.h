@@ -171,6 +171,8 @@ public:
   std::string getNetworkId() const;
   /** Recovery set + beacon certificate in force; nullopt before genesis is applied. */
   std::optional<ChainAuthority> getAuthority() const { return txContext_.optAuthority; }
+  /** The beacon's seed reveal for `epoch` (T_BEACON_SEED), while the chain keeps it. */
+  std::optional<std::string> getBeaconReveal(uint64_t epoch) const;
   /** The config in force at the tip. */
   std::optional<BlockChainConfig> getChainConfig() const { return txContext_.optChainConfig; }
   /**
@@ -495,6 +497,8 @@ private:
     Checkpoint checkpoint;
     std::optional<ChainAuthority> optAuthority;
     std::optional<ImportProgress> importProgress;
+    std::map<uint64_t, std::string> beaconReveals;
+    std::optional<BeaconRevealChain> beaconRevealChain;
   };
   /** Open a bank overlay and snapshot the rest of the tip state. */
   TipSnapshot beginTipUpdate();

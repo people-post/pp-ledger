@@ -536,7 +536,15 @@ Chain::Roe<Client::ProducerStatsResponse> Chain::producerStats(uint64_t fromBloc
       if (!typed) {
         continue;
       }
-      const uint64_t fee = std::visit([](const auto &tx) -> uint64_t { return tx.fee; }, typed.value());
+      const uint64_t fee = std::visit(
+          [](const auto &tx) -> uint64_t {
+            if constexpr (std::is_base_of_v<Ledger::TxCommon, std::decay_t<decltype(tx)>>) {
+              return tx.fee;
+            } else {
+              return 0; // T_BEACON_SEED: no fee
+            }
+          },
+          typed.value());
       producer.fees += fee;
       response.fees += fee;
     }
@@ -816,7 +824,8 @@ Chain::TipSnapshot Chain::beginTipUpdate() {
   txContext_.bank.beginOverlay();
   return TipSnapshot{txContext_.consensus.saveTipState(), txContext_.optChainConfig,
                      txContext_.pendingChainConfig, txContext_.issuanceBaseline, txContext_.checkpoint,
-                     txContext_.optAuthority, txContext_.importProgress};
+                     txContext_.optAuthority, txContext_.importProgress, txContext_.beaconReveals,
+                     txContext_.beaconRevealChain};
 }
 
 void Chain::commitTipUpdate() { txContext_.bank.commitOverlay(); }
@@ -830,6 +839,8 @@ void Chain::rollbackTipUpdate(TipSnapshot snapshot) {
   txContext_.checkpoint = snapshot.checkpoint;
   txContext_.optAuthority = std::move(snapshot.optAuthority);
   txContext_.importProgress = std::move(snapshot.importProgress);
+  txContext_.beaconReveals = std::move(snapshot.beaconReveals);
+  txContext_.beaconRevealChain = std::move(snapshot.beaconRevealChain);
 }
 
 Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
@@ -1186,6 +1197,8 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   log().info << "Resetting account buffer";
   txContext_.bank.reset();
   txContext_.importProgress.reset();
+  txContext_.beaconReveals.clear();
+  txContext_.beaconRevealChain.reset();
   epochStakeSnapshots_.clear();
   chargedMisses_.clear();
   pendingSeal_.reset();
@@ -1558,6 +1571,11 @@ Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
 
 void Chain::enterBlockEpoch(uint64_t epoch) {
   applyDueRecovery(epoch);
+  // Reveals for the epochs whose seeds are still derived; this block records at most epoch + 1.
+  if (epoch + 1 > kStakeSnapshotsKept) {
+    auto &reveals = txContext_.beaconReveals;
+    reveals.erase(reveals.begin(), reveals.lower_bound(epoch + 1 - kStakeSnapshotsKept));
+  }
   auto &pending = txContext_.pendingChainConfig;
   if (pending.has_value() && epoch >= pending->activationEpoch) {
     txContext_.optChainConfig = std::move(pending->config);
@@ -2239,6 +2257,11 @@ Chain::Roe<void> Chain::verifyAccountSignatures(uint64_t accountId, const std::s
   return verifySignaturesAgainstAccount(message, signatures, account.value());
 }
 
+std::optional<std::string> Chain::getBeaconReveal(uint64_t epoch) const {
+  auto it = txContext_.beaconReveals.find(epoch);
+  return it == txContext_.beaconReveals.end() ? std::nullopt : std::optional<std::string>(it->second);
+}
+
 Chain::Roe<void> Chain::checkAdmission(const Ledger::Record &record, int64_t nowSec,
                                       bool verifySignatures) const {
   switch (record.type) {
@@ -2316,6 +2339,16 @@ Chain::Roe<void> Chain::validateTxSignatures(
     }
     return mapTxVoid(chain_tx::verifyRecoverySigned(record, txContext_.optAuthority->recovery, getNetworkId(),
                                                     txContext_.crypto, log()));
+  }
+  if (record.type == Ledger::T_BEACON_SEED) {
+    // Signed by the beacon key of the certificate in force, not by an account.
+    if (!txContext_.optAuthority.has_value()) {
+      return chain_block::admissionTxStrict(admissionMode)
+                 ? Error(E_STATE_INIT, "Chain authority not initialized")
+                 : Roe<void>();
+    }
+    return mapTxVoid(chain_tx::verifyBeaconSigned(record, txContext_.optAuthority->beacon, getNetworkId(),
+                                                  txContext_.crypto, log()));
   }
   if (record.type == Ledger::T_ACCOUNT_RECOVERY) {
     // Signed by the account's recovery set, not its keys (projects/account-recovery).

@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -47,6 +48,17 @@ struct ImportProgress {
 };
 
 /**
+ * The seed chain the newest beaconReveals entries were checked against: entries from `fromEpoch` on
+ * lie on the chain of (`anchor`, `anchorEpoch`), so a later reveal under the same certificate
+ * chain may be checked against the last of them instead of the anchor.
+ */
+struct BeaconRevealChain {
+  std::string anchor;
+  uint64_t anchorEpoch{0};
+  uint64_t fromEpoch{0};
+};
+
+/**
  * Chain subsystem bundle passed to transaction handlers.
  * Chain owns a single TxContext member; handlers take TxContext & or
  * const TxContext & depending on whether they may mutate chain state.
@@ -64,6 +76,12 @@ struct TxContext {
   /** Set by Chain at each epoch's first block; bounds issuance per epoch. */
   std::optional<IssuanceBaseline> issuanceBaseline{std::nullopt};
   Checkpoint checkpoint{};
+  /**
+   * The beacon's seed reveals by the epoch they are for (T_BEACON_SEED, recorded during the epoch
+   * before). Chain keeps the last few epochs.
+   */
+  std::map<uint64_t, std::string> beaconReveals;
+  std::optional<BeaconRevealChain> beaconRevealChain{std::nullopt};
   /** While an importing genesis's span is open (blocks 1..k); none otherwise. */
   std::optional<ImportProgress> importProgress{std::nullopt};
   std::optional<FnAccountMetaForRecord> fnAccountMetaForRecord{std::nullopt};

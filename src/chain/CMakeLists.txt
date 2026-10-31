@@ -31,6 +31,7 @@ add_library(pp_chain STATIC
     AuthorityTrail.cpp
     ClientVerify.cpp
     BeaconCertTxHandler.cpp
+    BeaconSeedTxHandler.cpp
     RecoveryTxHandler.cpp
     ConfigTxHandler.cpp
     DefaultTxHandler.cpp
