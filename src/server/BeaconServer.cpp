@@ -1474,12 +1474,15 @@ void BeaconServer::submitBeaconSeedIfDue() {
     return;
   }
   const uint64_t slot = beacon_.getCurrentSlot();
-  if (seedRecord_ && seedRecordEpoch_ == target && seedPooledSlot_ == slot) {
+  const bool recordCurrent = seedRecord_ && seedRecordEpoch_ == target && seedRecordGeneration_ == cert.generation &&
+                             seedRecordAnchor_ == cert.seedAnchor;
+  if (recordCurrent && seedPooledSlot_ == slot) {
     return; // tried this slot already
   }
-  if (seedMatchedAnchor_ != cert.seedAnchor) {
-    // Up to seedChainLength hashes per secret: once per anchor.
+  if (seedMatchedAnchor_ != cert.seedAnchor || seedMatchedLength_ != cert.seedChainLength) {
+    // Up to seedChainLength hashes per secret: once per (anchor, length).
     seedMatchedAnchor_ = cert.seedAnchor;
+    seedMatchedLength_ = cert.seedChainLength;
     seedMatchedSecret_.reset();
     for (const auto &secret : seedSecrets_) {
       if (consensus::beaconSeedValue(secret, cert.seedChainLength) == cert.seedAnchor) {
@@ -1496,7 +1499,7 @@ void BeaconServer::submitBeaconSeedIfDue() {
   if (!seedMatchedSecret_) {
     return;
   }
-  if (!seedRecord_ || seedRecordEpoch_ != target) {
+  if (!recordCurrent) {
     Ledger::TxBeaconSeed tx;
     tx.epoch = target;
     tx.reveal = consensus::beaconSeedValue(*seedMatchedSecret_, cert.seedChainLength - (target - cert.seedAnchorEpoch));
@@ -1510,6 +1513,8 @@ void BeaconServer::submitBeaconSeedIfDue() {
     }
     record.signatures = {signature.value()};
     seedRecord_ = std::move(record);
+    seedRecordGeneration_ = cert.generation;
+    seedRecordAnchor_ = cert.seedAnchor;
     seedRecordEpoch_ = target;
     seedPooledSlot_.reset();
   }

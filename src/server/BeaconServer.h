@@ -298,11 +298,18 @@ private:
 
   /** Seed chain secrets loaded at start: the current one, then the staged next one (either may be absent). */
   std::vector<std::string> seedSecrets_;
-  /** The anchor last matched against seedSecrets_, and the secret that hashes to it (none: no match). */
+  /** The (anchor, chain length) last matched against seedSecrets_, and the secret that hashes to it (none: no match). */
   std::string seedMatchedAnchor_;
+  uint64_t seedMatchedLength_{0};
   std::optional<std::string> seedMatchedSecret_;
-  /** The reveal last built (signed once: a retry pools the same bytes) and the slot it was last offered to the pool. */
+  /**
+   * The reveal last built (signed once: a retry pools the same bytes), for which certificate
+   * (generation, anchor) and target epoch, and the slot it was last offered to the pool. A
+   * re-certification mid-epoch builds a fresh one.
+   */
   std::optional<Ledger::Record> seedRecord_;
+  uint64_t seedRecordGeneration_{0};
+  std::string seedRecordAnchor_;
   uint64_t seedRecordEpoch_{0};
   std::optional<uint64_t> seedPooledSlot_;
   /** A miner record not renewed this long is dropped (miners renew every MinerServer::REGISTER_RENEW_INTERVAL). */
