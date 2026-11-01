@@ -5921,7 +5921,13 @@ TEST_F(BeaconSeedTest, OneRevealPerEpoch) {
   expectRefused(trySeal(block, 2, {reveal(1)}), "already");
 }
 
-TEST_F(BeaconSeedTest, NoChainOrAnExhaustedChainRefusesReveals) {
+// Its own harnesses, not the fixture's: harnesses share their directories within a process, and on
+// Windows a directory a live harness holds open cannot be removed for the next one.
+TEST(BeaconSeedChainTest, NoChainOrAnExhaustedChainRefusesReveals) {
+  auto expectRefused = [](const Chain::Roe<void> &result, const std::string &why) {
+    ASSERT_FALSE(result.isOk()) << why;
+    EXPECT_NE(result.error().message.find(why), std::string::npos) << result.error().message;
+  };
   struct Guard {
     ComposeHarness &h;
     ~Guard() { h.TearDown(); }
