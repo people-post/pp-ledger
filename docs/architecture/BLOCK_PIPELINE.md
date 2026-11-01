@@ -73,11 +73,24 @@ are kept: `lastId` (where a miner starts) and `currentId`.
    state) must match, which proves the warm-up exact.
 
    **First Full epoch.** The committee of an epoch is the stake snapshot taken at the first block
-   of the epoch before it ([WIRE_SCHEMA.md § Leader election](../contracts/WIRE_SCHEMA.md#leader-election-live)),
-   which a joiner never took for the epoch it turns Full in. For that one epoch it takes the
-   committee from the epoch's opening block (checked against `stakeSnapshotHash`, trusted as
-   warm-up is); every later epoch uses the node's own snapshots. Reveals the seed needs
-   (`T_BEACON_SEED`) are replayed with the warm-up blocks, unchecked there.
+   of the epoch before it ([WIRE_SCHEMA.md § Leader election](../contracts/WIRE_SCHEMA.md#leader-election-live)).
+   The rotation block opens epoch `full` and is admitted in warm-up, so a joiner never takes the
+   snapshot at `full`'s start, which is epoch `full`+1's committee. For that one epoch, the one
+   after the epoch the rotation block opens, it takes the committee from `full`+1's opening block
+   (checked against `stakeSnapshotHash`, trusted as warm-up is); every later epoch uses the
+   node's own snapshots. Reveals the seed needs (`T_BEACON_SEED`) are replayed with the warm-up
+   blocks, unchecked there.
+
+   **Restart in the rotation epoch (accepted gap).** For the same reason a miner cannot *open*
+   epoch `full`+1 itself: it needs `full`'s start snapshot to seal that epoch's first block. A
+   joiner restarted (it replays from `lastId`) while its tip is still in `full`, or one that
+   joined there, elects no leader in `full`+1 (`Chain::refreshStakeholders` installs no
+   provisional committee when `committeeFor` errors) until another producer's block opens it.
+   If every producer is in that state, `full`+1 stays empty and the network recovers one epoch
+   later: with no block since `full` ended, `full`+2's committee is the bank's own candidates,
+   which every node computes. Liveness charges only a block's own epoch, so nobody is
+   deregistered for the empty epoch. Operators: do not restart all producers in the epoch a
+   checkpoint rotation opens (`CommitteeLagTest.AMinerRestartedInItsRotationEpochRecoversAnEpochLater`).
 4. **Produce/seal** (`Chain::sealReadiness`) requires Full, and blocks held back over the longest
    transaction validity window (`maxValidationTimespanSeconds`, config in force): idempotency is
    checked against held blocks, so a transaction committed before the node's first block could

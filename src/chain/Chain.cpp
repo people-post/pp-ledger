@@ -997,6 +997,12 @@ void Chain::refreshStakeholders() {
     // it. Not recorded: blocks of earlier epochs may still arrive and change it.
     if (auto committee = committeeFor(clockEpoch, nullptr)) {
       txContext_.consensus.setStakeholders(committee.value(), clockEpoch);
+    } else {
+      // Keeping an earlier epoch's committee would elect by a wrong schedule: elect no one (and seal
+      // nothing) here until a block installs this epoch's. Once per epoch: it is marked updated.
+      log().warning << "No committee for epoch " << clockEpoch << " yet: this node elects no leader in it ("
+                    << committee.error().message << ")";
+      txContext_.consensus.setStakeholders({}, clockEpoch);
     }
   }
   // Prefer tip epoch (chain progress) over wall-clock epoch so tests and

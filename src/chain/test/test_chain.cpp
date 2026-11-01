@@ -6285,3 +6285,86 @@ TEST_F(CommitteeLagTest, AJoinerRestartedAfterItsRotationSealsTheNextEpochsFirst
   auto accepted = producer.addBlock(block);
   EXPECT_TRUE(accepted.isOk()) << accepted.error().message;
 }
+
+// Accepted gap (final review F2): a miner restarted while its tip is in the epoch its checkpoint
+// rotation opened (`full`) replays that rotation block as a checkpoint replay, so it holds no
+// snapshot of `full`'s start and cannot open full + 1. It then elects no one there (no provisional
+// committee from an earlier epoch). If full + 1 stays empty, full + 2's committee is the bank's own
+// candidates (no block since full ended): the restarted miner seals full + 2's first block and the
+// network accepts it.
+TEST_F(CommitteeLagTest, AMinerRestartedInItsRotationEpochRecoversAnEpochLater) {
+  auto &producer = harness_.producer;
+  const uint64_t slotsPerEpoch = harness_.chainConfig.slotsPerEpoch;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  // Blocks thirty epochs apart: the rotation the joiner turns Full at is past the validity window
+  // from its start (a node seals only once its blocks span it).
+  while (producer.getCheckpoint().lastId == 0) {
+    slot_ = (slot_ / slotsPerEpoch + 30) * slotsPerEpoch - 1;
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure());
+    ASSERT_LT(slot_, 100 * 30 * slotsPerEpoch) << "no second checkpoint rotation";
+  }
+  const auto checkpoint = producer.getCheckpoint();
+  ASSERT_EQ(tip.block.index, checkpoint.currentId) << "the tip is the rotation block";
+  const uint64_t full = tip.block.epoch;
+  tip = next(tip);
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(tip.block.epoch, full);
+  const uint64_t windowSlots = harness_.chainConfig.maxValidationTimespanSeconds / harness_.chainConfig.slotDuration;
+  ASSERT_GT((full + 1) * slotsPerEpoch, producer.readBlock(checkpoint.lastId).value().block.slot + windowSlots);
+
+  joiner_ = openJoiner(checkpoint.lastId, /*fresh=*/true);
+  feed(*joiner_, checkpoint.lastId, producer.getNextBlockId());
+  ASSERT_FALSE(HasFailure());
+  joiner_.reset(); // restarted with its tip still in `full`
+  joiner_ = openJoiner(checkpoint.lastId, /*fresh=*/false);
+  ASSERT_FALSE(HasFailure());
+  Chain &joiner = *joiner_;
+
+  // Epoch full + 1: no committee, so no leader, and no opening block sealed.
+  const uint64_t opening1 = (full + 1) * slotsPerEpoch;
+  joiner.setClockOverride(joiner.getSlotEndTime(opening1));
+  joiner.refreshStakeholders();
+  EXPECT_TRUE(joiner.getStakeholders().empty()) << "no provisional committee kept from epoch " << full;
+  EXPECT_FALSE(joiner.isStakeholderSlotLeader(kTestMinerId, opening1));
+  EXPECT_FALSE(joiner.refreshStakeholders(opening1).isOk()) << "full + 1 needs full's start snapshot";
+  {
+    auto due = joiner.collectRenewals(opening1);
+    ASSERT_TRUE(due.isOk()) << due.error().message;
+    std::vector<Ledger::Record> records = signedRenewals(due.value());
+    records.push_back(transferAt(opening1));
+    auto block = joiner.linkNextBlock(tip, opening1, kTestMinerId, joiner.getSlotEndTime(opening1), records);
+    auto sealed = joiner.sealBlock(block);
+    EXPECT_FALSE(sealed.isOk()) << "the restarted miner cannot open epoch " << full + 1;
+    if (sealed.isOk()) {
+      joiner.abandonSeal();
+    }
+  }
+
+  // Full + 1 stays empty. Epoch full + 2: the restarted miner elects and seals its first block.
+  slot_ = (full + 2) * slotsPerEpoch - 1;
+  do {
+    ++slot_;
+  } while (!genesisMinerLeads(slot_));
+  ASSERT_EQ(epochOf(slot_), full + 2);
+  joiner.setClockOverride(joiner.getSlotEndTime(slot_));
+  joiner.refreshStakeholders();
+  EXPECT_TRUE(joiner.isStakeholderSlotLeader(kTestMinerId, slot_)) << "the provisional committee is back";
+  auto due = joiner.collectRenewals(slot_);
+  ASSERT_TRUE(due.isOk()) << due.error().message;
+  std::vector<Ledger::Record> records = signedRenewals(due.value());
+  records.push_back(transferAt(slot_));
+  auto committee = joiner.refreshStakeholders(slot_);
+  ASSERT_TRUE(committee.isOk()) << committee.error().message;
+  ASSERT_TRUE(joiner.ensureEpochSeed(full + 2).isOk());
+  auto block = joiner.linkNextBlock(tip, slot_, kTestMinerId, joiner.getSlotEndTime(slot_), records);
+  auto sealed = joiner.sealBlock(block);
+  ASSERT_TRUE(sealed.isOk()) << sealed.error().message;
+  signAsLeader(block, joiner.getNetworkId());
+  ASSERT_TRUE(joiner.addBlock(block).isOk());
+  auto accepted = producer.addBlock(block);
+  EXPECT_TRUE(accepted.isOk()) << accepted.error().message;
+  // A node validating from genesis accepts it too.
+  feed(harness_.peer, 1, producer.getNextBlockId());
+}
