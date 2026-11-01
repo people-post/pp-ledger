@@ -1,5 +1,6 @@
 #include "chain/ImportTxHandler.h"
 #include "ledger/chain/AccountBuffer.h"
+#include "ledger/chain/AccountPolicy.h"
 #include "ledger/client/AccountIds.h"
 #include "ledger/chain/ErrorCodes.h"
 #include "chain/TxTyped.h"
@@ -57,7 +58,8 @@ Ledger::Record ImportTxHandler::makeRecord(const StateSnapshot::Account &account
 }
 
 chain_tx::Roe<AccountBuffer::Account> ImportTxHandler::entering(const StateSnapshot::Account &old,
-                                                                const ImportProgress &progress, uint64_t blockId) {
+                                                                const ImportProgress &progress,
+                                                                const BlockChainConfig &config, uint64_t blockId) {
   AccountBuffer::Account account;
   account.id = old.id;
   account.wallet = old.wallet;
@@ -80,6 +82,14 @@ chain_tx::Roe<AccountBuffer::Account> ImportTxHandler::entering(const StateSnaps
     // (and any announcement) would otherwise take the account back from them. The new keys name a new
     // set if they want one.
     account.wallet.recovery = {};
+  }
+  // A pending recovery's apply epoch counted the old network's epochs; the new one starts again at 0, so
+  // kept as it is the takeover would wait about the old network's whole height again. It restarts its
+  // delay from the new network's start (the import's slot 0): never sooner than the owner was promised,
+  // at most one delay later. The announcement now dates from the import block.
+  if (account.wallet.recovery.pending) {
+    account.wallet.recovery.applyEpoch = chain_tx::recoveryApplyEpoch(config, 0, account.wallet.recovery.delaySeconds);
+    account.wallet.recovery.announcedAt = blockId;
   }
   return account;
 }
@@ -130,7 +140,10 @@ chain_tx::Roe<void> ImportTxHandler::applyBlock(const Ledger::TypedTx &tx, Accou
                                                                  added.error().message);
     }
   } else {
-    auto entered = entering(account, *progress, c.blockId);
+    if (!c.ctx.optChainConfig.has_value()) {
+      return chain_tx::TxError(chain_err::E_STATE_INIT, "Chain config required for an import");
+    }
+    auto entered = entering(account, *progress, c.ctx.optChainConfig.value(), c.blockId);
     if (!entered) {
       return entered.error();
     }

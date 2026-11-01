@@ -455,7 +455,9 @@ genesis imports a `StateSnapshot`. Anyone holding the old chain checks it by han
 - **Applied:** each account enters at its import block (its `blockId`; renewals are due from
   there) with its balances, keys, threshold, profile (stored in full in its `T_IMPORT`) and miner
   registration; its `lastProducedSlot`, `missedDue` and `autoDeregisteredEpoch` are reset (they
-  counted the old network's slots). System accounts take the genesis's keys; the genesis account
+  counted the old network's slots). A **pending account recovery** restarts its delay from the new
+  network's start: `applyEpoch` = `recoveryApplyEpoch(config, 0, delaySeconds)`, `announcedAt` = its
+  import block — never sooner than the owner was promised, at most one delay later. System accounts take the genesis's keys; the genesis account
   takes only the imported balances (its keys, profile and block 0 stay the genesis record's). Epoch
   0's committee is the registered miners after the import. The issuance baseline starts at the
   first produced block.

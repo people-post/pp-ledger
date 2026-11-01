@@ -5823,14 +5823,60 @@ TEST(ImportTest, SystemAccountsEnterWithTheirNewKeysAndNoOldRecovery) {
   };
   ImportProgress progress;
   progress.systemKeys = {{AccountBuffer::ID_REGISTRAR, {"new-registrar-key"}, 1}};
+  BlockChainConfig config;
+  config.slotDuration = 5;
+  config.slotsPerEpoch = 10;
 
-  auto registrar = ImportTxHandler::entering(withRecovery(AccountBuffer::ID_REGISTRAR), progress, 1);
+  auto registrar = ImportTxHandler::entering(withRecovery(AccountBuffer::ID_REGISTRAR), progress, config, 1);
   ASSERT_TRUE(registrar.isOk()) << registrar.error().message;
   EXPECT_EQ(registrar.value().wallet.publicKeys, std::vector<std::string>{"new-registrar-key"});
   EXPECT_EQ(registrar.value().wallet.recovery, Client::AccountRecovery{});
 
-  auto user = ImportTxHandler::entering(withRecovery(AccountBuffer::ID_FIRST_USER), progress, 1);
+  auto user = ImportTxHandler::entering(withRecovery(AccountBuffer::ID_FIRST_USER), progress, config, 1);
   ASSERT_TRUE(user.isOk()) << user.error().message;
   EXPECT_EQ(user.value().wallet.publicKeys, std::vector<std::string>{"old-key"});
-  EXPECT_EQ(user.value().wallet.recovery, withRecovery(AccountBuffer::ID_FIRST_USER).wallet.recovery);
+  EXPECT_EQ(user.value().wallet.recovery.publicKeys, std::vector<std::string>{"old-guardian"}) << "the set carries over";
+  EXPECT_TRUE(user.value().wallet.recovery.pending) << "and its announcement";
+}
+
+// A pending recovery's apply epoch counted the old network's epochs; the new network starts at epoch 0.
+// Kept as it is, the takeover would wait about the old network's height again: it restarts its delay from
+// the new network's start instead — never sooner than the owner was promised.
+TEST(ImportTest, APendingRecoveryRestartsItsDelayOnTheNewNetwork) {
+  StateSnapshot::Account old;
+  old.id = AccountBuffer::ID_FIRST_USER;
+  old.wallet.publicKeys = {"old-key"};
+  old.wallet.minSignatures = 1;
+  old.wallet.recovery.publicKeys = {"guardian"};
+  old.wallet.recovery.minSignatures = 1;
+  old.wallet.recovery.delaySeconds = 60;
+  old.wallet.recovery.pending = true;
+  old.wallet.recovery.nextPublicKeys = {"announced-key"};
+  old.wallet.recovery.nextMinSignatures = 1;
+  old.wallet.recovery.applyEpoch = 5000;  // deep in the old network
+  old.wallet.recovery.announcedAt = 49'990;
+  BlockChainConfig config;
+  config.slotDuration = 5;   // epochs of 50 s
+  config.slotsPerEpoch = 10;
+
+  auto entered = ImportTxHandler::entering(old, ImportProgress{}, config, 3);
+  ASSERT_TRUE(entered.isOk()) << entered.error().message;
+  const Client::AccountRecovery &recovery = entered.value().wallet.recovery;
+  EXPECT_TRUE(recovery.pending);
+  EXPECT_EQ(recovery.nextPublicKeys, std::vector<std::string>{"announced-key"});
+  // 60 s from slot 0 is slot 12: the first epoch starting there or later is epoch 2.
+  EXPECT_EQ(recovery.applyEpoch, 2u);
+  EXPECT_EQ(recovery.applyEpoch, chain_tx::recoveryApplyEpoch(config, 0, 60));
+  EXPECT_EQ(recovery.announcedAt, 3u) << "announced, on the new chain, by its import block";
+
+  // A set with nothing announced carries over as it is.
+  StateSnapshot::Account quiet = old;
+  quiet.wallet.recovery.pending = false;
+  quiet.wallet.recovery.nextPublicKeys.clear();
+  quiet.wallet.recovery.nextMinSignatures = 0;
+  quiet.wallet.recovery.applyEpoch = 0;
+  quiet.wallet.recovery.announcedAt = 0;
+  auto kept = ImportTxHandler::entering(quiet, ImportProgress{}, config, 3);
+  ASSERT_TRUE(kept.isOk()) << kept.error().message;
+  EXPECT_EQ(kept.value().wallet.recovery, quiet.wallet.recovery);
 }
