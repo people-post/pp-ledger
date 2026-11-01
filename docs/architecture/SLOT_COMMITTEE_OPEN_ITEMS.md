@@ -23,8 +23,14 @@ indefinitely. Closed by the beacon seed chain: the seed mixes a reveal from the 
 hash chain (`T_BEACON_SEED`) and no block content, and `E`'s committee is fixed one epoch ahead, so
 nothing a producer does after the reveal is public can reorder it
 ([Epoch seed](../contracts/WIRE_SCHEMA.md#epoch-seed),
-[BEACON_AUTHORITY.md § Seed chain](../contracts/BEACON_AUTHORITY.md#seed-chain)). Residual: the
-beacon can withhold a reveal (the epoch gets the absent seed), not choose one.
+[BEACON_AUTHORITY.md § Seed chain](../contracts/BEACON_AUTHORITY.md#seed-chain)). Residuals:
+
+- The beacon can withhold a reveal (the epoch gets the absent seed), not choose one.
+- A producer has an include/omit bit, and only in a narrow case: when every earlier block of
+  `E-1` left the pooled reveal out, the leader of `E-1`'s last block chooses between the reveal
+  seed and the absent seed for `E`. That is at most one bit per epoch, never a choice of value.
+  Honest leaders include a pooled reveal even in renewals-only blocks (the leader keeps it a place
+  ahead of waiting renewals), so the case needs every leader of `E-1` to have left it out.
 
 ## Miner bonds and slashing
 

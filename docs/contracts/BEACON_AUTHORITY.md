@@ -117,6 +117,12 @@ signed by the certified beacon key, and the seed of `e` mixes it
 a missing reveal gives the "absent" seed for that epoch: the network goes on, only without the
 beacon's contribution.
 
+What can still bias a seed is a bit, never a value. The beacon may withhold a reveal (the absent
+seed instead of its reveal). A producer has the same include/omit bit, only when every earlier
+block of `e − 1` left the pooled reveal out: the leader of `e − 1`'s last block then picks the
+reveal seed or the absent seed for `e`. Honest leaders keep the pooled reveal a place ahead of
+due renewals, so it lands even in renewals-only blocks and this case is rare.
+
 Secret files (hex, 0600, in the beacon's work directory):
 
 | File | Use |
