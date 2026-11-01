@@ -74,8 +74,11 @@ Roe<void> validateRecoverySet(const Client::AccountRecovery &recovery, uint64_t 
     }
     return {};
   }
-  if (AccountIds::isSystemAccount(accountId)) {
-    return TxError(chain_err::E_TX_VALIDATION, "A system account has no recovery of its own (the genesis recovery set covers it)");
+  // Genesis's way back is the genesis recovery set in the chain authority (T_RECOVERY), which replaces
+  // the admin set; every other account — the other system accounts included — may name its own.
+  if (accountId == AccountBuffer::ID_GENESIS) {
+    return TxError(chain_err::E_TX_VALIDATION,
+                   "The genesis account has no recovery of its own (its way back is the genesis recovery set)");
   }
   const uint64_t least = config ? minRecoveryDelaySeconds(*config) : 1;
   if (recovery.delaySeconds < least) {
@@ -173,6 +176,13 @@ Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet) {
     return TxError(chain_err::E_TX_VALIDATION,
                    "Genesis account must have at least 2 signatures");
   }
+  // Genesis has no account recovery: its keys change only by T_CONFIG and the genesis recovery set in
+  // the chain authority (T_RECOVERY). Refused on every path that writes the genesis wallet, whoever
+  // signed it.
+  if (wallet.recovery != Client::AccountRecovery{}) {
+    return TxError(chain_err::E_TX_VALIDATION,
+                   "The genesis account has no recovery of its own (its way back is the genesis recovery set)");
+  }
   return {};
 }
 
@@ -192,6 +202,31 @@ Roe<void> validateSeedAnchor(const BeaconCertificate &cert) {
   return {};
 }
 } // namespace
+
+std::optional<std::string> renewalChangedWalletField(const Client::Wallet &carried, const Client::Wallet &held) {
+  if (carried.publicKeys != held.publicKeys || carried.minSignatures != held.minSignatures ||
+      carried.keyType != held.keyType) {
+    return std::string("keys");
+  }
+  if (carried.miner != held.miner) {
+    return std::string("miner state");
+  }
+  if (carried.recovery != held.recovery) {
+    return std::string("recovery");
+  }
+  if (carried.domain != held.domain) {
+    return std::string("domain");
+  }
+  // Anything else but the balances: compare the whole wallets without them.
+  Client::Wallet carriedRest = carried;
+  Client::Wallet heldRest = held;
+  carriedRest.mBalances.clear();
+  heldRest.mBalances.clear();
+  if (carriedRest != heldRest) {
+    return std::string("wallet");
+  }
+  return std::nullopt;
+}
 
 Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client::Wallet &adminWallet,
                                    const std::string &networkId) {

@@ -84,8 +84,17 @@ Roe<Client::UserAccount> loadAndValidateUserAccountMeta(
     const AccountBuffer &working, const AccountBuffer *committedOrNull,
     uint64_t selfAccountId, std::string_view deserializeErrorMsg, bool requireKnownPublishers = true);
 
-/** Genesis wallet must have ≥3 keys and ≥2 required signatures. */
+/** Genesis wallet must have ≥3 keys and ≥2 required signatures, and no recovery of its own. */
 Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet);
+
+/**
+ * A slot leader signs renewals: it re-records an account, never chooses any of it. What a renewal's
+ * carried wallet changes against the held one, as a field name ("keys", "miner state", "recovery",
+ * "domain", or "wallet" for a field without its own name) — every field but the balances, which
+ * AccountBuffer::verifyBalance checks (a renewal's fee moves them). nullopt when it keeps them all.
+ * Whole-wallet: a field added to Client::Wallet is covered without touching the renewal checks.
+ */
+std::optional<std::string> renewalChangedWalletField(const Client::Wallet &carried, const Client::Wallet &held);
 
 /**
  * Chain authority as genesis sets it (beacon-authority ba1): a recovery set of valid, distinct

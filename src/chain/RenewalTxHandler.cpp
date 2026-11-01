@@ -184,13 +184,18 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "Genesis renewal must carry the recovery set and beacon certificate in force");
     }
-    // The slot leader signs renewals: it re-records the admin set in force, it never chooses it.
-    // (Only T_CONFIG, signed by the admin set, and a recovery change these.)
-    const Client::Wallet &carried = gm.genesis.wallet;
-    if (carried.publicKeys != held.publicKeys || carried.minSignatures != held.minSignatures ||
-        carried.keyType != held.keyType || carried.domain != held.domain) {
+    // The slot leader signs renewals: it re-records genesis as held, the admin set in force included,
+    // and never chooses any of it — a planted recovery, say, would hand the admin set over at the next
+    // epoch start. (Only T_CONFIG, signed by the admin set, and the genesis recovery set change genesis;
+    // the balances are checked below.)
+    if (auto changed = chain_tx::renewalChangedWalletField(gm.genesis.wallet, held)) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                               "Genesis renewal must carry the admin set in force (keys and threshold)");
+                               *changed == "keys"
+                                   ? std::string("Genesis renewal must carry the admin set in force (keys and threshold)")
+                                   : "Genesis renewal cannot change the " + *changed + " of genesis");
+    }
+    if (AccountBuffer::attachmentHashOf(gm.genesis.meta) != genesisAccountResult.value().attachmentHash) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis renewal cannot change the meta of genesis");
     }
   }
 

@@ -6,6 +6,7 @@ the entry **superseded by** that doc. Built (ar1–ar2): each rule now in WIRE_S
 ## AR001 — Every user and issued account may have a way back
 
 **Date:** 2026-10-19
+**Status:** Amended by [AR009](#ar009--every-account-but-genesis-may-have-a-way-back): the system accounts other than genesis have one too — the genesis recovery set covers only genesis.
 **Decision:** Opt-in, per account: a recovery set and a delay. User and issued accounts (ids from 2²⁰);
 not system accounts, whose keys the genesis recovery set already covers.
 **Superseded by:** [WIRE_SCHEMA.md § Account recovery](../../docs/contracts/WIRE_SCHEMA.md#account-recovery) (normative; this entry keeps the why).
@@ -94,3 +95,36 @@ delay; at an epoch start, every node applies it at the same block. Slot length i
 so seconds convert to slots exactly.
 **Alternatives:** Whole epochs counted from the epoch after the announcing one (the same guarantee,
 coarser).
+
+## AR009 — Every account but genesis may have a way back
+
+**Date:** 2026-10-31
+**Amends:** AR001.
+**Decision:** The system accounts reserve, registrar, fee and recycle may name a recovery set as any
+account does (their own keys name the first, by `T_USER_UPDATE`; then the set changes itself, and an
+announcement takes over at an epoch start). Genesis may not: its way back is the genesis recovery
+set in the chain authority (`T_RECOVERY`). A re-genesis gives the system accounts new keys and no
+recovery set. Normative: [WIRE_SCHEMA § Account recovery](../../docs/contracts/WIRE_SCHEMA.md#account-recovery).
+**Rationale:** AR001 left the system accounts out because "the genesis recovery set already covers"
+them, but it does not: `T_RECOVERY` replaces the admin set (the genesis account) only, and `T_CONFIG`
+changes only genesis. Lost or stolen keys of the reserve or the registrar had no way back short of a
+re-genesis. Giving them their own recovery keeps powers apart — the admin set cannot touch the
+reserve's funds or the registrar.
+**Alternatives:** Let the admin set (`T_CONFIG`) or the genesis recovery set re-key system accounts
+(simpler for operators, but puts the reserve and the registrar under admin control); keep it and
+document that lost system keys mean a re-genesis.
+
+## AR010 — A re-genesis restarts a waiting recovery's delay
+
+**Date:** 2026-11-01
+**Decision:** An account imported with an announcement pending gets `applyEpoch` =
+`recoveryApplyEpoch(config, 0, delaySeconds)` on the new network (its delay from the import's slot 0) and
+`announcedAt` = its import block. Normative: [BEACON_AUTHORITY § Importing genesis](../../docs/contracts/BEACON_AUTHORITY.md#importing-genesis).
+**Rationale:** `applyEpoch` counted the old network's epochs and the new network starts again at epoch 0:
+carried as it was, the takeover would wait about the old network's whole height again (the import already
+resets the miner's slot counters for the same reason). Restarting the delay never gives the account to the
+announced keys sooner than the owner was promised — the delay is the owner's time to have the set withdraw
+it — at the cost of at most one delay more.
+**Alternatives:** Carry the remaining time over (needs the old network's epoch length, which the import does
+not keep); drop the announcement (the set would have to announce again, after the account was already frozen).
+

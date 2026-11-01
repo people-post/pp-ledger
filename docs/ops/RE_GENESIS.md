@@ -27,8 +27,9 @@ new network's accounts are exactly the old network's at block *H*.
 |--------------|----------|
 | Every account at *H*: id, balances (every token), keys, threshold, profile | Transactions after *H* — they must be signed again, for the new network |
 | Miner registration and stake (slot counters restart) | The transaction history: the old chain stays the archive |
+| An account's recovery set, and an announcement waiting (its delay restarts from the new network's start) | |
 | The old config (slot timing, fees, limits…), but for what `init-config.json` sets | The old network id: every signature binds it, so nothing signed for one network is valid on the other |
-| | The system accounts' keys and the admin, recovery and beacon keys: all new |
+| | The system accounts' keys and the admin, recovery and beacon keys: all new. A system account's own recovery set does not carry over either (it would take the new keys back); its new keys name a new one |
 
 ## The maintainer
 

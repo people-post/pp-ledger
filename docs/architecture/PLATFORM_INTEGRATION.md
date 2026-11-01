@@ -131,7 +131,7 @@ UDP → ADP → MSH (ML-DSA identity) → channel /pp-ledger/rpc/1.0.0 → binar
 
 Packaging: one image `ghcr.io/people-post/pp-ledger` with all binaries; `deploy/compose.yml` runs
 beacon, relay, miner and http ([deploy/README.md](../../deploy/README.md)). CI builds on
-ubuntu-24.04, macos-14 and windows-2022 (`scripts/ci-build.sh`).
+ubuntu-24.04, macos-15 and windows-2022 (`scripts/ci-build.sh`).
 
 **pp-browser / pp-node:** no ledger code. pp-node's link allowlist
 (`cmake/PpBrowserNoUiDeps.cmake` in pp-browser) admits no pp-ledger target. The only ledger
