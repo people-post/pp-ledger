@@ -284,7 +284,7 @@ pp::Roe<std::vector<Account>> readAccounts(const std::string &path, std::string 
 namespace {
 
 uint64_t randomId(std::mt19937_64 &rng) {
-  return std::uniform_int_distribution<uint64_t>(AccountIds::ID_FIRST_USER, UINT64_MAX)(rng);
+  return std::uniform_int_distribution<uint64_t>(AccountIds::ID_FIRST_USER, AccountIds::ID_LIMIT - 1)(rng);
 }
 
 void setWindow(Ledger::TxIdempotencyWindow &tx, std::mt19937_64 &rng) {
