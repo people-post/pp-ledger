@@ -135,7 +135,8 @@ Permissions are not checked on load.
    `keys/beacon-seed.next.secret`.
 2. `pp-client mk-beacon-cert ... --seed-anchor <hex> --seed-anchor-epoch <n> --seed-chain-length <N>`;
    `<n>` is an epoch at or before the one the certificate commits in. Without `--seed-anchor` the
-   certificate has no seed chain and the tool says so.
+   certificate has no seed chain and the tool says so; `--seed-anchor-epoch` or
+   `--seed-chain-length` without `--seed-anchor` is refused.
 3. The admins sign (`sign-tx`) and `submit-tx`, as for any certificate.
 
 This change is for new networks only: certificates before version 3 are not readable.

@@ -988,13 +988,17 @@ int main(int argc, char *argv[]) {
                           "repeat for more (at most 8)");
   std::string mk_cert_seed_anchor;
   uint64_t mk_cert_seed_anchor_epoch = 0, mk_cert_seed_chain_length = pp::consensus::kDefaultBeaconSeedChainLength;
-  mk_cert_cmd->add_option("--seed-anchor", mk_cert_seed_anchor,
-                          "Anchor (hex) of the new beacon's seed chain, as beacon-seed-keygen prints it. "
-                          "Default: none (the beacon contributes no seed)");
+  auto *mk_cert_seed_anchor_opt =
+      mk_cert_cmd->add_option("--seed-anchor", mk_cert_seed_anchor,
+                              "Anchor (hex) of the new beacon's seed chain, as beacon-seed-keygen prints it. "
+                              "Default: none (the beacon contributes no seed)");
+  // Without the anchor these would be dropped: refuse them rather than write a seedless certificate.
   mk_cert_cmd->add_option("--seed-anchor-epoch", mk_cert_seed_anchor_epoch,
-                          "Epoch the anchor stands for; reveals count back from it (default 0)");
+                          "Epoch the anchor stands for; reveals count back from it (default 0). Needs --seed-anchor")
+      ->needs(mk_cert_seed_anchor_opt);
   mk_cert_cmd->add_option("--seed-chain-length", mk_cert_seed_chain_length,
-                          "Epochs the chain covers, 1 to 100000 (default 10000)");
+                          "Epochs the chain covers, 1 to 100000 (default 10000). Needs --seed-anchor")
+      ->needs(mk_cert_seed_anchor_opt);
   mk_cert_cmd->add_option("-o,--output", mk_cert_output, "Output file (must not exist)")->required();
 
   // beacon-seed-keygen: the secret behind a certificate's seedAnchor
