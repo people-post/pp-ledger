@@ -4627,7 +4627,8 @@ protected:
       configUpdate_(gm.config); // in force from the next epoch
     }
     gm.genesis.wallet = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
-    gm.genesis.wallet.publicKeys = {makeKeyPair().publicKey, makeKeyPair().publicKey, makeKeyPair().publicKey};
+    adminKeys_ = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
+    gm.genesis.wallet.publicKeys = {adminKeys_[0].publicKey, adminKeys_[1].publicKey, adminKeys_[2].publicKey};
     gm.genesis.wallet.minSignatures = 2;
     gm.genesis.meta = AccountAttachment::emptySerialized();
     gm.authority = producer.getAuthority().value();
@@ -4841,6 +4842,8 @@ protected:
   uint64_t maxValidationTimespanSeconds_ = 0;
   /** Applied to the config the startChain T_CONFIG installs. */
   std::function<void(Chain::BlockChainConfig &)> configUpdate_;
+  /** The 2-of-3 admin set startChain rotates to. */
+  std::vector<utl::MlDsaKeyPair> adminKeys_;
 };
 
 // A checkpoint is where a node can start (beacon-authority ba5b): the first block of an epoch, at
@@ -6367,4 +6370,213 @@ TEST_F(CommitteeLagTest, AMinerRestartedInItsRotationEpochRecoversAnEpochLater) 
   EXPECT_TRUE(accepted.isOk()) << accepted.error().message;
   // A node validating from genesis accepts it too.
   feed(harness_.peer, 1, producer.getNextBlockId());
+}
+
+/**
+ * Seed agreement across node types (final review F3): one chain, built on the producer, with
+ * reveals in most epochs, an empty epoch, and two beacon re-certifications with new seed anchors
+ * (one committed before its epoch's reveal lands, one after). Every kind of node that takes it must
+ * derive, after every block it checks Full, the producer's epoch seed (this epoch's and the
+ * provisional next), committee and recorded reveals.
+ */
+class SeedAgreementTest : public BeaconSeedTest {
+protected:
+  struct Observed {
+    uint64_t epoch{0};
+    std::string seed;
+    std::string nextSeed;
+    std::vector<std::pair<uint64_t, uint64_t>> committee;
+    std::optional<std::string> reveal;
+    std::optional<std::string> nextReveal;
+  };
+
+  static Observed observe(Chain &node, const Ledger::ChainNode &block) {
+    Observed o;
+    o.epoch = block.block.epoch;
+    node.setClockOverride(node.getSlotEndTime(block.block.slot));
+    for (const auto &s : node.getStakeholders()) {
+      o.committee.emplace_back(s.id, s.stake);
+    }
+    o.reveal = node.getBeaconReveal(o.epoch);
+    o.nextReveal = node.getBeaconReveal(o.epoch + 1);
+    auto seed = node.ensureEpochSeed(o.epoch);
+    EXPECT_TRUE(seed.isOk()) << seed.error().message;
+    o.seed = node.getEpochSeed();
+    auto next = node.ensureEpochSeed(o.epoch + 1);
+    EXPECT_TRUE(next.isOk()) << next.error().message;
+    o.nextSeed = node.getEpochSeed();
+    return o;
+  }
+
+  void expectAgrees(Chain &node, uint64_t index, const std::string &who) {
+    auto block = harness_.producer.readBlock(index);
+    ASSERT_TRUE(block.isOk());
+    const Observed got = observe(node, block.value());
+    const Observed &want = expected_.at(index);
+    const std::string where = who + ", after block " + std::to_string(index) + " (epoch " +
+                              std::to_string(want.epoch) + ")";
+    EXPECT_EQ(utl::hexEncode(got.seed), utl::hexEncode(want.seed)) << where << ": epoch seed";
+    EXPECT_EQ(utl::hexEncode(got.nextSeed), utl::hexEncode(want.nextSeed)) << where << ": next epoch's seed";
+    EXPECT_EQ(got.committee, want.committee) << where << ": committee";
+    EXPECT_EQ(got.reveal, want.reveal) << where << ": reveal for this epoch";
+    EXPECT_EQ(got.nextReveal, want.nextReveal) << where << ": reveal for the next epoch";
+    ++comparisons_;
+  }
+
+  /** A node as Miner::init makes one, on its own ledger in `dir`. */
+  std::unique_ptr<Chain> openNode(const std::filesystem::path &dir, uint64_t start, bool fresh) {
+    auto node = std::make_unique<Chain>();
+    consensus::SlotCommittee::Config consensusConfig;
+    consensusConfig.timeOffsetMs = 0;
+    node->initConsensus(consensusConfig);
+    if (fresh) {
+      Ledger::InitConfig ledger;
+      ledger.workDir = dir.string();
+      ledger.startingBlockId = start;
+      EXPECT_TRUE(node->initLedger(ledger).isOk());
+    } else {
+      EXPECT_TRUE(node->mountLedger(dir.string()).isOk());
+    }
+    auto loaded = node->loadFromLedger(start);
+    EXPECT_TRUE(loaded.isOk()) << loaded.error().message;
+    return node;
+  }
+
+  /** Admin-signed (2 of the 3 keys startChain set) T_BEACON_CERT for the next generation. */
+  Ledger::Record recertify(const utl::MlDsaKeyPair &key, const std::string &secret, uint64_t anchorEpoch) {
+    BeaconCertificate next = harness_.producer.getAuthority().value().beacon;
+    next.generation += 1;
+    next.publicKey = key.publicKey;
+    next.cutoverHeight = BeaconCertificate::kNoCutover;
+    next.cutoverHash.clear();
+    next.seedAnchor = consensus::beaconSeedValue(secret, kTestBeaconSeedChainLength);
+    next.seedAnchorEpoch = anchorEpoch;
+    next.seedChainLength = kTestBeaconSeedChainLength;
+    Ledger::Record rec =
+        makeBeaconCertRecord(next, adminKeys_[0], net(), idem_++, harness_.chainConfig.genesisTime);
+    rec.signatures.push_back(signMessage(adminKeys_[1], rec.signingMessage(net())));
+    return rec;
+  }
+
+  static std::string revealOn(const std::string &secret, uint64_t anchorEpoch, uint64_t epoch) {
+    return consensus::beaconSeedValue(secret, kTestBeaconSeedChainLength - (epoch - anchorEpoch));
+  }
+
+  std::map<uint64_t, Observed> expected_;
+  size_t comparisons_ = 0;
+};
+
+TEST_F(SeedAgreementTest, EveryNodeTypeDerivesTheSameSeedsAcrossReCertifications) {
+  auto &producer = harness_.producer;
+  const uint64_t spe = harness_.chainConfig.slotsPerEpoch;
+  const std::string secret2(32, '\x22');
+  const std::string secret3(32, '\x33');
+  const utl::MlDsaKeyPair key2 = makeKeyPair();
+  const utl::MlDsaKeyPair key3 = makeKeyPair();
+  constexpr uint64_t kEmptyEpoch = 3, kCert2Epoch = 4, kCert3Epoch = 6, kLastEpoch = 11;
+
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  expected_[tip.block.index] = observe(producer, tip);
+  std::map<uint64_t, uint64_t> openingOf; // epoch -> its first block
+  auto at = [&](uint64_t epoch, uint64_t offset, std::vector<Ledger::Record> records) {
+    slot_ = epoch * spe + offset;
+    records.push_back(transferAt(slot_));
+    tip = produceTracked(tip, slot_, records);
+    openingOf.try_emplace(epoch, tip.block.index);
+    expected_[tip.block.index] = observe(producer, tip);
+  };
+  for (uint64_t e = 0; e <= kLastEpoch && !HasFailure(); ++e) {
+    if (e == kEmptyEpoch) {
+      continue; // no block, so no reveal for the epoch after it either
+    }
+    if (e > 0) {
+      at(e, 0, {});
+    }
+    if (e < kCert2Epoch) {
+      at(e, 3, {reveal(e + 1)});
+      at(e, 6, {});
+    } else if (e == kCert2Epoch) { // re-certified before this epoch's reveal lands
+      at(e, 3, {recertify(key2, secret2, kCert2Epoch)});
+      at(e, 6, {makeBeaconSeedRecord(e + 1, revealOn(secret2, kCert2Epoch, e + 1), key2, net())});
+    } else if (e < kCert3Epoch) {
+      at(e, 3, {makeBeaconSeedRecord(e + 1, revealOn(secret2, kCert2Epoch, e + 1), key2, net())});
+      at(e, 6, {});
+    } else if (e == kCert3Epoch) { // re-certified after this epoch's reveal landed
+      at(e, 3, {makeBeaconSeedRecord(e + 1, revealOn(secret2, kCert2Epoch, e + 1), key2, net())});
+      at(e, 6, {recertify(key3, secret3, kCert3Epoch)});
+    } else {
+      at(e, 3, {makeBeaconSeedRecord(e + 1, revealOn(secret3, kCert3Epoch, e + 1), key3, net())});
+      at(e, 6, {});
+    }
+  }
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(producer.getAuthority().value().beacon.generation, 3u);
+
+  // The seeds the producer's blocks carry are the v2 seeds of the reveals each epoch got.
+  auto seedOf = [&](uint64_t epoch) { return producer.readBlock(openingOf.at(epoch)).value().block.epochSeed; };
+  const std::string emptySeed =
+      consensus::deriveEpochSeedV2(kEmptyEpoch, net(), seedOf(kEmptyEpoch - 1), testBeaconReveal(kEmptyEpoch));
+  EXPECT_EQ(seedOf(kEmptyEpoch + 1), consensus::deriveEpochSeedV2(kEmptyEpoch + 1, net(), emptySeed, std::nullopt))
+      << "the empty epoch carried no reveal for the next";
+  EXPECT_EQ(seedOf(kCert2Epoch + 1),
+            consensus::deriveEpochSeedV2(kCert2Epoch + 1, net(), seedOf(kCert2Epoch),
+                                         revealOn(secret2, kCert2Epoch, kCert2Epoch + 1)))
+      << "the reveal on the new anchor, committed after the re-certification";
+  EXPECT_EQ(seedOf(kCert3Epoch + 1),
+            consensus::deriveEpochSeedV2(kCert3Epoch + 1, net(), seedOf(kCert3Epoch),
+                                         revealOn(secret2, kCert2Epoch, kCert3Epoch + 1)))
+      << "the reveal landed before the re-certification";
+  EXPECT_EQ(seedOf(kCert3Epoch + 2),
+            consensus::deriveEpochSeedV2(kCert3Epoch + 2, net(), seedOf(kCert3Epoch + 1),
+                                         revealOn(secret3, kCert3Epoch, kCert3Epoch + 2)))
+      << "the first reveal on the third anchor";
+  const uint64_t end = producer.getNextBlockId();
+  const uint64_t first = expected_.begin()->first;
+
+  // (a) A node from genesis, checking every block Full.
+  auto &peer = harness_.peer;
+  for (uint64_t i = 1; i < end && !HasFailure(); ++i) {
+    feed(peer, i, i + 1);
+    if (i >= first) {
+      expectAgrees(peer, i, "genesis node");
+    }
+  }
+
+  // (b) A node restarted from its own ledger after every block (loadFromLedger from block 0).
+  const auto reloadDir = joinerDir_.string() + "-reload";
+  {
+    std::error_code ec;
+    std::filesystem::remove_all(reloadDir, ec);
+    auto node = openNode(reloadDir, 0, /*fresh=*/true);
+    for (uint64_t i = 0; i < end && !HasFailure(); ++i) {
+      feed(*node, i, i + 1);
+      node.reset();
+      node = openNode(reloadDir, 0, /*fresh=*/false);
+      if (i >= first) {
+        expectAgrees(*node, i, "node reloaded from 0");
+      }
+    }
+    node.reset();
+    std::filesystem::remove_all(reloadDir, ec);
+  }
+
+  // (c) A checkpoint joiner from every checkpoint but the last, Full from the next one.
+  ASSERT_GE(rotations_.size(), 3u);
+  ASSERT_LE(rotations_.at(1), openingOf.at(kCert2Epoch)) << "a joiner is Full across both re-certifications";
+  for (size_t k = 0; k + 1 < rotations_.size() && !HasFailure(); ++k) {
+    const auto dir = joinerDir_.string() + "-" + std::to_string(k);
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    auto joiner = openNode(dir, rotations_[k], /*fresh=*/true);
+    for (uint64_t i = rotations_[k]; i < end && !HasFailure(); ++i) {
+      feed(*joiner, i, i + 1);
+      if (i >= rotations_[k + 1]) {
+        expectAgrees(*joiner, i, "joiner from checkpoint " + std::to_string(rotations_[k]));
+      }
+    }
+    joiner.reset();
+    std::filesystem::remove_all(dir, ec);
+  }
+  EXPECT_GT(comparisons_, 2 * (end - first));
 }
