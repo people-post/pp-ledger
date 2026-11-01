@@ -320,6 +320,13 @@ each role's `config.json`, and the fixed network timing.
 - Change the port number in `config.json`
 - Or stop the process using that port: `lsof -ti:<port> | xargs kill`
 
+**No blocks for one epoch right after a checkpoint rotation**
+- A miner restarted (or joined) in the epoch a checkpoint rotation opens cannot open the next
+  epoch: it lacks that epoch's start snapshot and elects no leader there (logged as "No committee
+  for epoch N yet"). Another producer's block opens it; if every producer is in that state the
+  epoch stays empty and the network recovers by itself one epoch later. Do not restart all
+  producers in that window ([BLOCK_PIPELINE.md § Checkpoints and late join](../architecture/BLOCK_PIPELINE.md#checkpoints-and-late-join)).
+
 **Blocks not being produced**
 - Ensure the miner has pending transactions: `./app/pp-client -m status`
 - Check that the miner is registered as a stakeholder with the beacon

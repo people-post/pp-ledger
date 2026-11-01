@@ -6,6 +6,7 @@
 
 #include "ledger/chain/ErrorCodes.h"
 #include "chain/BeaconCertTxHandler.h"
+#include "chain/BeaconSeedTxHandler.h"
 #include "chain/RecoveryTxHandler.h"
 #include "chain/AccountRecoveryTxHandler.h"
 #include "chain/DomainAssignTxHandler.h"
@@ -40,6 +41,7 @@ RecordHandler::RecordHandler() {
   install(Ledger::T_IMPORT, std::make_unique<ImportTxHandler>());
   install(Ledger::T_ACCOUNT_RECOVERY, std::make_unique<AccountRecoveryTxHandler>());
   install(Ledger::T_DOMAIN_ASSIGN, std::make_unique<DomainAssignTxHandler>());
+  install(Ledger::T_BEACON_SEED, std::make_unique<BeaconSeedTxHandler>());
 }
 
 ITxHandler *RecordHandler::get(std::size_t type) {

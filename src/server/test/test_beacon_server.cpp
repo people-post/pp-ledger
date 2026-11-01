@@ -1,6 +1,8 @@
 #include "server/BeaconServer.h"
 #include "server/CertificateStore.h"
 #include "server/EquivocationStore.h"
+#include "server/Miner.h"
+#include "ledger/consensus/EpochSeed.h"
 #include "ledger/chain/AccountBuffer.h"
 #include "ledger/operation/Operation.h"
 #include "ledger/lib/common/BinaryPack.hpp"
@@ -12,6 +14,7 @@
 #include <limits>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -970,4 +973,180 @@ TEST(BeaconServerInitTest, LivenessSettingsDefaultAndLimits) {
   setup.writeInitConfig(R"(, "slotDuration": 5, "minerDueAfterSlots": 0, "heartbeatSlots": 0)");
   auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
   EXPECT_TRUE(init.isOk()) << init.error().message;
+}
+
+namespace {
+
+/** The beacon's seed secret as --init wrote it (hex in keys/beacon-seed.secret). */
+std::string readSeedSecret(const std::filesystem::path &dir) {
+  std::string hex = readAllText(dir / BeaconServer::FILE_BEACON_SEED_SECRET);
+  hex.erase(std::remove_if(hex.begin(), hex.end(), [](unsigned char c) { return std::isspace(c); }), hex.end());
+  return utl::hexDecode(hex);
+}
+
+/** The pooled T_BEACON_SEED records of `server`, decoded. */
+std::vector<std::pair<Ledger::Record, Ledger::TxBeaconSeed>> pooledReveals(const BeaconServer &server) {
+  std::vector<std::pair<Ledger::Record, Ledger::TxBeaconSeed>> out;
+  for (const auto &record : server.pooledForTest()) {
+    if (record.type == Ledger::T_BEACON_SEED) {
+      out.emplace_back(record, utl::binaryUnpack<Ledger::TxBeaconSeed>(record.data).value());
+    }
+  }
+  return out;
+}
+
+/** A beacon with 1 s slots, 1000 per epoch, one genesis miner (`minerKey`), after --init. */
+struct SeedSetup : GenesisSetup {
+  utl::MlDsaKeyPair minerKey = utl::mlDsaGenerate().value();
+  int64_t genesisTime{0};
+
+  explicit SeedSetup(const std::string &name) : GenesisSetup(name) {
+    writeInitConfig(R"(, "slotDuration": 1, "slotsPerEpoch": 1000, "heartbeatSlots": 1000, "minFeeCoefficients": [1, 1, 0])"
+                    R"(, "genesisMiners": [{"id": )" +
+                    std::to_string(AccountBuffer::ID_FIRST_ISSUED) + R"(, "publicKeys": [")" +
+                    utl::hexEncode(minerKey.publicKey) + R"("]}])");
+    auto initialized = init({keyFile(genesis[0], "g0"), keyFile(genesis[1], "g1")});
+    EXPECT_TRUE(initialized.isOk()) << initialized.error().message;
+    genesisTime = genesisMeta().config.genesisTime;
+  }
+};
+
+} // namespace
+
+// The beacon's seed hash chain (beacon epoch seed): --init creates its secret (0600) and the
+// generation-1 certificate commits to its last link, for the default length from epoch 0.
+TEST(BeaconServerInitTest, InitWritesTheSeedSecretAndTheGenesisCertCommitsToIt) {
+  GenesisSetup setup("pp-ledger-beacon-seed-secret-test");
+  setup.writeInitConfig();
+  auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+  ASSERT_TRUE(init.isOk()) << init.error().message;
+  const auto path = setup.dir / BeaconServer::FILE_BEACON_SEED_SECRET;
+  ASSERT_TRUE(std::filesystem::exists(path));
+#ifndef _WIN32
+  EXPECT_EQ(std::filesystem::status(path).permissions() & std::filesystem::perms::all,
+            std::filesystem::perms::owner_read | std::filesystem::perms::owner_write);
+#endif
+  const std::string secret = readSeedSecret(setup.dir);
+  ASSERT_EQ(secret.size(), 32u);
+
+  const auto cert = setup.genesisMeta().authority.beacon;
+  EXPECT_TRUE(cert.hasSeedChain());
+  EXPECT_EQ(cert.seedAnchor, consensus::beaconSeedValue(secret, consensus::kDefaultBeaconSeedChainLength));
+  EXPECT_EQ(cert.seedAnchorEpoch, 0u);
+  EXPECT_EQ(cert.seedChainLength, consensus::kDefaultBeaconSeedChainLength);
+}
+
+// During epoch E-1 the beacon pools its signed reveal for epoch E, once, however often it is asked.
+TEST(BeaconSeedSubmitTest, TheBeaconPoolsItsRevealForTheNextEpoch) {
+  SeedSetup setup("pp-ledger-beacon-seed-submit-test");
+  const std::string secret = readSeedSecret(setup.dir);
+  const auto cert = setup.genesisMeta().authority.beacon;
+  BeaconServer server;
+  auto opened = server.openForTest(setup.dir.string(), setup.genesisTime + 5);
+  ASSERT_TRUE(opened.isOk()) << opened.error().message;
+  EXPECT_TRUE(pooledReveals(server).empty());
+
+  server.submitBeaconSeedIfDue();
+  server.submitBeaconSeedIfDue();
+  const auto reveals = pooledReveals(server);
+  ASSERT_EQ(reveals.size(), 1u);
+  const auto &[record, tx] = reveals.front();
+  EXPECT_EQ(tx.epoch, 1u) << "the epoch after the current one (0)";
+  EXPECT_EQ(tx.reveal, consensus::beaconSeedValue(secret, consensus::kDefaultBeaconSeedChainLength - 1));
+  EXPECT_TRUE(consensus::verifyBeaconSeedReveal(cert.seedAnchor, 1, tx.reveal));
+  ASSERT_EQ(record.signatures.size(), 1u);
+  EXPECT_TRUE(utl::mlDsaVerify(cert.publicKey, record.signingMessage("test-net"), record.signatures[0]))
+      << "signed by the certificate's key";
+}
+
+// A restarted beacon pools the same reveal again (its pool is gone; the chain has none yet), never
+// another one (the reveal is fixed by the secret and the epoch); once a block records the reveal, it submits nothing more for that epoch.
+TEST(BeaconSeedSubmitTest, ARestartResubmitsWithoutASecondReveal) {
+  SeedSetup setup("pp-ledger-beacon-seed-restart-test");
+  const int64_t clock = setup.genesisTime + 5;
+  Ledger::Record first;
+  {
+    BeaconServer server;
+    ASSERT_TRUE(server.openForTest(setup.dir.string(), clock).isOk());
+    server.submitBeaconSeedIfDue();
+    ASSERT_EQ(pooledReveals(server).size(), 1u);
+    first = pooledReveals(server).front().first;
+  }
+  {
+    BeaconServer server; // restart
+    ASSERT_TRUE(server.openForTest(setup.dir.string(), clock).isOk());
+    server.submitBeaconSeedIfDue();
+    const auto again = pooledReveals(server);
+    ASSERT_EQ(again.size(), 1u);
+    // ML-DSA signs randomized: the signature is fresh, the record's content is the same reveal.
+    EXPECT_EQ(again.front().first.data, first.data) << "the same epoch and reveal";
+    EXPECT_TRUE(utl::mlDsaVerify(setup.genesisMeta().authority.beacon.publicKey,
+                                 again.front().first.signingMessage("test-net"), again.front().first.signatures.at(0)));
+  }
+
+  // The genesis miner leads every slot: it puts the reveal in a block of epoch 0.
+  Miner miner;
+  Miner::InitConfig config;
+  config.workDir = (setup.dir / "miner").string();
+  config.minerId = AccountBuffer::ID_FIRST_ISSUED;
+  config.privateKeys.push_back(setup.minerKey.privateKey);
+  ASSERT_TRUE(miner.init(config).isOk());
+  Beacon::MountConfig mount;
+  mount.workDir = (setup.dir / "data").string();
+  {
+    Beacon beacon;
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    ASSERT_TRUE(miner.addBlock(beacon.readBlock(0).value()).isOk());
+  }
+  miner.setClockOverride(clock);
+  miner.refresh();
+  auto added = miner.addTransaction(first);
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+  miner.setClockOverride(clock + 1); // slot 5 has ended
+  miner.refresh();
+  Ledger::ChainNode block;
+  auto produced = miner.produceBlock(block);
+  ASSERT_TRUE(produced.isOk()) << produced.error().message;
+  ASSERT_TRUE(produced.value());
+  ASSERT_EQ(block.block.records.size(), 1u);
+  {
+    Beacon beacon;
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    auto committed = beacon.addBlock(block);
+    ASSERT_TRUE(committed.isOk()) << committed.error().message;
+  }
+
+  BeaconServer server;
+  ASSERT_TRUE(server.openForTest(setup.dir.string(), clock + 2).isOk());
+  server.submitBeaconSeedIfDue();
+  EXPECT_TRUE(pooledReveals(server).empty()) << "the chain holds epoch 1's reveal";
+}
+
+// No secret matching the certificate's anchor: nothing is submitted (an empty chain contribution is
+// legal). A staged next secret that matches is used, as a staged signing key is.
+TEST(BeaconSeedSubmitTest, WithoutTheSecretItSubmitsNothing) {
+  SeedSetup setup("pp-ledger-beacon-seed-nosecret-test");
+  const auto secretPath = setup.dir / BeaconServer::FILE_BEACON_SEED_SECRET;
+  const std::string secretFile = readAllText(secretPath);
+  std::filesystem::remove(secretPath);
+  {
+    BeaconServer server;
+    ASSERT_TRUE(server.openForTest(setup.dir.string(), setup.genesisTime + 5).isOk());
+    server.submitBeaconSeedIfDue();
+    EXPECT_TRUE(pooledReveals(server).empty()) << "no secret";
+  }
+  std::ofstream(secretPath) << utl::hexEncode(std::string(32, '\x01')) << "\n";
+  {
+    BeaconServer server;
+    ASSERT_TRUE(server.openForTest(setup.dir.string(), setup.genesisTime + 5).isOk());
+    server.submitBeaconSeedIfDue();
+    EXPECT_TRUE(pooledReveals(server).empty()) << "a secret that is not the anchor's";
+  }
+  std::ofstream(setup.dir / BeaconServer::FILE_BEACON_SEED_NEXT_SECRET) << secretFile;
+  {
+    BeaconServer server;
+    ASSERT_TRUE(server.openForTest(setup.dir.string(), setup.genesisTime + 5).isOk());
+    server.submitBeaconSeedIfDue();
+    EXPECT_EQ(pooledReveals(server).size(), 1u) << "the staged next secret matches";
+  }
 }

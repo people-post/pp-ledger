@@ -12,6 +12,8 @@ command-line options, can come from the environment instead ([Environment](#envi
 | `keys/amp-identity.txt` | beacon, relay | every start; created on first start — unless `PP_LEDGER_IDENTITY_KEY` sets the identity |
 | `keys/beacon-signing.key`, `.pub` | beacon | `--init`; created when absent (or pre-generated with `pp-client keygen -o keys/beacon-signing`). Every start: both must be present |
 | `keys/beacon-signing.next.key`, `.pub` | beacon | Optional, every start: a key staged for a rotation ([Identity keys](#identity-keys)) |
+| `keys/beacon-seed.secret` | beacon | `--init` / `--plan-genesis`; created (hex, 0600) when absent, never overwritten. The seed chain secret behind the certificate's anchor ([BEACON_AUTHORITY.md § Seed chain](../contracts/BEACON_AUTHORITY.md#seed-chain)); back it up with the signing key |
+| `keys/beacon-seed.next.secret` | beacon | Optional: the secret of a promoted generation's seed chain (`pp-client beacon-seed-keygen -o`); the beacon uses whichever file matches the certificate in force |
 | `data/signed-tip.dat` | beacon | every start; rewritten with each block. Not config: the latest signed tip ([BEACON_AUTHORITY.md § Signed tip](../contracts/BEACON_AUTHORITY.md#signed-tip)). Keep it with the ledger; do not delete or copy it between beacons |
 | `data/rewind.dat`, `data/rewound.dat` | beacon, relay, miner | Not config: a rewind ordered before a restart (applied and removed at the next start) and the last one applied ([LEDGER_STORAGE.md § Node state files](../contracts/LEDGER_STORAGE.md#node-state-files)). Do not edit |
 | `data/beacon-cert.dat` | beacon, relay, miner | every start, when present. Not config: the highest beacon certificate seen out of band, not on chain yet ([BEACON_AUTHORITY.md § Certificates out of band](../contracts/BEACON_AUTHORITY.md#certificates-out-of-band)); removed once the chain commits it. Deleting it makes the node forget a cutover it enforces |
@@ -326,6 +328,11 @@ pp-client mk-beacon-cert --network-id <id> --generation <current + 1> \
 pp-client sign-tx -k admin1.key --network-id <id> cert.tx   # each admin, offline, until the quorum
 pp-client submit-tx -b <relay or beacon> cert.tx
 ```
+
+For a new seed chain too, add `pp-client beacon-seed-keygen -o keys/beacon-seed.next.secret` and
+`--seed-anchor <printed anchor> --seed-anchor-epoch <n>` to `mk-beacon-cert`
+([BEACON_AUTHORITY.md § Seed chain](../contracts/BEACON_AUTHORITY.md#seed-chain)); without one the
+beacon contributes no seed.
 
 From the block that commits the certificate the beacon signs with the next key, and relays and
 miners follow (`pp-client status` shows the new generation). At a later restart the operator may

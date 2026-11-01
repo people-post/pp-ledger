@@ -94,8 +94,9 @@ Chain::admissionModeFor(uint64_t blockIndex) const {
   }
   // Late join: loadFromLedger(startingBlockId) sets lastId == currentId ==
   // startingBlockId. Until a later checkpoint rotates currentId forward,
-  // ingest stays CheckpointReplay (structural + soft txs). Tip peers that
-  // started from genesis keep Full for index >= currentId.
+  // ingest stays CheckpointReplay (structural + soft txs); after it, Full.
+  // A replay asks this per block, so it admits each block as live did.
+  // Tip peers that started from genesis keep Full for index >= currentId.
   if (txContext_.checkpoint.currentId == txContext_.checkpoint.lastId) {
     return chain_block::BlockAdmissionMode::CheckpointReplay;
   }
@@ -536,7 +537,15 @@ Chain::Roe<Client::ProducerStatsResponse> Chain::producerStats(uint64_t fromBloc
       if (!typed) {
         continue;
       }
-      const uint64_t fee = std::visit([](const auto &tx) -> uint64_t { return tx.fee; }, typed.value());
+      const uint64_t fee = std::visit(
+          [](const auto &tx) -> uint64_t {
+            if constexpr (std::is_base_of_v<Ledger::TxCommon, std::decay_t<decltype(tx)>>) {
+              return tx.fee;
+            } else {
+              return 0; // T_BEACON_SEED: no fee
+            }
+          },
+          typed.value());
       producer.fees += fee;
       response.fees += fee;
     }
@@ -761,7 +770,9 @@ Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode &block) {
   } else {
     block.block.epoch =
         txContext_.consensus.getEpochFromSlot(block.block.slot);
-    refreshStakeholders(block.block.slot);
+    if (auto committee = refreshStakeholders(block.block.slot); !committee) {
+      return committee;
+    }
     block.block.stakeSnapshotHash = chain_block::calculateStakeSnapshotHash(
         txContext_.consensus.getStakeholders());
     block.block.committee.clear();
@@ -816,7 +827,8 @@ Chain::TipSnapshot Chain::beginTipUpdate() {
   txContext_.bank.beginOverlay();
   return TipSnapshot{txContext_.consensus.saveTipState(), txContext_.optChainConfig,
                      txContext_.pendingChainConfig, txContext_.issuanceBaseline, txContext_.checkpoint,
-                     txContext_.optAuthority, txContext_.importProgress};
+                     txContext_.optAuthority, txContext_.importProgress, txContext_.beaconReveals,
+                     txContext_.beaconRevealChain, epochStakeSnapshots_, epochCommittees_};
 }
 
 void Chain::commitTipUpdate() { txContext_.bank.commitOverlay(); }
@@ -830,6 +842,11 @@ void Chain::rollbackTipUpdate(TipSnapshot snapshot) {
   txContext_.checkpoint = snapshot.checkpoint;
   txContext_.optAuthority = std::move(snapshot.optAuthority);
   txContext_.importProgress = std::move(snapshot.importProgress);
+  txContext_.beaconReveals = std::move(snapshot.beaconReveals);
+  txContext_.beaconRevealChain = std::move(snapshot.beaconRevealChain);
+  // A refused block leaves no committee behind: one taken from it would refuse the honest block.
+  epochStakeSnapshots_ = std::move(snapshot.epochStakeSnapshots);
+  epochCommittees_ = std::move(snapshot.epochCommittees);
 }
 
 Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
@@ -973,12 +990,20 @@ std::vector<consensus::Stakeholder> Chain::electionCandidates() const {
 
 void Chain::refreshStakeholders() {
   const uint64_t clockEpoch = txContext_.consensus.getCurrentEpoch();
-  if (auto recorded = epochStakeSnapshots_.find(clockEpoch); recorded != epochStakeSnapshots_.end()) {
+  if (auto recorded = epochCommittees_.find(clockEpoch); recorded != epochCommittees_.end()) {
     txContext_.consensus.setStakeholders(recorded->second, clockEpoch);
   } else if (txContext_.consensus.isStakeUpdateNeeded()) {
-    // Provisional (leader election before this epoch's first block). Not
-    // recorded: blocks of earlier epochs may still arrive and change it.
-    txContext_.consensus.setStakeholders(electionCandidates(), clockEpoch);
+    // Provisional (leader election before this epoch's first block), as that block will validate
+    // it. Not recorded: blocks of earlier epochs may still arrive and change it.
+    if (auto committee = committeeFor(clockEpoch, nullptr)) {
+      txContext_.consensus.setStakeholders(committee.value(), clockEpoch);
+    } else {
+      // Keeping an earlier epoch's committee would elect by a wrong schedule: elect no one (and seal
+      // nothing) here until a block installs this epoch's. Once per epoch: it is marked updated.
+      log().warning << "No committee for epoch " << clockEpoch << " yet: this node elects no leader in it ("
+                    << committee.error().message << ")";
+      txContext_.consensus.setStakeholders({}, clockEpoch);
+    }
   }
   // Prefer tip epoch (chain progress) over wall-clock epoch so tests and
   // late-start nodes with mismatched genesisTime still keep a usable seed.
@@ -999,53 +1024,93 @@ void Chain::refreshStakeholders() {
   }
 }
 
-void Chain::recordEpochStakeSnapshot(uint64_t epoch, std::vector<consensus::Stakeholder> stakeholders) {
+void Chain::recordEpochCommittee(uint64_t epoch, std::vector<consensus::Stakeholder> committee) {
   epochStakeSnapshots_.erase(epochStakeSnapshots_.lower_bound(epoch), epochStakeSnapshots_.end());
-  epochStakeSnapshots_.emplace(epoch, std::move(stakeholders));
+  epochCommittees_.erase(epochCommittees_.lower_bound(epoch), epochCommittees_.end());
+  epochCommittees_.emplace(epoch, std::move(committee));
+  if (epoch > kStakeSnapshotsKept) {
+    epochCommittees_.erase(epochCommittees_.begin(), epochCommittees_.lower_bound(epoch - kStakeSnapshotsKept));
+  }
 }
 
-void Chain::refreshStakeholders(uint64_t blockSlot) {
+bool Chain::heldSince(uint64_t epoch, uint64_t endBlockId) const {
+  if (endBlockId == 0) {
+    return false;
+  }
+  auto previous = txContext_.ledger.readBlock(endBlockId - 1);
+  if (!previous) {
+    return true;
+  }
+  if (previous.value().block.epoch < epoch) {
+    return false;
+  }
+  // Genesis and import blocks (epoch 0) take no snapshot and elect no one.
+  return previous.value().block.index != 0 && !isImportBlock(previous.value());
+}
+
+Chain::Roe<std::vector<consensus::Stakeholder>> Chain::committeeFor(uint64_t epoch,
+                                                                    const Ledger::Block *opening) const {
+  return committeeFor(epoch, opening, opening ? opening->index : txContext_.ledger.getNextBlockId());
+}
+
+Chain::Roe<std::vector<consensus::Stakeholder>> Chain::committeeFor(uint64_t epoch, const Ledger::Block *opening,
+                                                                    uint64_t endBlockId) const {
+  if (epoch > 0) {
+    if (auto snapshot = epochStakeSnapshots_.find(epoch - 1); snapshot != epochStakeSnapshots_.end()) {
+      return snapshot->second;
+    }
+  }
+  // No block since epoch - 2 ended: the bank holds that state.
+  if (epoch == 0 || !heldSince(epoch - 1, endBlockId)) {
+    return electionCandidates();
+  }
+  // Epoch - 1's start state was never this node's (it warmed up from a checkpoint): the opening
+  // block's committee, checked against its stakeSnapshotHash.
+  if (opening != nullptr && opening->epoch == epoch && !opening->committee.empty()) {
+    auto committee = chain_block::fromCommittee(opening->committee);
+    if (chain_block::calculateStakeSnapshotHash(committee) != opening->stakeSnapshotHash) {
+      return Error(E_BLOCK_VALIDATION, "Block " + std::to_string(opening->index) + " opens epoch " +
+                                           std::to_string(epoch) + ": its committee does not match stakeSnapshotHash");
+    }
+    return committee;
+  }
+  return Error(E_BLOCK_VALIDATION, "Committee of epoch " + std::to_string(epoch) + " unknown: no stake snapshot of epoch " +
+                                       std::to_string(epoch - 1) + " was taken here");
+}
+
+Chain::Roe<void> Chain::refreshStakeholders(uint64_t blockSlot, const Ledger::Block *block) {
   const uint64_t epoch = txContext_.consensus.getEpochFromSlot(blockSlot);
-  // Snapshots recorded for later epochs predate this block: drop them.
+  const uint64_t endBlockId = block ? block->index : txContext_.ledger.getNextBlockId();
+  // Recorded for later epochs, they predate this block: drop them.
   epochStakeSnapshots_.erase(epochStakeSnapshots_.upper_bound(epoch), epochStakeSnapshots_.end());
-  auto recorded = epochStakeSnapshots_.find(epoch);
-  if (recorded == epochStakeSnapshots_.end()) {
-    // First block of this epoch on this tip: the bank holds the state after
-    // the last block of earlier epochs — the same on every node.
-    recorded = epochStakeSnapshots_.emplace(epoch, electionCandidates()).first;
+  epochCommittees_.erase(epochCommittees_.upper_bound(epoch), epochCommittees_.end());
+  auto recorded = epochCommittees_.find(epoch);
+  if (recorded == epochCommittees_.end()) {
+    const bool exact = admissionModeFor(endBlockId) == chain_block::BlockAdmissionMode::Full;
+    if (exact && !heldSince(epoch, endBlockId)) {
+      // First block of this epoch on this tip: the bank holds the state after the last block of
+      // earlier epochs — the same on every node. Epoch + 1's committee.
+      epochStakeSnapshots_.try_emplace(epoch, electionCandidates());
+    }
+    // A block that is not its epoch's first carries no committee (checkBlockStructural refuses one).
+    auto committee = committeeFor(epoch, block, endBlockId);
+    if (!committee) {
+      return committee.error();
+    }
+    if (!exact) {
+      // A warming node's own state is partial: install, but record only what opening blocks carry.
+      txContext_.consensus.setStakeholders(committee.value(), epoch);
+      return {};
+    }
+    recorded = epochCommittees_.emplace(epoch, std::move(committee.value())).first;
     if (epoch > kStakeSnapshotsKept) {
       epochStakeSnapshots_.erase(epochStakeSnapshots_.begin(),
                                  epochStakeSnapshots_.lower_bound(epoch - kStakeSnapshotsKept));
+      epochCommittees_.erase(epochCommittees_.begin(), epochCommittees_.lower_bound(epoch - kStakeSnapshotsKept));
     }
   }
   txContext_.consensus.setStakeholders(recorded->second, epoch);
-}
-
-std::vector<std::string>
-Chain::collectPrevEpochLookbackHashes(uint64_t prevEpoch, uint64_t endBlockId) const {
-  std::vector<std::string> newestFirst;
-  const uint64_t nextId = std::min(endBlockId, txContext_.ledger.getNextBlockId());
-  if (nextId == 0) {
-    return {};
-  }
-  for (uint64_t id = nextId; id > 0; --id) {
-    auto blockRoe = txContext_.ledger.readBlock(id - 1);
-    if (!blockRoe) {
-      break;
-    }
-    if (blockRoe->block.epoch > prevEpoch) {
-      continue;
-    }
-    if (blockRoe->block.epoch < prevEpoch) {
-      break;
-    }
-    newestFirst.push_back(blockRoe->hash);
-    if (newestFirst.size() >= consensus::kEpochSeedLookback) {
-      break;
-    }
-  }
-  std::reverse(newestFirst.begin(), newestFirst.end());
-  return newestFirst;
+  return {};
 }
 
 Chain::Roe<std::pair<uint64_t, std::string>> Chain::readLatestEpochSeed(uint64_t maxEpoch, uint64_t endBlockId) const {
@@ -1063,14 +1128,10 @@ Chain::Roe<std::pair<uint64_t, std::string>> Chain::readLatestEpochSeed(uint64_t
   return Error(E_STATE_INIT, "No stored epochSeed at or before epoch " + std::to_string(maxEpoch));
 }
 
-std::string Chain::deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed, const std::string &stakeHash,
-                                       uint64_t endBlockId) const {
+std::string Chain::deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed) const {
   const std::string networkId =
       txContext_.optChainConfig.has_value() ? txContext_.optChainConfig->networkId : std::string{};
-  // No blocks in epoch - 1 → no lookback hashes → empty-prev tip material.
-  auto lookback = collectPrevEpochLookbackHashes(epoch - 1, endBlockId);
-  const std::string tipMaterial = consensus::lookbackTipMaterial(epoch - 1, prevSeed, lookback);
-  return consensus::deriveEpochSeed(epoch, networkId, prevSeed, tipMaterial, stakeHash);
+  return consensus::deriveEpochSeedV2(epoch, networkId, prevSeed, getBeaconReveal(epoch));
 }
 
 Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch, std::optional<uint64_t> endBlockId) {
@@ -1092,11 +1153,17 @@ Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch, std::optional<uint64_t> 
     return {};
   }
 
-  // Start from the newest stored seed before this epoch. Epochs after it had no blocks: each
-  // seed follows from the one before (empty-prev tip material), so a chain survives idle epochs.
-  auto base = readLatestEpochSeed(epoch - 1, end);
+  // An epoch already in a block below `end` takes that block's (validated) seed: deriving it again
+  // could miss a reveal pruned since. Otherwise start from the newest stored seed before this epoch.
+  // Epochs after it had no blocks: each seed follows from the one before, so a chain survives idle
+  // epochs.
+  auto base = readLatestEpochSeed(epoch, end);
   if (!base) {
     return Error(base.error().code, base.error().message);
+  }
+  if (base.value().first == epoch) {
+    txContext_.consensus.setEpochSeed(epoch, base.value().second);
+    return {};
   }
   if (epoch - base.value().first > consensus::kMaxEmptyEpochs + 1) {
     return Error(E_STATE_INIT, "Epoch " + std::to_string(epoch) + " is more than " +
@@ -1104,22 +1171,9 @@ Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch, std::optional<uint64_t> 
                                    " empty epochs past the last block's epoch " +
                                    std::to_string(base.value().first));
   }
-  // Each epoch's own snapshot, not whatever is installed: the wall-clock refresh installs the
-  // clock epoch's (provisional) stakes before deriving the tip epoch's seed. Epochs with no
-  // recorded snapshot share the provisional one (the bank does not change without blocks).
-  std::optional<std::string> provisionalStakeHash;
   std::string seed = base.value().second;
   for (uint64_t next = base.value().first + 1; next <= epoch; ++next) {
-    std::string stakeHash;
-    if (auto recorded = epochStakeSnapshots_.find(next); recorded != epochStakeSnapshots_.end()) {
-      stakeHash = chain_block::calculateStakeSnapshotHash(recorded->second);
-    } else {
-      if (!provisionalStakeHash) {
-        provisionalStakeHash = chain_block::calculateStakeSnapshotHash(electionCandidates());
-      }
-      stakeHash = *provisionalStakeHash;
-    }
-    seed = deriveNextEpochSeed(next, seed, stakeHash, end);
+    seed = deriveNextEpochSeed(next, seed);
   }
   txContext_.consensus.setEpochSeed(epoch, seed);
   return {};
@@ -1141,6 +1195,7 @@ Chain::Roe<void> Chain::ensureBlockEpochSeed(const Ledger::ChainNode &block) {
 void Chain::initConsensus(const consensus::SlotCommittee::Config &config) {
   txContext_.consensus.init(config);
   epochStakeSnapshots_.clear();
+  epochCommittees_.clear();
 }
 
 void Chain::setClockOverride(std::optional<int64_t> unixSeconds) {
@@ -1186,7 +1241,10 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   log().info << "Resetting account buffer";
   txContext_.bank.reset();
   txContext_.importProgress.reset();
+  txContext_.beaconReveals.clear();
+  txContext_.beaconRevealChain.reset();
   epochStakeSnapshots_.clear();
+  epochCommittees_.clear();
   chargedMisses_.clear();
   pendingSeal_.reset();
   authoritySteps_.clear();
@@ -1198,12 +1256,6 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   txContext_.checkpoint.currentId = startingBlockId;
   uint64_t blockId = startingBlockId;
   uint64_t logInterval = 1000; // Log every 1000 blocks
-  // Same mode matrix as live late join: genesis→tip is Full; mount at a
-  // checkpoint is CheckpointReplay for the whole replay loop (see
-  // admissionModeFor / BLOCK_PIPELINE.md).
-  const auto replayMode =
-      startingBlockId == 0 ? chain_block::BlockAdmissionMode::Full
-                           : chain_block::BlockAdmissionMode::CheckpointReplay;
   while (true) {
     auto blockResult = txContext_.ledger.readBlock(blockId);
     if (!blockResult) {
@@ -1218,6 +1270,10 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
                                       std::to_string(block.block.index));
     }
 
+    // Each block in the mode it was admitted under live (admissionModeFor / BLOCK_PIPELINE.md):
+    // genesis→tip is Full; from a checkpoint, CheckpointReplay until the next rotation and Full
+    // after it, so the replay records the same epoch start snapshots as the first run did.
+    const auto replayMode = admissionModeFor(blockId);
     if (auto prepared = prepareBlockEpoch(block, replayMode); !prepared) {
       return Error(prepared.error().code, "Block " + std::to_string(blockId) + ": " + prepared.error().message);
     }
@@ -1405,15 +1461,25 @@ Chain::Roe<void> Chain::prepareBlockEpoch(const Ledger::ChainNode &block, chain_
           !committee) {
         return committee;
       }
-      recordEpochStakeSnapshot(block.block.epoch, chain_block::fromCommittee(block.block.committee));
+      recordEpochCommittee(block.block.epoch, chain_block::fromCommittee(block.block.committee));
     }
-    refreshStakeholders(block.block.slot);
+    epochStakeSnapshots_.erase(epochStakeSnapshots_.upper_bound(block.block.epoch), epochStakeSnapshots_.end());
+    epochCommittees_.erase(epochCommittees_.upper_bound(block.block.epoch), epochCommittees_.end());
+    auto committee = epochCommittees_.find(block.block.epoch);
+    if (committee == epochCommittees_.end()) {
+      return Error(E_BLOCK_VALIDATION, "No committee for epoch " + std::to_string(block.block.epoch) +
+                                           ": its opening block was not taken");
+    }
+    txContext_.consensus.setStakeholders(committee->second, block.block.epoch);
     if (block.block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
       txContext_.consensus.setEpochSeed(block.block.epoch, block.block.epochSeed);
     }
     return {};
   }
-  refreshStakeholders(block.block.slot);
+  // Full: this epoch's committee was fixed one epoch ahead (committeeFor).
+  if (auto committee = refreshStakeholders(block.block.slot, &block.block); !committee) {
+    return committee;
+  }
   if (auto seeded = ensureBlockEpochSeed(block); !seeded) {
     return Error(E_BLOCK_VALIDATION, "Failed to ensure epoch seed: " + seeded.error().message);
   }
@@ -1441,6 +1507,7 @@ Chain::Roe<void> Chain::installCheckpointState(const Ledger::ChainNode &block) {
   // Slot timing is fixed at genesis; this node keeps its clock offset.
   txContext_.consensus.setSlotTiming(gm.config.genesisTime, gm.config.slotDuration, gm.config.slotsPerEpoch);
   epochStakeSnapshots_.clear();
+  epochCommittees_.clear();
   // The renewal records genesis as the previous epoch left it (it renews first): in place before
   // the block, so this epoch's issuance baseline is right too.
   if (auto placed = mapTxVoid(chain_tx::replaceGenesisAccount(txContext_.bank, block.block.index, gm.genesis.wallet,
@@ -1558,6 +1625,11 @@ Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
 
 void Chain::enterBlockEpoch(uint64_t epoch) {
   applyDueRecovery(epoch);
+  // Reveals for the epochs whose seeds are still derived; this block records at most epoch + 1.
+  if (epoch + 1 > kStakeSnapshotsKept) {
+    auto &reveals = txContext_.beaconReveals;
+    reveals.erase(reveals.begin(), reveals.lower_bound(epoch + 1 - kStakeSnapshotsKept));
+  }
   auto &pending = txContext_.pendingChainConfig;
   if (pending.has_value() && epoch >= pending->activationEpoch) {
     txContext_.optChainConfig = std::move(pending->config);
@@ -2239,6 +2311,11 @@ Chain::Roe<void> Chain::verifyAccountSignatures(uint64_t accountId, const std::s
   return verifySignaturesAgainstAccount(message, signatures, account.value());
 }
 
+std::optional<std::string> Chain::getBeaconReveal(uint64_t epoch) const {
+  auto it = txContext_.beaconReveals.find(epoch);
+  return it == txContext_.beaconReveals.end() ? std::nullopt : std::optional<std::string>(it->second);
+}
+
 Chain::Roe<void> Chain::checkAdmission(const Ledger::Record &record, int64_t nowSec,
                                       bool verifySignatures) const {
   switch (record.type) {
@@ -2316,6 +2393,16 @@ Chain::Roe<void> Chain::validateTxSignatures(
     }
     return mapTxVoid(chain_tx::verifyRecoverySigned(record, txContext_.optAuthority->recovery, getNetworkId(),
                                                     txContext_.crypto, log()));
+  }
+  if (record.type == Ledger::T_BEACON_SEED) {
+    // Signed by the beacon key of the certificate in force, not by an account.
+    if (!txContext_.optAuthority.has_value()) {
+      return chain_block::admissionTxStrict(admissionMode)
+                 ? Error(E_STATE_INIT, "Chain authority not initialized")
+                 : Roe<void>();
+    }
+    return mapTxVoid(chain_tx::verifyBeaconSigned(record, txContext_.optAuthority->beacon, getNetworkId(),
+                                                  txContext_.crypto, log()));
   }
   if (record.type == Ledger::T_ACCOUNT_RECOVERY) {
     // Signed by the account's recovery set, not its keys (projects/account-recovery).

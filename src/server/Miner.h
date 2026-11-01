@@ -110,6 +110,8 @@ private:
     BlockBudget budget;
     /** Due renewals did not all fit: the block holds renewals only (and a certificate due). */
     bool renewalsWait{false};
+    /** The budget already holds a place for the pending beacon seed reveal (taken before renewals). */
+    bool seedRevealReserved{false};
   };
   /** The seal found the block larger than maxBlockBytes (the leader's estimate was short). */
   constexpr static const int32_t E_BLOCK_TOO_LARGE = 31;

@@ -116,6 +116,11 @@ public:
    * time. Not refused when this start's rewind dropped the tip, or while taking over.
    */
   Roe<void> openTipSigning(const std::vector<utl::MlDsaKeyPair> &keys, bool acceptLedgerTip = false);
+  /**
+   * `message` signed with the key the certificate in force names (a record the beacon authors).
+   * TipSigner::E_NOT_CERTIFIED before openTipSigning, or when this beacon does not hold that key.
+   */
+  TipSigner::Roe<std::string> signAsCertified(const std::string &message) const;
   /** The latest signed tip (none before openTipSigning, or while this key is not certified). */
   std::optional<Client::SignedTip> getSignedTip() const;
   /**

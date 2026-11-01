@@ -179,6 +179,66 @@ TEST(ChainTest, GenesisAuthority_RefusesEveryBadShape) {
   }
 }
 
+TEST(BeaconCertificateTest, SeedAnchorRoundTrips) {
+  BeaconCertificate cert = makeTestAuthority("test-net").beacon;
+  EXPECT_TRUE(cert.hasSeedChain()) << "the fixture's beacon has a seed chain";
+  cert.seedAnchor.clear();
+  EXPECT_FALSE(cert.hasSeedChain()) << "an empty anchor is none";
+  cert.seedAnchor = std::string(32, 'a');
+  cert.seedAnchorEpoch = 7;
+  cert.seedChainLength = 10000;
+  EXPECT_TRUE(cert.hasSeedChain());
+  BeaconCertificate back;
+  ASSERT_TRUE(back.ltsFromString(cert.ltsToString()));
+  EXPECT_EQ(back.seedAnchor, cert.seedAnchor);
+  EXPECT_EQ(back.seedAnchorEpoch, 7u);
+  EXPECT_EQ(back.seedChainLength, 10000u);
+}
+
+TEST(BeaconCertificateTest, RefusesABadSeedAnchor) {
+  const auto admin = makeKeyPair();
+  Client::Wallet adminWallet;
+  adminWallet.publicKeys = {admin.publicKey};
+  const Chain::ChainAuthority current = makeTestAuthority("test-net");
+  Chain::ChainAuthority genesis = current;
+  BeaconCertificate next = current.beacon;
+  next.generation = current.beacon.generation + 1;
+  next.publicKey = makeKeyPair().publicKey;
+  next.cutoverHeight = BeaconCertificate::kNoCutover;
+  next.cutoverHash.clear();
+  const std::string good(32, 'a');
+  const std::vector<std::function<void(BeaconCertificate &)>> bad = {
+      [&](auto &c) { c.seedAnchor = good.substr(0, 31); c.seedChainLength = 10; },
+      [&](auto &c) { c.seedAnchor = good; c.seedChainLength = 0; },
+      [&](auto &c) { c.seedAnchor = good; c.seedChainLength = consensus::kMaxBeaconSeedChainLength + 1; },
+  };
+  for (const auto &change : bad) {
+    BeaconCertificate cert = current.beacon;
+    change(cert);
+    genesis.beacon = cert;
+    EXPECT_FALSE(chain_tx::validateGenesisAuthority(genesis, adminWallet, "test-net").isOk());
+    BeaconCertificate offered = next;
+    change(offered);
+    EXPECT_FALSE(
+        chain_tx::validateNextBeaconCertificate(offered, current, adminWallet, "test-net", std::nullopt).isOk());
+  }
+  BeaconCertificate ok = next;
+  ok.seedAnchor = good;
+  ok.seedChainLength = consensus::kMaxBeaconSeedChainLength;
+  EXPECT_TRUE(chain_tx::validateNextBeaconCertificate(ok, current, adminWallet, "test-net", std::nullopt).isOk());
+}
+
+TEST(BeaconCertificateTest, AnEmptyAnchorIsValid) {
+  const auto admin = makeKeyPair();
+  Client::Wallet adminWallet;
+  adminWallet.publicKeys = {admin.publicKey};
+  Chain::ChainAuthority authority = makeTestAuthority("test-net");
+  authority.beacon.seedAnchor.clear();
+  authority.beacon.seedAnchorEpoch = 5;
+  authority.beacon.seedChainLength = 0;
+  EXPECT_TRUE(chain_tx::validateGenesisAuthority(authority, adminWallet, "test-net").isOk());
+}
+
 // The genesis record must carry a valid authority; a valid one is in force afterwards.
 TEST(ChainTest, Genesis_SetsTheAuthorityAndRefusesAnInvalidOne) {
   auto genesisKey = makeKeyPair();
@@ -2300,8 +2360,7 @@ TEST_F(ChainComposeTest, EmptyHeartbeat_EarlyEmptyRejected) {
 
 
 // An epoch without blocks does not stop the chain (WIRE_SCHEMA § Epoch seed): the next block's
-// seed chains through the empty epoch with the empty-prev tip material, on the producer and on a
-// peer admitting the block.
+// seed chains through the empty epochs, on the producer and on a peer admitting the block.
 TEST_F(ChainComposeTest, EpochSeed_ChainsThroughEmptyEpochs) {
   auto &producer = harness_.producer;
   auto &peer = harness_.peer;
@@ -2322,16 +2381,12 @@ TEST_F(ChainComposeTest, EpochSeed_ChainsThroughEmptyEpochs) {
   auto peerAdd = peer.addBlock(block3);
   ASSERT_TRUE(peerAdd.isOk()) << peerAdd.error().message;
 
-  // Spec oracle: epoch 1 from epoch 0's lookback; epochs 2 and 3 from an empty previous epoch.
+  // Spec oracle: each epoch's seed from the one before; no reveal was recorded for epochs 1..3.
   const std::string &networkId = harness_.chainConfig.networkId;
-  const std::string stakeHash = chain_block::calculateStakeSnapshotHash(peer.getStakeholders());
   const std::string seed0 = harness_.genesis.block.epochSeed;
-  const std::string seed1 = consensus::deriveEpochSeed(
-      1, networkId, seed0, consensus::lookbackTipMaterial(0, seed0, {harness_.genesis.hash, block1.hash}), stakeHash);
-  const std::string seed2 =
-      consensus::deriveEpochSeed(2, networkId, seed1, consensus::emptyPrevEpochTipMaterial(1, seed1), stakeHash);
-  const std::string seed3 =
-      consensus::deriveEpochSeed(3, networkId, seed2, consensus::emptyPrevEpochTipMaterial(2, seed2), stakeHash);
+  const std::string seed1 = consensus::deriveEpochSeedV2(1, networkId, seed0, std::nullopt);
+  const std::string seed2 = consensus::deriveEpochSeedV2(2, networkId, seed1, std::nullopt);
+  const std::string seed3 = consensus::deriveEpochSeedV2(3, networkId, seed2, std::nullopt);
   EXPECT_EQ(block3.block.epochSeed, seed3);
 
   // Bounded: at most kMaxEmptyEpochs empty epochs after the last block's epoch (3).
@@ -3755,10 +3810,11 @@ TEST_F(ChainComposeTest, MinerRegisterAndRevoke) {
   EXPECT_FALSE(producer.getAccount(rich.id).value().wallet.miner.registered);
 }
 
-// Only registered miners are elected; a registration joins the committee at the next epoch's
-// snapshot (its first block), a revoke leaves it the same way. Funded accounts that never
-// registered are never candidates (before: every funded account was, miner or not).
-TEST_F(ChainComposeTest, OnlyRegisteredMinersAreElectedFromTheNextEpoch) {
+// Only registered miners are elected; a registration joins the committee of the epoch after the
+// next (each epoch's committee is the snapshot taken at the previous epoch's first block), a revoke
+// leaves it the same way. Funded accounts that never registered are never candidates (before: every
+// funded account was, miner or not).
+TEST_F(ChainComposeTest, OnlyRegisteredMinersAreElectedFromTheEpochAfterNext) {
   auto &producer = harness_.producer;
   auto committee = [&]() {
     std::set<uint64_t> ids;
@@ -3772,21 +3828,26 @@ TEST_F(ChainComposeTest, OnlyRegisteredMinersAreElectedFromTheNextEpoch) {
   Ledger::ChainNode registered = makeNextBlockAtSlot(producer, idle.block, 3,
                                                      {minerTx(harness_, miner, Ledger::T_MINER_REGISTER, 8, 30)});
   ASSERT_TRUE(producer.addBlock(registered).isOk());
-  EXPECT_EQ(committee(), std::set<uint64_t>{kTestMinerId}) << "epoch 0 snapshot predates the registration";
+  EXPECT_EQ(committee(), std::set<uint64_t>{kTestMinerId}) << "epoch 0's committee predates the registration";
 
-  // Epoch 1 (slots 10..19): its first block takes the snapshot with the new miner.
+  // Epoch 1 (slots 10..19): its committee is epoch 0's snapshot (slot 1), before the registration;
+  // its first block takes epoch 1's snapshot, with the new miner.
   Ledger::ChainNode epoch1 =
       makeNextBlockAtSlot(producer, registered, 10, {makeReserveTransfer(harness_, 5, 31)});
   ASSERT_TRUE(producer.addBlock(epoch1).isOk());
-  EXPECT_EQ(committee(), (std::set<uint64_t>{kTestMinerId, miner.id}));
-  EXPECT_FALSE(committee().contains(idle.id)) << "funded but never registered";
+  EXPECT_EQ(committee(), std::set<uint64_t>{kTestMinerId}) << "fixed at epoch 0's start";
 
   Ledger::ChainNode revoked = makeNextBlockAtSlot(producer, epoch1, 11,
                                                   {minerTx(harness_, miner, Ledger::T_MINER_REVOKE, 1, 32)});
   ASSERT_TRUE(producer.addBlock(revoked).isOk());
-  EXPECT_TRUE(committee().contains(miner.id)) << "still in epoch 1's committee";
+  // Epoch 2: epoch 1's snapshot, registered and not yet revoked.
   Ledger::ChainNode epoch2 = makeNextBlockAtSlot(producer, revoked, 20, {makeReserveTransfer(harness_, 5, 33)});
   ASSERT_TRUE(producer.addBlock(epoch2).isOk());
+  EXPECT_EQ(committee(), (std::set<uint64_t>{kTestMinerId, miner.id}));
+  EXPECT_FALSE(committee().contains(idle.id)) << "funded but never registered";
+  // Epoch 3: epoch 2's snapshot, after the revoke.
+  Ledger::ChainNode epoch3 = makeNextBlockAtSlot(producer, epoch2, 30, {makeReserveTransfer(harness_, 5, 34)});
+  ASSERT_TRUE(producer.addBlock(epoch3).isOk());
   EXPECT_EQ(committee(), std::set<uint64_t>{kTestMinerId});
 }
 
@@ -3964,7 +4025,15 @@ TEST_F(MinerLivenessTest, ProducerStatsCountBlocksFeesAndChargedMisses) {
   uint64_t fees = 0;
   for (const auto &block : blocks) {
     for (const auto &record : block.block.records) {
-      fees += std::visit([](const auto &tx) -> uint64_t { return tx.fee; }, record.decode().value());
+      fees += std::visit(
+          [](const auto &tx) -> uint64_t {
+            if constexpr (std::is_base_of_v<Ledger::TxCommon, std::decay_t<decltype(tx)>>) {
+              return tx.fee;
+            } else {
+              return 0;
+            }
+          },
+          record.decode().value());
     }
   }
   const uint64_t next = blocks.back().block.index + 1;
@@ -4663,6 +4732,9 @@ protected:
     harness_.SetUp([this](Chain::BlockChainConfig &c) {
       c.checkpoint.minBlocks = 3;
       c.checkpoint.minAgeSeconds = minAgeSeconds_;
+      if (maxValidationTimespanSeconds_ > 0) {
+        c.maxValidationTimespanSeconds = maxValidationTimespanSeconds_;
+      }
     });
     joinerDir_ = pp::test::uniqueTempPath("pp-ledger-checkpoint-joiner");
     std::error_code ec;
@@ -4709,7 +4781,8 @@ protected:
       configUpdate_(gm.config); // in force from the next epoch
     }
     gm.genesis.wallet = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
-    gm.genesis.wallet.publicKeys = {makeKeyPair().publicKey, makeKeyPair().publicKey, makeKeyPair().publicKey};
+    adminKeys_ = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
+    gm.genesis.wallet.publicKeys = {adminKeys_[0].publicKey, adminKeys_[1].publicKey, adminKeys_[2].publicKey};
     gm.genesis.wallet.minSignatures = 2;
     gm.genesis.meta = AccountAttachment::emptySerialized();
     gm.authority = producer.getAuthority().value();
@@ -4919,8 +4992,12 @@ protected:
   uint64_t slot_ = 0;
   uint64_t idem_ = 1;
   uint64_t minAgeSeconds_ = 0;
+  /** When > 0, the chain's maxValidationTimespanSeconds (a node seals once its blocks span it). */
+  uint64_t maxValidationTimespanSeconds_ = 0;
   /** Applied to the config the startChain T_CONFIG installs. */
   std::function<void(Chain::BlockChainConfig &)> configUpdate_;
+  /** The 2-of-3 admin set startChain rotates to. */
+  std::vector<utl::MlDsaKeyPair> adminKeys_;
 };
 
 // A checkpoint is where a node can start (beacon-authority ba5b): the first block of an epoch, at
@@ -5716,6 +5793,946 @@ TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeAnAccountsKeysOrMeta) {
   });
   ASSERT_FALSE(meta.isOk());
   EXPECT_NE(meta.error().message.find("cannot change the meta"), std::string::npos) << meta.error().message;
+}
+
+// beacon epoch seed: during epoch E-1 the beacon publishes its hash-chain reveal for epoch E in a
+// T_BEACON_SEED, signed by the beacon key and checked against the anchor in its certificate. The
+// fixture's seed chain covers epochs 1..64 from epoch 0 (testBeaconSeedSecret()).
+class BeaconSeedTest : public CheckpointJoinTest {
+protected:
+  std::string net() const { return harness_.producer.getNetworkId(); }
+  Ledger::Record reveal(uint64_t epoch) const { return makeBeaconSeedRecord(epoch, net()); }
+
+  /** What the producer's pool says of `record` while `slot` is produced. */
+  Chain::Roe<void> admit(const Ledger::Record &record, uint64_t slot) {
+    auto &producer = harness_.producer;
+    producer.setClockOverride(producer.getSlotEndTime(slot));
+    return producer.checkAdmission(record, producer.getSlotStartTime(slot), /*verifySignatures=*/true);
+  }
+
+  /** Seals a block at `slot` on `tip` (the renewals due, then `records`); a block that seals is abandoned. */
+  Chain::Roe<void> trySeal(const Ledger::ChainNode &tip, uint64_t slot, const std::vector<Ledger::Record> &records) {
+    auto &producer = harness_.producer;
+    producer.setClockOverride(producer.getSlotEndTime(slot));
+    auto due = producer.collectRenewals(slot);
+    EXPECT_TRUE(due.isOk());
+    std::vector<Ledger::Record> all = due.isOk() ? signedRenewals(due.value()) : std::vector<Ledger::Record>{};
+    all.insert(all.end(), records.begin(), records.end());
+    producer.refreshStakeholders(slot);
+    EXPECT_TRUE(producer.ensureEpochSeed(producer.getEpochFromSlot(slot)).isOk());
+    Ledger::ChainNode block = producer.linkNextBlock(tip, slot, kTestMinerId, producer.getSlotEndTime(slot), all);
+    auto sealed = producer.sealBlock(block);
+    if (sealed.isOk()) {
+      producer.abandonSeal();
+    }
+    return sealed;
+  }
+
+  /** The renewals due at `slot` on `chain`, signed by the leader, then `records`. */
+  std::vector<Ledger::Record> withRenewals(Chain &chain, uint64_t slot, std::vector<Ledger::Record> records) {
+    auto due = chain.collectRenewals(slot);
+    EXPECT_TRUE(due.isOk());
+    std::vector<Ledger::Record> all = due.isOk() ? signedRenewals(due.value()) : std::vector<Ledger::Record>{};
+    all.insert(all.end(), records.begin(), records.end());
+    return all;
+  }
+
+  /** The peer checks every block the producer holds that it does not. */
+  void syncPeer() {
+    auto &producer = harness_.producer;
+    auto &peer = harness_.peer;
+    for (uint64_t index = peer.getNextBlockId(); index < producer.getNextBlockId(); ++index) {
+      auto stored = producer.readBlock(index);
+      ASSERT_TRUE(stored.isOk());
+      peer.setClockOverride(producer.getSlotEndTime(stored->block.slot));
+      auto added = peer.addBlock(stored.value());
+      ASSERT_TRUE(added.isOk()) << "peer, block " << index << ": " << added.error().message;
+    }
+  }
+
+  static void expectRefused(const Chain::Roe<void> &result, const std::string &why) {
+    ASSERT_FALSE(result.isOk()) << why;
+    EXPECT_NE(result.error().message.find(why), std::string::npos) << result.error().message;
+  }
+};
+
+TEST_F(BeaconSeedTest, TheBeaconsRevealForTheNextEpochIsAdmitted) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  auto admitted = admit(reveal(1), 1);
+  EXPECT_TRUE(admitted.isOk()) << admitted.error().message;
+  Ledger::ChainNode block = produce(harness_.genesis, 1, {reveal(1)});
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(producer.getBeaconReveal(1), std::optional<std::string>(testBeaconReveal(1)));
+  EXPECT_FALSE(producer.getBeaconReveal(2).has_value());
+
+  // A peer checking the block in full records the same.
+  peer.setClockOverride(producer.getSlotEndTime(1));
+  auto added = peer.addBlock(block);
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+  EXPECT_EQ(peer.getBeaconReveal(1), std::optional<std::string>(testBeaconReveal(1)));
+
+  // The next epoch's reveal checks against the last one.
+  admitted = admit(reveal(2), 11);
+  EXPECT_TRUE(admitted.isOk()) << admitted.error().message;
+  block = produce(block, 11, {reveal(2)});
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(producer.getBeaconReveal(2), std::optional<std::string>(testBeaconReveal(2)));
+}
+
+TEST_F(BeaconSeedTest, RefusesAWrongSignerAWrongEpochOrAForgedReveal) {
+  expectRefused(admit(makeBeaconSeedRecord(1, testBeaconReveal(1), harness_.genesisKey, net()), 1), "signature");
+  Ledger::Record twice = reveal(1);
+  twice.signatures.push_back(twice.signatures.front());
+  expectRefused(admit(twice, 1), "exactly one signature");
+
+  expectRefused(admit(reveal(2), 1), "epoch");
+  expectRefused(admit(makeBeaconSeedRecord(0, std::string(32, 'r'), testBeaconKey(), net()), 1), "epoch");
+
+  expectRefused(admit(makeBeaconSeedRecord(1, testBeaconReveal(2), testBeaconKey(), net()), 1),
+                "does not match");
+  expectRefused(admit(makeBeaconSeedRecord(1, testBeaconReveal(1).substr(1), testBeaconKey(), net()), 1),
+                "does not match");
+
+  // A leader is held to the same.
+  expectRefused(trySeal(harness_.genesis, 1, {makeBeaconSeedRecord(1, testBeaconReveal(2), testBeaconKey(), net())}),
+                "does not match");
+  expectRefused(trySeal(harness_.genesis, 1, {reveal(2)}), "epoch");
+  EXPECT_FALSE(trySeal(harness_.genesis, 1, {makeBeaconSeedRecord(1, testBeaconReveal(1), harness_.genesisKey, net())})
+                   .isOk());
+}
+
+TEST_F(BeaconSeedTest, OneRevealPerEpoch) {
+  auto &producer = harness_.producer;
+  producer.setClockOverride(producer.getSlotEndTime(1));
+  AccountBuffer draft;
+  auto first = producer.addBufferTransaction(draft, reveal(1), kTestMinerId);
+  ASSERT_TRUE(first.isOk()) << first.error().message;
+  expectRefused(producer.addBufferTransaction(draft, reveal(1), kTestMinerId), "one beacon seed reveal");
+
+  expectRefused(trySeal(harness_.genesis, 1, {reveal(1), reveal(1)}), "already");
+  Ledger::Block two;
+  two.records = {reveal(1), reveal(1)};
+  EXPECT_FALSE(chain_block::validateAuthorityRecordCount(two).isOk()) << "a peer refuses it before apply";
+
+  Ledger::ChainNode block = produce(harness_.genesis, 1, {reveal(1)});
+  ASSERT_FALSE(HasFailure());
+  expectRefused(admit(reveal(1), 2), "already");
+  expectRefused(trySeal(block, 2, {reveal(1)}), "already");
+}
+
+TEST_F(BeaconSeedTest, NoChainOrAnExhaustedChainRefusesReveals) {
+  struct Guard {
+    ComposeHarness &h;
+    ~Guard() { h.TearDown(); }
+  };
+  {
+    ComposeHarness h; // a beacon without a seed chain: every epoch takes the absent seed
+    h.tweakGenesisMeta = [](Chain::GenesisAccountMeta &gm) {
+      gm.authority.beacon.seedAnchor.clear();
+      gm.authority.beacon.seedChainLength = 0;
+    };
+    h.SetUp();
+    Guard guard{h};
+    ASSERT_FALSE(HasFailure());
+    h.producer.setClockOverride(h.producer.getSlotEndTime(1));
+    expectRefused(h.producer.checkAdmission(makeBeaconSeedRecord(1, h.producer.getNetworkId()),
+                                            h.producer.getSlotStartTime(1), true),
+                  "no seed chain");
+  }
+  {
+    const std::string secret(32, '\x33');
+    ComposeHarness h; // a two-epoch chain: reveals for epochs 1 and 2, then none
+    h.tweakGenesisMeta = [&](Chain::GenesisAccountMeta &gm) {
+      gm.authority.beacon.seedAnchor = consensus::beaconSeedValue(secret, 2);
+      gm.authority.beacon.seedAnchorEpoch = 0;
+      gm.authority.beacon.seedChainLength = 2;
+    };
+    h.SetUp();
+    Guard guard{h};
+    ASSERT_FALSE(HasFailure());
+    auto &producer = h.producer;
+    const std::string network = producer.getNetworkId();
+    producer.setClockOverride(producer.getSlotEndTime(1));
+    Ledger::ChainNode block = makeNextBlockAtSlot(
+        producer, h.genesis, 1, {makeBeaconSeedRecord(1, consensus::beaconSeedValue(secret, 1), testBeaconKey(), network)});
+    ASSERT_TRUE(producer.addBlock(block).isOk());
+    producer.setClockOverride(producer.getSlotEndTime(11));
+    block = makeNextBlockAtSlot(producer, block, 11, {makeBeaconSeedRecord(2, secret, testBeaconKey(), network)});
+    ASSERT_TRUE(producer.addBlock(block).isOk());
+    EXPECT_EQ(producer.getBeaconReveal(2), std::optional<std::string>(secret));
+    producer.setClockOverride(producer.getSlotEndTime(21));
+    expectRefused(producer.checkAdmission(makeBeaconSeedRecord(3, std::string(32, 'x'), testBeaconKey(), network),
+                                          producer.getSlotStartTime(21), true),
+                  "does not cover epoch 3");
+  }
+}
+
+// B035: a block leaving due renewals out holds renewals only — and the beacon's reveal, which must
+// land in its epoch.
+TEST_F(BeaconSeedTest, ARenewalsOnlyBlockMayCarryTheReveal) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  std::vector<Ledger::Record> due;
+  while (true) { // a slot with two renewals due, outside a checkpoint
+    producer.setClockOverride(producer.getSlotEndTime(slot_ + 1));
+    auto collected = producer.collectRenewals(slot_ + 1);
+    ASSERT_TRUE(collected.isOk());
+    due = signedRenewals(collected.value());
+    if (due.size() >= 2 && !chain_block::isGenesisRenewal(due.front())) {
+      break;
+    }
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure());
+    ASSERT_LT(slot_, 200u);
+  }
+  ++slot_;
+  const uint64_t epoch = producer.getEpochFromSlot(slot_);
+  Ledger::ChainNode block = producer.linkNextBlock(tip, slot_, kTestMinerId, producer.getSlotEndTime(slot_),
+                                                   {due.front(), reveal(epoch + 1)});
+  auto sealed = producer.sealBlock(block);
+  ASSERT_TRUE(sealed.isOk()) << sealed.error().message;
+  signAsLeader(block, net());
+  auto added = producer.addBlock(block);
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+  EXPECT_EQ(producer.getBeaconReveal(epoch + 1), std::optional<std::string>(testBeaconReveal(epoch + 1)));
+}
+
+TEST_F(BeaconSeedTest, AFailedBlockLeavesNoReveal) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  // A leader's draft failing on a record after the reveal.
+  Ledger::TxDefault overdraft;
+  overdraft.tokenId = AccountBuffer::ID_GENESIS;
+  overdraft.fromWalletId = AccountBuffer::ID_FEE;
+  overdraft.toWalletId = AccountBuffer::ID_RESERVE;
+  overdraft.amount = 1'000'000;
+  overdraft.fee = 1;
+  overdraft.idempotentId = 1;
+  windowAt(overdraft, 1);
+  EXPECT_FALSE(
+      trySeal(harness_.genesis, 1, {reveal(1), makeRecord(Ledger::T_DEFAULT, overdraft, harness_.feeKey, net())})
+          .isOk());
+  EXPECT_FALSE(producer.getBeaconReveal(1).has_value());
+
+  // A peer's block failing after its records applied (a wrong state root).
+  producer.setClockOverride(producer.getSlotEndTime(1));
+  Ledger::ChainNode block = makeNextBlockAtSlot(producer, harness_.genesis, 1, {reveal(1)});
+  ASSERT_FALSE(HasFailure());
+  producer.abandonSeal();
+  block.block.stateRoot = std::string(32, 'x');
+  block.hash = chain_block::calculateBlockHash(block.block);
+  signAsLeader(block, net());
+  peer.setClockOverride(producer.getSlotEndTime(1));
+  expectRefused(peer.addBlock(block), "stateRoot");
+  EXPECT_FALSE(peer.getBeaconReveal(1).has_value());
+  EXPECT_FALSE(producer.getBeaconReveal(1).has_value());
+}
+
+// A joiner starts at a checkpoint and turns Full at the next one; both are the first block of their
+// epoch (checkpointEligible), so the warm-up replays every block of the epoch before the Full one,
+// and the joiner holds the reveals a tip node holds: it refuses the same duplicates and has the
+// same reveal for the next epoch.
+TEST_F(BeaconSeedTest, ACheckpointJoinerHoldsTheRevealsItNeeds) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  // Every epoch's first block produced here carries the reveal for the next epoch.
+  auto nextWithReveal = [&](const Ledger::ChainNode &previous) {
+    ++slot_;
+    std::vector<Ledger::Record> records = {transferAt(slot_)};
+    const uint64_t epoch = producer.getEpochFromSlot(slot_);
+    if (!producer.getBeaconReveal(epoch + 1).has_value()) {
+      records.push_back(reveal(epoch + 1));
+    }
+    return produce(previous, slot_, records);
+  };
+  while (producer.getCheckpoint().lastId == 0 || producer.getNextBlockId() < producer.getCheckpoint().currentId + 2) {
+    tip = nextWithReveal(tip);
+    ASSERT_FALSE(HasFailure()) << "producing slot " << slot_;
+    ASSERT_LT(slot_, 200u) << "no second checkpoint rotation";
+  }
+  const auto checkpoint = producer.getCheckpoint();
+  const uint64_t fullEpoch = producer.readBlock(checkpoint.currentId).value().block.epoch;
+  ASSERT_LT(producer.readBlock(checkpoint.lastId).value().block.epoch, fullEpoch);
+  ASSERT_TRUE(producer.getBeaconReveal(fullEpoch).has_value()) << "recorded during the warm-up";
+
+  joiner_ = openJoiner(checkpoint.lastId, /*fresh=*/true);
+  feed(*joiner_, checkpoint.lastId, checkpoint.currentId);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(joiner_->getBeaconReveal(fullEpoch), producer.getBeaconReveal(fullEpoch))
+      << "the warm-up held the whole epoch before the Full one";
+  feed(*joiner_, checkpoint.currentId, producer.getNextBlockId());
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(joiner_->getCheckpoint().currentId, checkpoint.currentId) << "validating Full";
+
+  // Into the next epoch: its first block carries the reveal after it, which the joiner checks Full.
+  slot_ = (slot_ / harness_.chainConfig.slotsPerEpoch + 1) * harness_.chainConfig.slotsPerEpoch - 1;
+  tip = nextWithReveal(tip);
+  ASSERT_FALSE(HasFailure());
+  feed(*joiner_, tip.block.index, tip.block.index + 1);
+  ASSERT_FALSE(HasFailure());
+  const uint64_t tipEpoch = tip.block.epoch;
+  for (uint64_t e = fullEpoch; e <= tipEpoch + 1; ++e) {
+    ASSERT_TRUE(producer.getBeaconReveal(e).has_value()) << "epoch " << e;
+    EXPECT_EQ(joiner_->getBeaconReveal(e), producer.getBeaconReveal(e)) << "epoch " << e;
+  }
+
+  // A second reveal for the next epoch: refused by both, for the same reason.
+  ++slot_;
+  for (Chain *node : {&producer, joiner_.get()}) {
+    node->setClockOverride(producer.getSlotEndTime(slot_));
+    expectRefused(node->checkAdmission(reveal(tipEpoch + 1), producer.getSlotStartTime(slot_), true),
+                  "already recorded");
+  }
+}
+
+// Epoch seed v2: the seed of epoch E is H(E, network, seed of E-1, the beacon's reveal for E), with
+// no block hashes and no stake hash in it.
+TEST_F(BeaconSeedTest, TheNextSeedMixesTheReveal) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  Ledger::ChainNode block = startChain();
+  ASSERT_FALSE(HasFailure());
+  block = produce(block, 3, {transferAt(3), reveal(1)});
+  block = produce(block, 11, {transferAt(11)});
+  ASSERT_FALSE(HasFailure());
+  const std::string expected = consensus::deriveEpochSeedV2(1, net(), harness_.genesis.block.epochSeed,
+                                                            testBeaconReveal(1));
+  EXPECT_EQ(block.block.epochSeed, expected);
+  ASSERT_TRUE(producer.ensureEpochSeed(1).isOk());
+  EXPECT_EQ(producer.getEpochSeed(), expected);
+
+  // A peer checking the blocks derives the same seed from its own state.
+  syncPeer();
+  ASSERT_FALSE(HasFailure());
+  ASSERT_TRUE(peer.ensureEpochSeed(1).isOk());
+  EXPECT_EQ(peer.getEpochSeed(), expected);
+}
+
+TEST_F(BeaconSeedTest, WithoutARevealTheSeedIsTheAbsentOne) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode block = startChain();
+  ASSERT_FALSE(HasFailure());
+  block = produce(block, 11, {transferAt(11)});
+  ASSERT_FALSE(HasFailure());
+  const std::string seed0 = harness_.genesis.block.epochSeed;
+  const std::string seed1 = consensus::deriveEpochSeedV2(1, net(), seed0, std::nullopt);
+  EXPECT_EQ(block.block.epochSeed, seed1);
+  EXPECT_NE(seed1, consensus::deriveEpochSeedV2(1, net(), seed0, testBeaconReveal(1)));
+
+  // An empty epoch 2 takes the absent seed too.
+  block = produce(block, 31, {transferAt(31)});
+  ASSERT_FALSE(HasFailure());
+  const std::string seed2 = consensus::deriveEpochSeedV2(2, net(), seed1, std::nullopt);
+  EXPECT_EQ(block.block.epochSeed, consensus::deriveEpochSeedV2(3, net(), seed2, std::nullopt));
+  ASSERT_TRUE(producer.ensureEpochSeed(3).isOk());
+  EXPECT_EQ(producer.getEpochSeed(), block.block.epochSeed);
+}
+
+// S2 regression: the leader of epoch E-1's last block used to pick among block variants until the
+// seed of E (which hashed E-1's last block hashes) suited it. Two variants of that block, with
+// different records, now give the same seed for E: on the chain deriving it and in the next
+// epoch's first block.
+TEST_F(BeaconSeedTest, TheLastLeaderCannotSteerTheNextSeed) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  tip = produce(tip, 3, {transferAt(3), reveal(1)});
+  ASSERT_FALSE(HasFailure());
+  syncPeer();
+  ASSERT_FALSE(HasFailure());
+
+  // The last slot of epoch 0: one variant on each chain.
+  const uint64_t last = harness_.chainConfig.slotsPerEpoch - 1;
+  const Ledger::Record shared = transferAt(last);
+  producer.setClockOverride(producer.getSlotEndTime(last));
+  peer.setClockOverride(peer.getSlotEndTime(last));
+  Ledger::ChainNode plain = makeNextBlockAtSlot(producer, tip, last, withRenewals(producer, last, {shared}));
+  Ledger::ChainNode ground =
+      makeNextBlockAtSlot(peer, tip, last, withRenewals(peer, last, {shared, transferAt(last)}));
+  ASSERT_FALSE(HasFailure());
+  ASSERT_TRUE(producer.addBlock(plain).isOk());
+  auto added = peer.addBlock(ground);
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+  // v1 hashed these into the seed of epoch 1.
+  ASSERT_NE(plain.hash, ground.hash);
+
+  ASSERT_TRUE(producer.ensureEpochSeed(1).isOk());
+  const std::string producerSeed = producer.getEpochSeed();
+  ASSERT_TRUE(peer.ensureEpochSeed(1).isOk());
+  EXPECT_EQ(peer.getEpochSeed(), producerSeed);
+  EXPECT_EQ(producerSeed, consensus::deriveEpochSeedV2(1, net(), harness_.genesis.block.epochSeed,
+                                                       testBeaconReveal(1)));
+
+  // The first block of epoch 1 on each chain carries that seed.
+  const uint64_t first = harness_.chainConfig.slotsPerEpoch;
+  producer.setClockOverride(producer.getSlotEndTime(first));
+  peer.setClockOverride(peer.getSlotEndTime(first));
+  Ledger::ChainNode next1 = makeNextBlockAtSlot(producer, plain, first, withRenewals(producer, first, {transferAt(first)}));
+  Ledger::ChainNode next2 = makeNextBlockAtSlot(peer, ground, first, withRenewals(peer, first, {transferAt(first)}));
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(next1.block.epochSeed, producerSeed);
+  EXPECT_EQ(next2.block.epochSeed, producerSeed);
+}
+
+// Before epoch E's first block, a node elects E's leaders with a provisional seed. A reveal landing
+// in E-1's last block, after that, changes the seed of E: the next refresh installs it.
+TEST_F(BeaconSeedTest, ALateRevealCorrectsTheProvisionalSeed) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+
+  const uint64_t last = harness_.chainConfig.slotsPerEpoch - 1;
+  const std::string seed0 = harness_.genesis.block.epochSeed;
+  producer.setClockOverride(producer.getSlotStartTime(last + 2));
+  ASSERT_EQ(producer.getCurrentEpoch(), 1u);
+  producer.refreshStakeholders();
+  ASSERT_TRUE(producer.ensureEpochSeed(1).isOk()); // already installed: a no-op
+  EXPECT_EQ(producer.getEpochSeed(), consensus::deriveEpochSeedV2(1, net(), seed0, std::nullopt))
+      << "provisional: no reveal yet";
+
+  Ledger::ChainNode lastBlock =
+      makeNextBlockAtSlot(producer, tip, last, withRenewals(producer, last, {transferAt(last), reveal(1)}));
+  ASSERT_FALSE(HasFailure());
+  auto added = producer.addBlock(lastBlock);
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+  producer.refreshStakeholders();
+  ASSERT_TRUE(producer.ensureEpochSeed(1).isOk()); // a stale cached seed would stay
+  EXPECT_EQ(producer.getEpochSeed(), consensus::deriveEpochSeedV2(1, net(), seed0, testBeaconReveal(1)));
+}
+
+// A seed walked across empty epochs mixes the reveal of the first of them, which pruning drops once
+// the epoch's first block applies. The seed of an epoch already in a block is read from that block,
+// so re-deriving it later (the single-seed cache evicted by the clock's next epoch) still agrees.
+TEST_F(BeaconSeedTest, AnEpochsSeedOutlivesThePrunedReveal) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  tip = produce(tip, 3, {transferAt(3), reveal(1)});
+  ASSERT_FALSE(HasFailure());
+  // Epochs 1..4 pass without a block; epoch 5's first block walks the seed from epoch 0's.
+  const uint64_t epoch = 5;
+  const uint64_t slot = epoch * harness_.chainConfig.slotsPerEpoch + 1;
+  tip = produce(tip, slot, {transferAt(slot)});
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(tip.block.epoch, epoch);
+  std::string expected = consensus::deriveEpochSeedV2(1, net(), harness_.genesis.block.epochSeed, testBeaconReveal(1));
+  for (uint64_t e = 2; e <= epoch; ++e) {
+    expected = consensus::deriveEpochSeedV2(e, net(), expected, std::nullopt);
+  }
+  ASSERT_EQ(tip.block.epochSeed, expected);
+  ASSERT_FALSE(producer.getBeaconReveal(1).has_value()) << "pruned with epoch 5's first block";
+
+  // The clock in epoch 6 evicts epoch 5's seed; re-derived, it is still the header's.
+  producer.setClockOverride(producer.getSlotStartTime(slot + harness_.chainConfig.slotsPerEpoch));
+  producer.refreshStakeholders();
+  ASSERT_TRUE(producer.ensureEpochSeed(epoch + 1).isOk());
+  ASSERT_TRUE(producer.ensureEpochSeed(epoch).isOk());
+  EXPECT_EQ(producer.getEpochSeed(), tip.block.epochSeed);
+}
+
+// Each epoch's committee is the state after the last block of the epochs two or more before it:
+// the snapshot taken at the previous epoch's first block. The beacon's reveal for an epoch is public
+// during the epoch before, so nothing a leader does after it can change who leads which slot.
+class CommitteeLagTest : public CheckpointJoinTest {
+protected:
+  void SetUp() override {
+    // Just above the helpers' record windows (an hour and a minute): a joiner may seal ~74 epochs on.
+    maxValidationTimespanSeconds_ = 3700;
+    CheckpointJoinTest::SetUp();
+  }
+
+  /** Account `id` revokes its miner registration, valid at `slot`. */
+  Ledger::Record revokeMinerAt(uint64_t slot, uint64_t id, const utl::MlDsaKeyPair &key) {
+    Ledger::TxMinerRegister tx;
+    tx.walletId = id;
+    tx.fee = 1;
+    tx.idempotentId = idem_++;
+    windowAt(tx, slot);
+    Ledger::Record rec;
+    rec.type = Ledger::T_MINER_REVOKE;
+    rec.data = utl::binaryPack(static_cast<const Ledger::TxMiner &>(tx));
+    rec.signatures = {signMessage(key, rec.signingMessage(harness_.producer.getNetworkId()))};
+    return rec;
+  }
+
+  uint64_t epochOf(uint64_t slot) const { return slot / harness_.chainConfig.slotsPerEpoch; }
+
+  /** The first block of epoch `epoch` (> the tip's), in a slot the genesis miner leads. */
+  Ledger::ChainNode openEpoch(const Ledger::ChainNode &tip, uint64_t epoch, std::vector<Ledger::Record> records = {}) {
+    slot_ = epoch * harness_.chainConfig.slotsPerEpoch - 1;
+    auto block = nextLedByGenesisMiner(tip, std::move(records));
+    EXPECT_EQ(block.block.epoch, epoch) << "no block in epoch " << epoch << "'s slots the genesis miner leads";
+    EXPECT_FALSE(block.block.committee.empty()) << "block " << block.block.index << " opens its epoch";
+    return block;
+  }
+
+  static std::set<uint64_t> idsOf(const std::vector<Ledger::CommitteeMember> &committee) {
+    std::set<uint64_t> ids;
+    for (const auto &m : committee) {
+      ids.insert(m.id);
+    }
+    return ids;
+  }
+  static std::set<uint64_t> idsOf(const std::vector<consensus::Stakeholder> &stakeholders) {
+    std::set<uint64_t> ids;
+    for (const auto &s : stakeholders) {
+      ids.insert(s.id);
+    }
+    return ids;
+  }
+};
+
+TEST_F(CommitteeLagTest, AStakeMoveInTheLastBlockReachesTheCommitteeAnEpochLater) {
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  tip = openEpoch(tip, 1);
+  ASSERT_FALSE(HasFailure());
+  // Epoch 1's last block (after the reveal for epoch 2 is known) registers a miner.
+  const uint64_t last = 2 * harness_.chainConfig.slotsPerEpoch - 1;
+  slot_ = last;
+  tip = produce(tip, last, {transferAt(last), registerMinerAt(last, user_.id, user_.key)});
+  ASSERT_FALSE(HasFailure());
+  ASSERT_TRUE(harness_.producer.getAccount(user_.id).value().wallet.miner.registered);
+
+  tip = openEpoch(tip, 2);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(idsOf(tip.block.committee), std::set<uint64_t>{kTestMinerId}) << "fixed before the registration";
+  tip = openEpoch(tip, 3);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(idsOf(tip.block.committee), (std::set<uint64_t>{kTestMinerId, user_.id}));
+
+  // A peer validating from genesis derives the same committees.
+  feed(harness_.peer, 1, harness_.producer.getNextBlockId());
+}
+
+TEST_F(CommitteeLagTest, AnEmptyPreviousEpochUsesTheStateBeforeIt) {
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  tip = openEpoch(tip, 1);
+  ASSERT_FALSE(HasFailure());
+  tip = nextLedByGenesisMiner(tip, {registerMinerAt(slot_ + 1, user_.id, user_.key)});
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(tip.block.epoch, 1u);
+
+  // Epoch 2 has no block: epoch 3's committee is the state after epoch 1's last block, the state
+  // its first block starts from. That block revokes the miner.
+  tip = openEpoch(tip, 3, {revokeMinerAt(3 * harness_.chainConfig.slotsPerEpoch, user_.id, user_.key)});
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(idsOf(tip.block.committee), (std::set<uint64_t>{kTestMinerId, user_.id}));
+  ASSERT_FALSE(harness_.producer.getAccount(user_.id).value().wallet.miner.registered);
+  // Epoch 4's is the state at epoch 3's start, before the revoke; epoch 5's after it.
+  tip = openEpoch(tip, 4);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(idsOf(tip.block.committee), (std::set<uint64_t>{kTestMinerId, user_.id}));
+  tip = openEpoch(tip, 5);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(idsOf(tip.block.committee), std::set<uint64_t>{kTestMinerId});
+
+  feed(harness_.peer, 1, harness_.producer.getNextBlockId());
+}
+
+TEST_F(CommitteeLagTest, AJoinersFirstFullEpochTakesTheBlocksCommittee) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  while (producer.getCheckpoint().lastId == 0) {
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure());
+    ASSERT_LT(slot_, 200u) << "no second checkpoint rotation";
+  }
+  // The joiner starts at the previous checkpoint and turns Full at the current one, which opens
+  // epoch `full`: blocks after it are checked Full, but it never saw epoch `full`'s start state.
+  const auto checkpoint = producer.getCheckpoint();
+  const uint64_t full = producer.readBlock(checkpoint.currentId).value().block.epoch;
+  ASSERT_EQ(tip.block.epoch, full);
+  // A stake move after the checkpoint, in epoch `full`: it reaches epoch full + 2's committee.
+  tip = nextLedByGenesisMiner(tip, {registerMinerAt(slot_ + 1, user_.id, user_.key)});
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(tip.block.epoch, full);
+
+  joiner_ = openJoiner(checkpoint.lastId, /*fresh=*/true);
+  feed(*joiner_, checkpoint.lastId, producer.getNextBlockId());
+  ASSERT_FALSE(HasFailure());
+
+  // Epoch full + 1: the joiner did not take full's snapshot (it was warming up), so it cannot
+  // compute this committee itself; it takes it from the opening block.
+  auto unknown = joiner_->refreshStakeholders((full + 1) * harness_.chainConfig.slotsPerEpoch);
+  EXPECT_FALSE(unknown.isOk()) << "epoch " << full + 1 << "'s committee needs epoch " << full << "'s snapshot";
+  tip = openEpoch(tip, full + 1);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(idsOf(tip.block.committee), std::set<uint64_t>{kTestMinerId});
+  feed(*joiner_, tip.block.index, tip.block.index + 1);
+  ASSERT_FALSE(HasFailure());
+
+  // Epoch full + 2: computed from the joiner's own state at full + 1's start, as the producer did.
+  const uint64_t nextOpening = (full + 2) * harness_.chainConfig.slotsPerEpoch;
+  joiner_->setClockOverride(producer.getSlotEndTime(nextOpening));
+  auto computed = joiner_->refreshStakeholders(nextOpening);
+  ASSERT_TRUE(computed.isOk()) << computed.error().message;
+  EXPECT_EQ(idsOf(joiner_->getStakeholders()), (std::set<uint64_t>{kTestMinerId, user_.id}));
+  tip = openEpoch(tip, full + 2);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(chain_block::calculateStakeSnapshotHash(joiner_->getStakeholders()), tip.block.stakeSnapshotHash);
+  feed(*joiner_, tip.block.index, tip.block.index + 1);
+}
+
+// A joiner restarted from its ledger after its checkpoint rotation replays the blocks it admitted
+// Full as Full: it records the same epoch start snapshots as in its first run, so it can still
+// compute, and seal under, the next epoch's committee itself.
+TEST_F(CommitteeLagTest, AJoinerRestartedAfterItsRotationSealsTheNextEpochsFirstBlock) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  while (producer.getCheckpoint().lastId == 0) {
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure());
+    ASSERT_LT(slot_, 200u) << "no second checkpoint rotation";
+  }
+  const auto checkpoint = producer.getCheckpoint();
+  const uint64_t full = tip.block.epoch;
+  tip = nextLedByGenesisMiner(tip, {registerMinerAt(slot_ + 1, user_.id, user_.key)});
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(tip.block.epoch, full);
+  // A node seals only once its blocks span the transaction validity window: the epoch sealed
+  // starts past it. The epoch before it opens after the rotation, so the joiner admits that block
+  // Full and snapshots its start.
+  const uint64_t slotsPerEpoch = harness_.chainConfig.slotsPerEpoch;
+  const uint64_t windowSlots = harness_.chainConfig.maxValidationTimespanSeconds / harness_.chainConfig.slotDuration;
+  const uint64_t startSlot = producer.readBlock(checkpoint.lastId).value().block.slot;
+  const uint64_t sealEpoch = (startSlot + windowSlots + 1) / slotsPerEpoch + 2;
+  ASSERT_GT(sealEpoch - 1, full + 1);
+  tip = openEpoch(tip, sealEpoch - 1);
+  ASSERT_FALSE(HasFailure());
+  tip = nextLedByGenesisMiner(tip);
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(tip.block.epoch, sealEpoch - 1);
+
+  joiner_ = openJoiner(checkpoint.lastId, /*fresh=*/true);
+  feed(*joiner_, checkpoint.lastId, producer.getNextBlockId());
+  ASSERT_FALSE(HasFailure());
+  joiner_.reset();
+  joiner_ = openJoiner(checkpoint.lastId, /*fresh=*/false);
+  ASSERT_FALSE(HasFailure());
+
+  // The restarted joiner seals epoch sealEpoch's first block; the producer accepts it.
+  slot_ = sealEpoch * slotsPerEpoch - 1;
+  do {
+    ++slot_;
+  } while (!genesisMinerLeads(slot_));
+  ASSERT_EQ(epochOf(slot_), sealEpoch);
+  Chain &joiner = *joiner_;
+  joiner.setClockOverride(joiner.getSlotEndTime(slot_));
+  auto due = joiner.collectRenewals(slot_);
+  ASSERT_TRUE(due.isOk()) << due.error().message;
+  std::vector<Ledger::Record> records = signedRenewals(due.value());
+  records.push_back(transferAt(slot_));
+  auto committee = joiner.refreshStakeholders(slot_);
+  ASSERT_TRUE(committee.isOk()) << committee.error().message;
+  ASSERT_TRUE(joiner.ensureEpochSeed(sealEpoch).isOk());
+  auto block = joiner.linkNextBlock(tip, slot_, kTestMinerId, joiner.getSlotEndTime(slot_), records);
+  auto sealed = joiner.sealBlock(block);
+  ASSERT_TRUE(sealed.isOk()) << sealed.error().message;
+  signAsLeader(block, joiner.getNetworkId());
+  ASSERT_TRUE(joiner.addBlock(block).isOk());
+  EXPECT_EQ(idsOf(block.block.committee), (std::set<uint64_t>{kTestMinerId, user_.id}));
+  auto accepted = producer.addBlock(block);
+  EXPECT_TRUE(accepted.isOk()) << accepted.error().message;
+}
+
+// Accepted gap (final review F2): a miner restarted while its tip is in the epoch its checkpoint
+// rotation opened (`full`) replays that rotation block as a checkpoint replay, so it holds no
+// snapshot of `full`'s start and cannot open full + 1. It then elects no one there (no provisional
+// committee from an earlier epoch). If full + 1 stays empty, full + 2's committee is the bank's own
+// candidates (no block since full ended): the restarted miner seals full + 2's first block and the
+// network accepts it.
+TEST_F(CommitteeLagTest, AMinerRestartedInItsRotationEpochRecoversAnEpochLater) {
+  auto &producer = harness_.producer;
+  const uint64_t slotsPerEpoch = harness_.chainConfig.slotsPerEpoch;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  // Blocks thirty epochs apart: the rotation the joiner turns Full at is past the validity window
+  // from its start (a node seals only once its blocks span it).
+  while (producer.getCheckpoint().lastId == 0) {
+    slot_ = (slot_ / slotsPerEpoch + 30) * slotsPerEpoch - 1;
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure());
+    ASSERT_LT(slot_, 100 * 30 * slotsPerEpoch) << "no second checkpoint rotation";
+  }
+  const auto checkpoint = producer.getCheckpoint();
+  ASSERT_EQ(tip.block.index, checkpoint.currentId) << "the tip is the rotation block";
+  const uint64_t full = tip.block.epoch;
+  tip = next(tip);
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(tip.block.epoch, full);
+  const uint64_t windowSlots = harness_.chainConfig.maxValidationTimespanSeconds / harness_.chainConfig.slotDuration;
+  ASSERT_GT((full + 1) * slotsPerEpoch, producer.readBlock(checkpoint.lastId).value().block.slot + windowSlots);
+
+  joiner_ = openJoiner(checkpoint.lastId, /*fresh=*/true);
+  feed(*joiner_, checkpoint.lastId, producer.getNextBlockId());
+  ASSERT_FALSE(HasFailure());
+  joiner_.reset(); // restarted with its tip still in `full`
+  joiner_ = openJoiner(checkpoint.lastId, /*fresh=*/false);
+  ASSERT_FALSE(HasFailure());
+  Chain &joiner = *joiner_;
+
+  // Epoch full + 1: no committee, so no leader, and no opening block sealed.
+  const uint64_t opening1 = (full + 1) * slotsPerEpoch;
+  joiner.setClockOverride(joiner.getSlotEndTime(opening1));
+  joiner.refreshStakeholders();
+  EXPECT_TRUE(joiner.getStakeholders().empty()) << "no provisional committee kept from epoch " << full;
+  EXPECT_FALSE(joiner.isStakeholderSlotLeader(kTestMinerId, opening1));
+  EXPECT_FALSE(joiner.refreshStakeholders(opening1).isOk()) << "full + 1 needs full's start snapshot";
+  {
+    auto due = joiner.collectRenewals(opening1);
+    ASSERT_TRUE(due.isOk()) << due.error().message;
+    std::vector<Ledger::Record> records = signedRenewals(due.value());
+    records.push_back(transferAt(opening1));
+    auto block = joiner.linkNextBlock(tip, opening1, kTestMinerId, joiner.getSlotEndTime(opening1), records);
+    auto sealed = joiner.sealBlock(block);
+    EXPECT_FALSE(sealed.isOk()) << "the restarted miner cannot open epoch " << full + 1;
+    if (sealed.isOk()) {
+      joiner.abandonSeal();
+    }
+  }
+
+  // Full + 1 stays empty. Epoch full + 2: the restarted miner elects and seals its first block.
+  slot_ = (full + 2) * slotsPerEpoch - 1;
+  do {
+    ++slot_;
+  } while (!genesisMinerLeads(slot_));
+  ASSERT_EQ(epochOf(slot_), full + 2);
+  joiner.setClockOverride(joiner.getSlotEndTime(slot_));
+  joiner.refreshStakeholders();
+  EXPECT_TRUE(joiner.isStakeholderSlotLeader(kTestMinerId, slot_)) << "the provisional committee is back";
+  auto due = joiner.collectRenewals(slot_);
+  ASSERT_TRUE(due.isOk()) << due.error().message;
+  std::vector<Ledger::Record> records = signedRenewals(due.value());
+  records.push_back(transferAt(slot_));
+  auto committee = joiner.refreshStakeholders(slot_);
+  ASSERT_TRUE(committee.isOk()) << committee.error().message;
+  ASSERT_TRUE(joiner.ensureEpochSeed(full + 2).isOk());
+  auto block = joiner.linkNextBlock(tip, slot_, kTestMinerId, joiner.getSlotEndTime(slot_), records);
+  auto sealed = joiner.sealBlock(block);
+  ASSERT_TRUE(sealed.isOk()) << sealed.error().message;
+  signAsLeader(block, joiner.getNetworkId());
+  ASSERT_TRUE(joiner.addBlock(block).isOk());
+  auto accepted = producer.addBlock(block);
+  EXPECT_TRUE(accepted.isOk()) << accepted.error().message;
+  // A node validating from genesis accepts it too.
+  feed(harness_.peer, 1, producer.getNextBlockId());
+}
+
+/**
+ * Seed agreement across node types (final review F3): one chain, built on the producer, with
+ * reveals in most epochs, an empty epoch, and two beacon re-certifications with new seed anchors
+ * (one committed before its epoch's reveal lands, one after). Every kind of node that takes it must
+ * derive, after every block it checks Full, the producer's epoch seed (this epoch's and the
+ * provisional next), committee and recorded reveals.
+ */
+class SeedAgreementTest : public BeaconSeedTest {
+protected:
+  struct Observed {
+    uint64_t epoch{0};
+    std::string seed;
+    std::string nextSeed;
+    std::vector<std::pair<uint64_t, uint64_t>> committee;
+    std::optional<std::string> reveal;
+    std::optional<std::string> nextReveal;
+  };
+
+  static Observed observe(Chain &node, const Ledger::ChainNode &block) {
+    Observed o;
+    o.epoch = block.block.epoch;
+    node.setClockOverride(node.getSlotEndTime(block.block.slot));
+    for (const auto &s : node.getStakeholders()) {
+      o.committee.emplace_back(s.id, s.stake);
+    }
+    o.reveal = node.getBeaconReveal(o.epoch);
+    o.nextReveal = node.getBeaconReveal(o.epoch + 1);
+    auto seed = node.ensureEpochSeed(o.epoch);
+    EXPECT_TRUE(seed.isOk()) << seed.error().message;
+    o.seed = node.getEpochSeed();
+    auto next = node.ensureEpochSeed(o.epoch + 1);
+    EXPECT_TRUE(next.isOk()) << next.error().message;
+    o.nextSeed = node.getEpochSeed();
+    return o;
+  }
+
+  void expectAgrees(Chain &node, uint64_t index, const std::string &who) {
+    auto block = harness_.producer.readBlock(index);
+    ASSERT_TRUE(block.isOk());
+    const Observed got = observe(node, block.value());
+    const Observed &want = expected_.at(index);
+    const std::string where = who + ", after block " + std::to_string(index) + " (epoch " +
+                              std::to_string(want.epoch) + ")";
+    EXPECT_EQ(utl::hexEncode(got.seed), utl::hexEncode(want.seed)) << where << ": epoch seed";
+    EXPECT_EQ(utl::hexEncode(got.nextSeed), utl::hexEncode(want.nextSeed)) << where << ": next epoch's seed";
+    EXPECT_EQ(got.committee, want.committee) << where << ": committee";
+    EXPECT_EQ(got.reveal, want.reveal) << where << ": reveal for this epoch";
+    EXPECT_EQ(got.nextReveal, want.nextReveal) << where << ": reveal for the next epoch";
+    ++comparisons_;
+  }
+
+  /** A node as Miner::init makes one, on its own ledger in `dir`. */
+  std::unique_ptr<Chain> openNode(const std::filesystem::path &dir, uint64_t start, bool fresh) {
+    auto node = std::make_unique<Chain>();
+    consensus::SlotCommittee::Config consensusConfig;
+    consensusConfig.timeOffsetMs = 0;
+    node->initConsensus(consensusConfig);
+    if (fresh) {
+      Ledger::InitConfig ledger;
+      ledger.workDir = dir.string();
+      ledger.startingBlockId = start;
+      EXPECT_TRUE(node->initLedger(ledger).isOk());
+    } else {
+      EXPECT_TRUE(node->mountLedger(dir.string()).isOk());
+    }
+    auto loaded = node->loadFromLedger(start);
+    EXPECT_TRUE(loaded.isOk()) << loaded.error().message;
+    return node;
+  }
+
+  /** Admin-signed (2 of the 3 keys startChain set) T_BEACON_CERT for the next generation. */
+  Ledger::Record recertify(const utl::MlDsaKeyPair &key, const std::string &secret, uint64_t anchorEpoch) {
+    BeaconCertificate next = harness_.producer.getAuthority().value().beacon;
+    next.generation += 1;
+    next.publicKey = key.publicKey;
+    next.cutoverHeight = BeaconCertificate::kNoCutover;
+    next.cutoverHash.clear();
+    next.seedAnchor = consensus::beaconSeedValue(secret, kTestBeaconSeedChainLength);
+    next.seedAnchorEpoch = anchorEpoch;
+    next.seedChainLength = kTestBeaconSeedChainLength;
+    Ledger::Record rec =
+        makeBeaconCertRecord(next, adminKeys_[0], net(), idem_++, harness_.chainConfig.genesisTime);
+    rec.signatures.push_back(signMessage(adminKeys_[1], rec.signingMessage(net())));
+    return rec;
+  }
+
+  static std::string revealOn(const std::string &secret, uint64_t anchorEpoch, uint64_t epoch) {
+    return consensus::beaconSeedValue(secret, kTestBeaconSeedChainLength - (epoch - anchorEpoch));
+  }
+
+  std::map<uint64_t, Observed> expected_;
+  size_t comparisons_ = 0;
+};
+
+TEST_F(SeedAgreementTest, EveryNodeTypeDerivesTheSameSeedsAcrossReCertifications) {
+  auto &producer = harness_.producer;
+  const uint64_t spe = harness_.chainConfig.slotsPerEpoch;
+  const std::string secret2(32, '\x22');
+  const std::string secret3(32, '\x33');
+  const utl::MlDsaKeyPair key2 = makeKeyPair();
+  const utl::MlDsaKeyPair key3 = makeKeyPair();
+  constexpr uint64_t kEmptyEpoch = 3, kCert2Epoch = 4, kCert3Epoch = 6, kLastEpoch = 11;
+
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  expected_[tip.block.index] = observe(producer, tip);
+  std::map<uint64_t, uint64_t> openingOf; // epoch -> its first block
+  auto at = [&](uint64_t epoch, uint64_t offset, std::vector<Ledger::Record> records) {
+    slot_ = epoch * spe + offset;
+    records.push_back(transferAt(slot_));
+    tip = produceTracked(tip, slot_, records);
+    openingOf.try_emplace(epoch, tip.block.index);
+    expected_[tip.block.index] = observe(producer, tip);
+  };
+  for (uint64_t e = 0; e <= kLastEpoch && !HasFailure(); ++e) {
+    if (e == kEmptyEpoch) {
+      continue; // no block, so no reveal for the epoch after it either
+    }
+    if (e > 0) {
+      at(e, 0, {});
+    }
+    if (e < kCert2Epoch) {
+      at(e, 3, {reveal(e + 1)});
+      at(e, 6, {});
+    } else if (e == kCert2Epoch) { // re-certified before this epoch's reveal lands
+      at(e, 3, {recertify(key2, secret2, kCert2Epoch)});
+      at(e, 6, {makeBeaconSeedRecord(e + 1, revealOn(secret2, kCert2Epoch, e + 1), key2, net())});
+    } else if (e < kCert3Epoch) {
+      at(e, 3, {makeBeaconSeedRecord(e + 1, revealOn(secret2, kCert2Epoch, e + 1), key2, net())});
+      at(e, 6, {});
+    } else if (e == kCert3Epoch) { // re-certified after this epoch's reveal landed
+      at(e, 3, {makeBeaconSeedRecord(e + 1, revealOn(secret2, kCert2Epoch, e + 1), key2, net())});
+      at(e, 6, {recertify(key3, secret3, kCert3Epoch)});
+    } else {
+      at(e, 3, {makeBeaconSeedRecord(e + 1, revealOn(secret3, kCert3Epoch, e + 1), key3, net())});
+      at(e, 6, {});
+    }
+  }
+  ASSERT_FALSE(HasFailure());
+  ASSERT_EQ(producer.getAuthority().value().beacon.generation, 3u);
+
+  // The seeds the producer's blocks carry are the v2 seeds of the reveals each epoch got.
+  auto seedOf = [&](uint64_t epoch) { return producer.readBlock(openingOf.at(epoch)).value().block.epochSeed; };
+  const std::string emptySeed =
+      consensus::deriveEpochSeedV2(kEmptyEpoch, net(), seedOf(kEmptyEpoch - 1), testBeaconReveal(kEmptyEpoch));
+  EXPECT_EQ(seedOf(kEmptyEpoch + 1), consensus::deriveEpochSeedV2(kEmptyEpoch + 1, net(), emptySeed, std::nullopt))
+      << "the empty epoch carried no reveal for the next";
+  EXPECT_EQ(seedOf(kCert2Epoch + 1),
+            consensus::deriveEpochSeedV2(kCert2Epoch + 1, net(), seedOf(kCert2Epoch),
+                                         revealOn(secret2, kCert2Epoch, kCert2Epoch + 1)))
+      << "the reveal on the new anchor, committed after the re-certification";
+  EXPECT_EQ(seedOf(kCert3Epoch + 1),
+            consensus::deriveEpochSeedV2(kCert3Epoch + 1, net(), seedOf(kCert3Epoch),
+                                         revealOn(secret2, kCert2Epoch, kCert3Epoch + 1)))
+      << "the reveal landed before the re-certification";
+  EXPECT_EQ(seedOf(kCert3Epoch + 2),
+            consensus::deriveEpochSeedV2(kCert3Epoch + 2, net(), seedOf(kCert3Epoch + 1),
+                                         revealOn(secret3, kCert3Epoch, kCert3Epoch + 2)))
+      << "the first reveal on the third anchor";
+  const uint64_t end = producer.getNextBlockId();
+  const uint64_t first = expected_.begin()->first;
+
+  // (a) A node from genesis, checking every block Full.
+  auto &peer = harness_.peer;
+  for (uint64_t i = 1; i < end && !HasFailure(); ++i) {
+    feed(peer, i, i + 1);
+    if (i >= first) {
+      expectAgrees(peer, i, "genesis node");
+    }
+  }
+
+  // (b) A node restarted from its own ledger after every block (loadFromLedger from block 0).
+  const auto reloadDir = joinerDir_.string() + "-reload";
+  {
+    std::error_code ec;
+    std::filesystem::remove_all(reloadDir, ec);
+    auto node = openNode(reloadDir, 0, /*fresh=*/true);
+    for (uint64_t i = 0; i < end && !HasFailure(); ++i) {
+      feed(*node, i, i + 1);
+      node.reset();
+      node = openNode(reloadDir, 0, /*fresh=*/false);
+      if (i >= first) {
+        expectAgrees(*node, i, "node reloaded from 0");
+      }
+    }
+    node.reset();
+    std::filesystem::remove_all(reloadDir, ec);
+  }
+
+  // (c) A checkpoint joiner from every checkpoint but the last, Full from the next one.
+  ASSERT_GE(rotations_.size(), 3u);
+  ASSERT_LE(rotations_.at(1), openingOf.at(kCert2Epoch)) << "a joiner is Full across both re-certifications";
+  for (size_t k = 0; k + 1 < rotations_.size() && !HasFailure(); ++k) {
+    const auto dir = joinerDir_.string() + "-" + std::to_string(k);
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    auto joiner = openNode(dir, rotations_[k], /*fresh=*/true);
+    for (uint64_t i = rotations_[k]; i < end && !HasFailure(); ++i) {
+      feed(*joiner, i, i + 1);
+      if (i >= rotations_[k + 1]) {
+        expectAgrees(*joiner, i, "joiner from checkpoint " + std::to_string(rotations_[k]));
+      }
+    }
+    joiner.reset();
+    std::filesystem::remove_all(dir, ec);
+  }
+  EXPECT_GT(comparisons_, 2 * (end - first));
 }
 
 // Every system account but genesis may name a recovery set of its own, as any account: lost or stolen

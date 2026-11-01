@@ -172,6 +172,33 @@ TEST(OperationTest, SummariesComeFromTheRecord) {
   EXPECT_EQ(r.value().lines.back().second.rfind("2 of 3:", 0), 0u);
 }
 
+TEST(OperationTest, ABeaconCertificateShowsItsSeedAnchor) {
+  Keys keys(2);
+  auto show = [&](const std::string &anchor) {
+    BeaconCertificate cert;
+    cert.networkId = "test-net";
+    cert.generation = 2;
+    cert.publicKey = keys.pairs[0].publicKey;
+    cert.cutoverHeight = BeaconCertificate::kNoCutover;
+    cert.seedAnchor = anchor;
+    cert.seedAnchorEpoch = 7;
+    cert.seedChainLength = anchor.empty() ? 0 : 50;
+    Ledger::TxBeaconCert tx;
+    tx.meta = cert.ltsToString();
+    Ledger::Record record;
+    record.type = Ledger::T_BEACON_CERT;
+    record.data = utl::binaryPack(tx);
+    auto op = wrap(common(keys, 2, AccountIds::ID_GENESIS), record);
+    EXPECT_TRUE(op) << op.error().message;
+    auto summary = summarize(op.value());
+    EXPECT_TRUE(summary);
+    return summary.value().lines.back().second;
+  };
+  const std::string anchor(32, '\x5a');
+  EXPECT_EQ(show(anchor), utl::hexEncode(anchor) + ", epoch 7, 50 epochs");
+  EXPECT_EQ(show(""), "none");
+}
+
 TEST(OperationTest, TheSignersAreTheAccountTheChainChecks) {
   Keys keys(2);
   auto op = transfer(common(keys, 1, AccountIds::ID_RESERVE), AccountIds::ID_REGISTRAR, 1, 0);

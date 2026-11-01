@@ -26,6 +26,7 @@ Do not put phase status in `AGENTS.md`.
 
 | Project | Intent |
 |---------|--------|
+| [epoch-seed](epoch-seed/) | The beacon seed chain that replaced the grindable epoch seed, and the committee lag — implemented ([CURRENT_STATE.md](epoch-seed/CURRENT_STATE.md)) |
 | [beacon-authority](beacon-authority/) | Verifiable beacon (part 1 shipped: [BEACON_AUTHORITY.md](../docs/contracts/BEACON_AUTHORITY.md)) and promotion after loss or a move (part 2) — open item E |
 | [development-budget](development-budget/PLAN.md) | Deliverables, phased roadmap, team and budget plan |
 | [platform-integration](platform-integration/DESIGN.md) | A ledger role (relay or miner) in pp-node on its mesh runtime; later pp-browser's client and optional miner (pi1 built: `Server::runOnHost`) |

@@ -137,6 +137,7 @@ Changing `type` or replaying onto another network invalidates signatures.
 | 19 | `T_RECOVERY` | Recovery set announces a new admin set, applied `delayEpochs` later ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md#recovery--t_recovery-record-19)) |
 | 20 | `T_IMPORT` | Re-genesis: one account of the predecessor network, in an import block; unsigned, fee 0 ([BEACON_AUTHORITY.md § Importing genesis](BEACON_AUTHORITY.md#importing-genesis)) |
 | 21 | `T_ACCOUNT_RECOVERY` | An account's recovery set announces its next keys (the account frozen until they apply), withdraws that, or changes itself ([Account recovery](#account-recovery)) |
+| 22 | `T_BEACON_SEED` | The beacon reveals its seed contribution for the next epoch ([Record 22](#t_beacon_seed-record-22)) |
 
 
 Ids 8–15 are reserved for name-directory / attachment (`docs/product/NAME_DIRECTORY.md`);
@@ -287,34 +288,47 @@ includes slot timing, fees, checkpoint policy, `networkId`, `heartbeatSlots`
 ([Block size](#block-size); version 11), and `finalitySeconds` ([Config updates](#config-updates);
 last, version 14).
 
+## `T_BEACON_SEED` (record 22)
+
+`{epoch, reveal}` (`TxBeaconSeed`; `reveal` 32 raw bytes). Signed by the certified beacon key,
+no fee. The certificate in force commits to a hash chain: `seedAnchor` = `H^N(s)`,
+`H(x) = SHA-256("pp-ledger/beacon-seed/v1" || x)`, `N` = `seedChainLength` (1 to 100000),
+valid from `seedAnchorEpoch` ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md#seed-chain)).
+
+- Valid only in a block of epoch `tx.epoch − 1`, with `seedAnchorEpoch < tx.epoch ≤
+  seedAnchorEpoch + N`.
+- `reveal` = `H^(N − (e − seedAnchorEpoch))(s)` for `e = tx.epoch`: `H` applied
+  `e − seedAnchorEpoch` times gives the anchor.
+- At most one per epoch, and at most one per block; allowed in a renewals-only block.
+- A certificate with an empty `seedAnchor` accepts none: every epoch's seed is the absent one.
+- CheckpointReplay records it without checking it (the source is trusted there); Full checks it.
+
 ## Epoch seed
 
 Public 32-byte seed for the SlotCommittee lottery, committed on every block
-header (`epochSeed`). Same value for all blocks in an epoch; derived at the
-epoch boundary so leaders are not predictable from stake alone until the
-previous epoch’s tip material is known.
+header (`epochSeed`). Same value for all blocks in an epoch. It carries no
+block hash and no stake hash, so no block producer can steer it: the only
+input after epoch `E-1` begins is the beacon's reveal, which the beacon
+committed to in advance ([Record 22](#t_beacon_seed-record-22)).
 
 Implemented in `consensus::EpochSeed` + `Chain::ensureEpochSeed` / `sealBlock`:
 
 | Epoch | Derivation |
 |-------|------------|
 | `0` | `SHA-256("pp-ledger/epoch-seed/genesis/v1" \|\| len(networkId) \|\| networkId \|\| genesisConfigDigest \|\| 32×0)` |
-| `E>0` | `SHA-256("pp-ledger/epoch-seed/v1" \|\| E \|\| len(networkId) \|\| networkId \|\| prevEpochSeed \|\| tipMaterial \|\| stakeSnapshotHash)` |
+| `E>0` | `SHA-256("pp-ledger/epoch-seed/v2" \|\| E \|\| len(networkId) \|\| networkId \|\| seed(E-1) \|\| present \|\| reveal)` |
 
-`tipMaterial` = lookback over up to **K=`kEpochSeedLookback` (8)** block hashes
-from epoch `E-1` (oldest→newest):
-`SHA-256("pp-ledger/epoch-seed/lookback/v1" || k || hashes…)`.
-Constant lives in `consensus::kEpochSeedLookback` (not chain config; see
-[BLOCK_PIPELINE.md — Protocol constants](../architecture/BLOCK_PIPELINE.md#protocol-constants-fork-critical-if-changed)).
-If epoch `E-1` produced no blocks:
-`SHA-256("pp-ledger/epoch-seed/empty-prev/v1" \|\| (E-1) \|\| prevEpochSeed)`.
-Seeds chain through any run of empty epochs this way, each from the one before (an empty
-epoch's stake snapshot is the bank after the last block), so a chain survives idle epochs — up
-to **`kMaxEmptyEpochs` (1024)** in a row after the last block's epoch; past that no seed is
-derived and the chain stops.
+`present` is one byte, `1` with the 32-byte `reveal` of epoch `E` following it, `0`
+with nothing after it (the beacon's chain is empty, exhausted, or no reveal was
+recorded). `seed(E-1)` is the seed of the previous epoch whether or not it had
+blocks: seeds chain through any run of empty epochs, each from the one before, up to
+**`kMaxEmptyEpochs` (1024)** in a row after the last block's epoch; past that no seed is
+derived and the chain stops. Once a block of `E` is held, `E`'s seed is read from its
+header, not derived again.
 
 Validators reject blocks whose `epochSeed` ≠ the locally derived/installed seed
-for that epoch.
+for that epoch. The seed of `E` is fixed once the reveal for `E` is on chain (during
+`E-1`); an unrecorded reveal means the "absent" seed.
 
 ## Leader election (live)
 
@@ -340,16 +354,20 @@ classic Ouroboros / stake-weighted VRF on blocks):
 Blocks commit `epoch` + `stakeSnapshotHash` + `epochSeed` so verifiers can check
 the election inputs.
 
-**Snapshot point (fork-critical):** an epoch's stake snapshot and seed are
-taken from the chain as it stands just before that epoch's **first block** —
-after every block of earlier epochs. They never depend on when a node's clock
-crossed the epoch boundary: a node may elect leaders with a provisional
-snapshot/seed ahead of that block, but re-derives both at the first block, and
-a late block from an earlier epoch drops anything recorded for later epochs. Demo VRF / `EpochNonce` under `SlotLeaderSelection` are
+**Committee lag (fork-critical):** the committee of epoch `E` is the state after the last
+block of epochs ≤ `E-2` — the stake snapshot taken at `E-1`'s first block, or the
+current candidates when `E-1` has no blocks (also `E` = 0 or 1). The reveal behind `E`'s
+seed is public during `E-1`, so nothing done after it can reorder `E`'s committee.
+A checkpoint joiner never took `E-1`'s snapshot for its first Full epoch: there it
+trusts the committee carried by the epoch's opening block (checked against
+`stakeSnapshotHash`), for that one epoch only. A producer that cannot form the
+committee refuses to seal. Neither committee nor seed depends on when a node's clock
+crossed the epoch boundary: a node may elect leaders with a provisional committee/seed
+ahead of the first block, but re-derives both at it, and a late block from an earlier
+epoch drops anything recorded for later epochs. Demo VRF / `EpochNonce` under `SlotLeaderSelection` are
 **not** on the live `Chain` path. Ouroboros is a literature reference only.
 
-**Domain:** `slot-committee/v2` (binary domain + seed). Block `CURRENT_VERSION` is **5**
-(carries `epochSeed`).
+**Domain:** `slot-committee/v2` (binary domain + seed). Block `CURRENT_VERSION` is **9**.
 
 ## Slot timing
 
@@ -435,7 +453,9 @@ All five are chain config: a `T_CONFIG` changes them at the next epoch boundary.
   `autoDeregisteredEpoch`.
 - `T_MINER_REVOKE` — the account must be registered; meta-size fee. Clears `registered`.
 
-Either takes effect in the committee at the next epoch's stake snapshot (its first block).
+Either takes effect in the committee two epochs on: it reaches the stake snapshot at the next epoch's
+first block, and the committee of an epoch is that snapshot of the epoch before it
+([Committee lag](#leader-election-live)).
 Genesis miners are registered at block 0. There is no slashing: the cool-down is the penalty.
 
 **Liveness.** A registered miner is **due** at slot `s` when `minerDueAfterSlots > 0` and
@@ -449,7 +469,7 @@ After a block's records apply (fork-critical order, before `stateRoot`), every n
 1. for each slot the block skipped **in its own epoch** (after the previous block's slot), takes
    the slot's elected leader; if it was due at that slot, `missedDue += 1`; at
    `minerMaxMissedSlots` the miner is deregistered (`registered = false`, `missedDue = 0`,
-   `autoDeregisteredEpoch` = the block's epoch) and leaves the committee at the next snapshot;
+   `autoDeregisteredEpoch` = the block's epoch) and leaves the committee as a revoke does;
 2. if the producer is registered, sets its `lastProducedSlot` to the block's slot and
    `missedDue = 0`.
 

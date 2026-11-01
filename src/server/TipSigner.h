@@ -49,9 +49,16 @@ public:
    * it. Signing the latest again is a no-op.
    */
   Roe<void> sign(const BeaconCertificate &cert, uint64_t height, const std::string &blockHash);
+  /**
+   * `message` signed with the key `cert` names (a record the beacon authors, such as its seed
+   * reveal). E_NOT_CERTIFIED when this signer does not hold it.
+   */
+  Roe<std::string> signMessage(const BeaconCertificate &cert, const std::string &message) const;
 
 private:
   Roe<void> persist(const Client::SignedTip &tip) const;
+  /** The held key `cert` names; E_NOT_CERTIFIED when none is. */
+  Roe<const utl::MlDsaKeyPair *> certifiedKey(const BeaconCertificate &cert) const;
 
   std::string path_;
   std::vector<utl::MlDsaKeyPair> keys_;

@@ -3,6 +3,7 @@
 #include "ledger/chain/ErrorCodes.h"
 #include "ledger/client/AccountAttachment.h"
 #include "ledger/client/AccountIds.h"
+#include "ledger/consensus/EpochSeed.h"
 #include "ledger/lib/common/Utilities.h"
 
 #include <algorithm>
@@ -185,6 +186,23 @@ Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet) {
   return {};
 }
 
+namespace {
+// An empty anchor means no beacon contribution; the other two fields are then ignored.
+Roe<void> validateSeedAnchor(const BeaconCertificate &cert) {
+  if (cert.seedAnchor.empty()) {
+    return {};
+  }
+  if (cert.seedAnchor.size() != utl::SHA256_DIGEST_SIZE) {
+    return TxError(chain_err::E_TX_VALIDATION, "Beacon certificate seedAnchor must be empty or 32 bytes");
+  }
+  if (cert.seedChainLength < 1 || cert.seedChainLength > consensus::kMaxBeaconSeedChainLength) {
+    return TxError(chain_err::E_TX_VALIDATION, "Beacon certificate seedChainLength must be between 1 and " +
+                                                   std::to_string(consensus::kMaxBeaconSeedChainLength));
+  }
+  return {};
+}
+} // namespace
+
 std::optional<std::string> renewalChangedWalletField(const Client::Wallet &carried, const Client::Wallet &held) {
   if (carried.publicKeys != held.publicKeys || carried.minSignatures != held.minSignatures ||
       carried.keyType != held.keyType) {
@@ -252,6 +270,9 @@ Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client
   if (auto hints = validateCertificateHints(beacon); !hints) {
     return hints;
   }
+  if (auto anchor = validateSeedAnchor(beacon); !anchor) {
+    return anchor;
+  }
   if (beacon.networkId != networkId) {
     return invalid("Beacon certificate networkId does not match the chain");
   }
@@ -289,6 +310,9 @@ Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const Cha
   }
   if (auto shape = validateCertificateHints(next); !shape) {
     return shape;
+  }
+  if (auto anchor = validateSeedAnchor(next); !anchor) {
+    return anchor;
   }
   if (!(next.hasCutover() ? next.cutoverHash.size() == utl::SHA256_DIGEST_SIZE : next.cutoverHash.empty())) {
     return invalid("Beacon certificate cutoverHash must be the 32-byte hash of the cutover block, and "
@@ -415,6 +439,20 @@ Roe<void> verifyRecoverySigned(const Ledger::Record &record, const RecoverySet &
   signer.id = AccountBuffer::ID_GENESIS;
   signer.wallet.publicKeys = recovery.publicKeys;
   signer.wallet.minSignatures = recovery.minSignatures;
+  signer.wallet.keyType = Crypto::TK_ML_DSA_65;
+  return verifySignaturesAgainstAccount(record.signingMessage(networkId), record.signatures, signer, crypto, logger);
+}
+
+Roe<void> verifyBeaconSigned(const Ledger::Record &record, const BeaconCertificate &cert,
+                             const std::string &networkId, const Crypto &crypto, logging::Logger &logger) {
+  // The beacon key alone signs: a second signature would make the record's bytes malleable.
+  if (record.signatures.size() != 1) {
+    return TxError(chain_err::E_TX_SIGNATURE, "A beacon record carries exactly one signature");
+  }
+  AccountBuffer::Account signer;
+  signer.id = AccountBuffer::ID_GENESIS;
+  signer.wallet.publicKeys = {cert.publicKey};
+  signer.wallet.minSignatures = 1;
   signer.wallet.keyType = Crypto::TK_ML_DSA_65;
   return verifySignaturesAgainstAccount(record.signingMessage(networkId), record.signatures, signer, crypto, logger);
 }
