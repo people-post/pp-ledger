@@ -1,4 +1,5 @@
 #include "ledger/consensus/EpochSeed.h"
+#include "ledger/lib/common/Utilities.h"
 #include <gtest/gtest.h>
 #include <optional>
 #include <string>
@@ -64,4 +65,24 @@ TEST(EpochSeedV2, IsDeterministic) {
   EXPECT_EQ(deriveEpochSeedV2(5, "net", prev, r), deriveEpochSeedV2(5, "net", prev, r));
   EXPECT_EQ(deriveEpochSeedV2(5, "net", prev, std::nullopt),
             deriveEpochSeedV2(5, "net", prev, std::nullopt));
+}
+
+// Known answers, computed once from this code and checked against an independent implementation
+// (SHA-256 over the domain, big-endian u64 fields (OutputArchive) and a presence byte). Any change to a domain
+// string or the preimage layout forks every network: it must fail here first.
+TEST(EpochSeedKnownAnswers, BeaconSeedStepAndValue) {
+  const std::string s(32, '\x01');
+  EXPECT_EQ(pp::utl::hexEncode(beaconSeedStep(s)),
+            "d79cda60036be7c3d9e5559a093005acf56d5a6e5dbb992e0439dc9429883a23");
+  EXPECT_EQ(pp::utl::hexEncode(beaconSeedValue(s, 3)),
+            "d05393c3797843af41e89ef2f224bfe576c2fe2fb195a3b0d5f81840a9d70ed1");
+}
+
+TEST(EpochSeedKnownAnswers, DeriveEpochSeedV2WithAndWithoutAReveal) {
+  const std::string prev(32, '\x07');
+  const std::string reveal(32, '\x11');
+  EXPECT_EQ(pp::utl::hexEncode(deriveEpochSeedV2(5, "net", prev, reveal)),
+            "1b2436190131f41e88749992e264afb3393cee282277cc06d641dcaf6f3ac5d8");
+  EXPECT_EQ(pp::utl::hexEncode(deriveEpochSeedV2(5, "net", prev, std::nullopt)),
+            "16bd388c421f741e45a0084386c93b9486bcd780a9486e72003aa7e77d5c8e7a");
 }
