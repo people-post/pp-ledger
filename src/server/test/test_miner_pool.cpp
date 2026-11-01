@@ -252,6 +252,55 @@ TEST_F(LeaderBudgetTest, DueRenewalsBeyondABlockWaitAndTransactionsWaitForThem) 
   EXPECT_GE(renewed.size(), 6u) << "every account written in genesis renewed";
 }
 
+// The beacon's seed reveal must land in its epoch: a leader keeps a place for it ahead of the due
+// renewals, so a block that leaves renewals waiting still carries the pooled reveal (beacon epoch
+// seed). Six genesis accounts fall due in block 3, twice what a block holds.
+TEST_F(LeaderBudgetTest, ABlockOfWaitingRenewalsStillCarriesThePooledSeedReveal) {
+  Ledger::Record reveal;
+  {
+    BeaconServer beacon;
+    auto opened = beacon.openForTest((root_ / "beacon").string(), std::time(nullptr));
+    ASSERT_TRUE(opened.isOk()) << opened.error().message;
+    beacon.submitBeaconSeedIfDue();
+    for (const auto &record : beacon.pooledForTest()) {
+      if (record.type == Ledger::T_BEACON_SEED) {
+        reveal = record;
+      }
+    }
+    ASSERT_EQ(reveal.type, Ledger::T_BEACON_SEED) << "the beacon pooled its reveal for epoch 1";
+  }
+  uint64_t idempotentId = 1;
+  int64_t after = -1;
+  Ledger::ChainNode block;
+  while (block.block.index < 2) { // blocks 1 and 2: the renewals are not due yet
+    auto slot = waitForLeaderSlotAfter(after);
+    ASSERT_TRUE(slot.has_value());
+    ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, idempotentId++)).isOk());
+    ASSERT_TRUE(produceWhenSealTime(block));
+    ASSERT_TRUE(miner_->addBlock(block).isOk()) << "block " << block.block.index;
+    miner_->markBlockProduction(block);
+    after = static_cast<int64_t>(block.block.slot);
+  }
+  auto slot = waitForLeaderSlotAfter(after);
+  ASSERT_TRUE(slot.has_value());
+  auto added = miner_->addTransaction(reveal);
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+  ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, idempotentId++)).isOk());
+  ASSERT_TRUE(produceWhenSealTime(block));
+  ASSERT_EQ(block.block.index, 3u);
+  const auto &records = block.block.records;
+  EXPECT_LE(records.size(), 3u);
+  EXPECT_TRUE(std::any_of(records.begin(), records.end(), isRenewal)) << "the due renewals still go first";
+  EXPECT_TRUE(std::none_of(records.begin(), records.end(),
+                           [](const Ledger::Record &r) { return r.type == Ledger::T_DEFAULT; }))
+      << "the transfer waits while renewals do";
+  EXPECT_TRUE(std::any_of(records.begin(), records.end(),
+                          [](const Ledger::Record &r) { return r.type == Ledger::T_BEACON_SEED; }))
+      << "the reveal is not left out by the waiting renewals";
+  auto committed = miner_->addBlock(block);
+  ASSERT_TRUE(committed.isOk()) << committed.error().message;
+}
+
 /** Ten records a block; an account comes due for renewal ten blocks after it was written. */
 class RenewalEchoTest : public MinerPoolTest {
 protected:

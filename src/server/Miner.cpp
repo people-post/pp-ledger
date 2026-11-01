@@ -9,6 +9,10 @@
 
 namespace pp {
 
+namespace {
+bool isSeedReveal(const Ledger::Record &record) { return record.type == Ledger::T_BEACON_SEED; }
+} // namespace
+
 Miner::Miner() : FollowerCore("Miner") {}
 
 bool Miner::isSlotLeader() const {
@@ -114,6 +118,13 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
     const auto certificate = chain_.certificateDueAt(chain_.getNextBlockId());
     if (certificate && !slotCache_.budget.take(*certificate)) {
       log().error << "The beacon certificate due does not fit block " << chain_.getNextBlockId();
+    }
+    // The beacon's seed reveal must land in the epoch before its own (beacon epoch seed): keep it a
+    // place ahead of the renewals, so a block leaving renewals waiting still carries it. Leave a
+    // renewal at least: a block leaving due renewals out must renew one.
+    if (const auto it = std::find_if(pendingTxes_.begin(), pendingTxes_.end(), isSeedReveal);
+        it != pendingTxes_.end() && (renewals.empty() || slotCache_.budget.recordsLeft > 1)) {
+      slotCache_.seedRevealReserved = slotCache_.budget.take(*it);
     }
     const std::string networkId = chain_.getNetworkId();
     for (auto &rec : renewals) {
@@ -317,6 +328,12 @@ Miner::addTransaction(const Ledger::Record &record) {
   }
 
   pendingTxes_.push_back(record);
+  // A seed reveal arriving after the renewals took the budget: rebuild the slot so it gets its place.
+  if (isSeedReveal(record) && !slotCache_.seedRevealReserved) {
+    if (auto rebuilt = initSlotCache(slot); !rebuilt) {
+      return Error(12, rebuilt.error().message);
+    }
+  }
 
   return {};
 }
@@ -334,17 +351,27 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode &block) {
 Miner::BlockTxSet Miner::getBlockTransactionSet() const {
   Miner::BlockTxSet out;
   out.records = slotCache_.leaderRecords;
-  if (slotCache_.renewalsWait) {
-    return out; // renewals only while some wait (B035)
-  }
-  // Pending transactions in order while they fit what the leader's records left (B034).
-  BlockBudget budget = slotCache_.budget;
-  for (const auto &rec : pendingTxes_) {
-    if (!budget.take(rec)) {
-      break;
+  // The seed reveal the budget holds a place for goes in whatever else waits.
+  bool seedPlaced = !slotCache_.seedRevealReserved;
+  // Pending transactions in order while they fit what the leader's records left (B034); none while
+  // renewals wait (B035).
+  if (!slotCache_.renewalsWait) {
+    BlockBudget budget = slotCache_.budget;
+    for (const auto &rec : pendingTxes_) {
+      if (!seedPlaced && isSeedReveal(rec)) {
+        seedPlaced = true; // its place is already taken from the budget
+      } else if (!budget.take(rec)) {
+        break;
+      }
+      out.records.push_back(rec);
+      ++out.nPendingIncluded;
     }
-    out.records.push_back(rec);
-    ++out.nPendingIncluded;
+  }
+  if (!seedPlaced) {
+    if (auto it = std::find_if(pendingTxes_.begin(), pendingTxes_.end(), isSeedReveal); it != pendingTxes_.end()) {
+      out.records.push_back(*it);
+      ++out.nPendingIncluded;
+    }
   }
   return out;
 }
