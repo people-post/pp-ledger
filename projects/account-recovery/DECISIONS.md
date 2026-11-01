@@ -114,3 +114,17 @@ reserve's funds or the registrar.
 (simpler for operators, but puts the reserve and the registrar under admin control); keep it and
 document that lost system keys mean a re-genesis.
 
+## AR010 — A re-genesis restarts a waiting recovery's delay
+
+**Date:** 2026-11-01
+**Decision:** An account imported with an announcement pending gets `applyEpoch` =
+`recoveryApplyEpoch(config, 0, delaySeconds)` on the new network (its delay from the import's slot 0) and
+`announcedAt` = its import block. Normative: [BEACON_AUTHORITY § Importing genesis](../../docs/contracts/BEACON_AUTHORITY.md#importing-genesis).
+**Rationale:** `applyEpoch` counted the old network's epochs and the new network starts again at epoch 0:
+carried as it was, the takeover would wait about the old network's whole height again (the import already
+resets the miner's slot counters for the same reason). Restarting the delay never gives the account to the
+announced keys sooner than the owner was promised — the delay is the owner's time to have the set withdraw
+it — at the cost of at most one delay more.
+**Alternatives:** Carry the remaining time over (needs the old network's epoch length, which the import does
+not keep); drop the announcement (the set would have to announce again, after the account was already frozen).
+

@@ -39,10 +39,11 @@ public:
 
   /**
    * The account as it enters the new state: block `blockId`, its miner slots reset; a system account
-   * takes the import's keys for it and no recovery (the old network's set would take the new keys back).
+   * takes the import's keys for it and no recovery (the old network's set would take the new keys back);
+   * a pending recovery restarts its delay from the new network's start (`config`'s epochs).
    */
   static chain_tx::Roe<AccountBuffer::Account> entering(const StateSnapshot::Account &old, const ImportProgress &progress,
-                                                        uint64_t blockId);
+                                                        const BlockChainConfig &config, uint64_t blockId);
 };
 
 } // namespace pp
