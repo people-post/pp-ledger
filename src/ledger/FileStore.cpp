@@ -7,9 +7,11 @@ namespace pp {
 
 FileStore::FileStore() {}
 
-FileStore::~FileStore() { close(); }
+FileStore::~FileStore() {
+  close();
+}
 
-FileStore::Roe<void> FileStore::init(const InitConfig &config) {
+FileStore::Roe<void> FileStore::init(const InitConfig& config) {
   filepath_ = config.filepath;
   maxSize_ = config.maxSize;
   currentSize_ = 0;
@@ -55,7 +57,7 @@ FileStore::Roe<void> FileStore::init(const InitConfig &config) {
   return {};
 }
 
-FileStore::Roe<void> FileStore::mount(const std::string &filepath, size_t maxSize) {
+FileStore::Roe<void> FileStore::mount(const std::string& filepath, size_t maxSize) {
   filepath_ = filepath;
   maxSize_ = maxSize;
   currentSize_ = 0;
@@ -93,7 +95,7 @@ FileStore::Roe<void> FileStore::mount(const std::string &filepath, size_t maxSiz
 
   // Get total file size (including header)
   currentSize_ = std::filesystem::file_size(filepath_);
-  
+
   // The header commits its blocks; anything after them was never committed.
   blockCount_ = header_.blockCount;
   committedCount_ = blockCount_;
@@ -103,10 +105,8 @@ FileStore::Roe<void> FileStore::mount(const std::string &filepath, size_t maxSiz
   if (auto dropped = dropUncommittedTail(); !dropped) {
     return dropped;
   }
-  log().debug << "Mounted existing file: " << filepath_
-              << " (total size: " << currentSize_
-              << " bytes, version: " << header_.version
-              << ", blocks: " << blockCount_ << ")";
+  log().debug << "Mounted existing file: " << filepath_ << " (total size: " << currentSize_
+              << " bytes, version: " << header_.version << ", blocks: " << blockCount_ << ")";
 
   return {};
 }
@@ -137,7 +137,7 @@ FileStore::Roe<void> FileStore::open() {
   return {};
 }
 
-FileStore::Roe<int64_t> FileStore::write(const void *data, uint64_t size) {
+FileStore::Roe<int64_t> FileStore::write(const void* data, uint64_t size) {
   if (!isOpen()) {
     log().error << "File is not open: " << filepath_;
     return Error("File is not open: " + filepath_);
@@ -150,8 +150,7 @@ FileStore::Roe<int64_t> FileStore::write(const void *data, uint64_t size) {
 
   // canFit now accounts for size prefix
   if (!canFit(size)) {
-    log().warning << "Cannot fit " << size << " bytes + " << SIZE_PREFIX_BYTES
-                  << " prefix (current: " << currentSize_
+    log().warning << "Cannot fit " << size << " bytes + " << SIZE_PREFIX_BYTES << " prefix (current: " << currentSize_
                   << ", max: " << maxSize_ << ")";
     return Error("Cannot fit " + std::to_string(size) + " bytes");
   }
@@ -161,7 +160,7 @@ FileStore::Roe<int64_t> FileStore::write(const void *data, uint64_t size) {
   int64_t fileOffset = file_.tellp();
 
   // Write size prefix (8 bytes)
-  file_.write(reinterpret_cast<const char *>(&size), SIZE_PREFIX_BYTES);
+  file_.write(reinterpret_cast<const char*>(&size), SIZE_PREFIX_BYTES);
 
   if (!file_.good()) {
     log().error << "Failed to write size prefix to file: " << filepath_;
@@ -169,7 +168,7 @@ FileStore::Roe<int64_t> FileStore::write(const void *data, uint64_t size) {
   }
 
   // Write block data
-  file_.write(static_cast<const char *>(data), static_cast<std::streamsize>(size));
+  file_.write(static_cast<const char*>(data), static_cast<std::streamsize>(size));
 
   if (!file_.good()) {
     log().error << "Failed to write data to file: " << filepath_;
@@ -189,22 +188,20 @@ FileStore::Roe<int64_t> FileStore::write(const void *data, uint64_t size) {
 
   // Get block index before incrementing count
   int64_t blockIdx = static_cast<int64_t>(blockCount_);
-  
+
   // Update block count and file size
   blockCount_++;
   currentSize_ += SIZE_PREFIX_BYTES + size;
-  
+
   // Not committed yet: commit() writes the count once the data is on the device.
-  log().debug << "Wrote block " << blockIdx << " (" << size 
-              << " bytes) at file offset " << fileOffset
+  log().debug << "Wrote block " << blockIdx << " (" << size << " bytes) at file offset " << fileOffset
               << " (total file size: " << currentSize_ << ")";
 
   // Return block index
   return blockIdx;
 }
 
-FileStore::Roe<int64_t> FileStore::readBlock(uint64_t index, void *data,
-                                             size_t maxSize) {
+FileStore::Roe<int64_t> FileStore::readBlock(uint64_t index, void* data, size_t maxSize) {
   if (!isOpen()) {
     log().error << "File is not open: " << filepath_;
     return Error("File is not open: " + filepath_);
@@ -222,15 +219,14 @@ FileStore::Roe<int64_t> FileStore::readBlock(uint64_t index, void *data,
   }
 
   if (index >= blockIndex_.size()) {
-    return Error("Block index " + std::to_string(index) + " out of range (max: " +
-                 std::to_string(blockIndex_.size()) + ")");
+    return Error("Block index " + std::to_string(index) + " out of range (max: " + std::to_string(blockIndex_.size()) +
+                 ")");
   }
 
-  const BlockEntry &entry = blockIndex_[index];
-  
+  const BlockEntry& entry = blockIndex_[index];
+
   if (entry.size > maxSize) {
-    return Error("Buffer too small for block " + std::to_string(index) +
-                 " (need: " + std::to_string(entry.size) +
+    return Error("Buffer too small for block " + std::to_string(index) + " (need: " + std::to_string(entry.size) +
                  ", have: " + std::to_string(maxSize) + ")");
   }
 
@@ -242,13 +238,12 @@ FileStore::Roe<int64_t> FileStore::readBlock(uint64_t index, void *data,
   file_.seekg(dataOffset, std::ios::beg);
 
   if (!file_.good()) {
-    log().error << "Failed to seek to offset " << dataOffset
-                << " in file: " << filepath_;
+    log().error << "Failed to seek to offset " << dataOffset << " in file: " << filepath_;
     return Error("Failed to seek to offset " + std::to_string(dataOffset));
   }
 
   // Read block data
-  file_.read(static_cast<char *>(data), static_cast<std::streamsize>(entry.size));
+  file_.read(static_cast<char*>(data), static_cast<std::streamsize>(entry.size));
 
   int64_t bytesRead = file_.gcount();
 
@@ -268,8 +263,8 @@ FileStore::Roe<uint64_t> FileStore::getBlockSize(uint64_t index) {
   }
 
   if (index >= blockIndex_.size()) {
-    return Error("Block index " + std::to_string(index) + " out of range (max: " +
-                 std::to_string(blockIndex_.size()) + ")");
+    return Error("Block index " + std::to_string(index) + " out of range (max: " + std::to_string(blockIndex_.size()) +
+                 ")");
   }
 
   return blockIndex_[index].size;
@@ -280,7 +275,9 @@ bool FileStore::canFit(uint64_t size) const {
   return (currentSize_ + SIZE_PREFIX_BYTES + size) <= maxSize_;
 }
 
-bool FileStore::isOpen() const { return file_.is_open() && file_.good(); }
+bool FileStore::isOpen() const {
+  return file_.is_open() && file_.good();
+}
 
 void FileStore::close() {
   if (file_.is_open()) {
@@ -332,15 +329,14 @@ FileStore::Roe<void> FileStore::truncateTo(int64_t size) {
 }
 
 FileStore::Roe<void> FileStore::dropUncommittedTail() {
-  const int64_t end = blockIndex_.empty()
-                          ? getDataOffset()
-                          : blockIndex_.back().offset + static_cast<int64_t>(SIZE_PREFIX_BYTES) +
-                                static_cast<int64_t>(blockIndex_.back().size);
+  const int64_t end = blockIndex_.empty() ? getDataOffset()
+                                          : blockIndex_.back().offset + static_cast<int64_t>(SIZE_PREFIX_BYTES) +
+                                                static_cast<int64_t>(blockIndex_.back().size);
   if (static_cast<int64_t>(currentSize_) <= end) {
     return {};
   }
-  log().warning << "Dropping " << (static_cast<int64_t>(currentSize_) - end) << " bytes after the "
-                << blockCount_ << " committed blocks of " << filepath_ << " (never committed)";
+  log().warning << "Dropping " << (static_cast<int64_t>(currentSize_) - end) << " bytes after the " << blockCount_
+                << " committed blocks of " << filepath_ << " (never committed)";
   if (auto truncated = truncateTo(end); !truncated) {
     return truncated;
   }
@@ -363,7 +359,7 @@ FileStore::Roe<void> FileStore::writeHeader() {
   header_.blockCount = blockCount_;
 
   // Write header
-  file_.write(reinterpret_cast<const char *>(&header_), sizeof(FileHeader));
+  file_.write(reinterpret_cast<const char*>(&header_), sizeof(FileHeader));
 
   if (!file_.good()) {
     return Error("Failed to write header to file: " + filepath_);
@@ -376,9 +372,8 @@ FileStore::Roe<void> FileStore::writeHeader() {
   }
 
   headerValid_ = true;
-  log().debug << "Wrote file header (magic: 0x" << std::hex << header_.magic
-              << std::dec << ", version: " << header_.version 
-              << ", blocks: " << header_.blockCount << ")";
+  log().debug << "Wrote file header (magic: 0x" << std::hex << header_.magic << std::dec
+              << ", version: " << header_.version << ", blocks: " << header_.blockCount << ")";
 
   return {};
 }
@@ -392,7 +387,7 @@ FileStore::Roe<void> FileStore::readHeader() {
   file_.seekg(0, std::ios::beg);
 
   // Read header
-  file_.read(reinterpret_cast<char *>(&header_), sizeof(FileHeader));
+  file_.read(reinterpret_cast<char*>(&header_), sizeof(FileHeader));
 
   if (file_.gcount() != static_cast<std::streamsize>(sizeof(FileHeader))) {
     return Error("Failed to read complete header from file: " + filepath_);
@@ -405,14 +400,12 @@ FileStore::Roe<void> FileStore::readHeader() {
 
   if (header_.version > FileHeader::CURRENT_VERSION) {
     return Error("Unsupported file version " + std::to_string(header_.version) +
-                 " (current: " + std::to_string(FileHeader::CURRENT_VERSION) +
-                 ")");
+                 " (current: " + std::to_string(FileHeader::CURRENT_VERSION) + ")");
   }
 
   headerValid_ = true;
-  log().debug << "Read file header (magic: 0x" << std::hex << header_.magic
-              << std::dec << ", version: " << header_.version 
-              << ", blocks: " << header_.blockCount << ")";
+  log().debug << "Read file header (magic: 0x" << std::hex << header_.magic << std::dec
+              << ", version: " << header_.version << ", blocks: " << header_.blockCount << ")";
 
   return {};
 }
@@ -427,7 +420,7 @@ FileStore::Roe<void> FileStore::updateHeaderBlockCount() {
   file_.seekp(8, std::ios::beg);
 
   // Write updated block count
-  file_.write(reinterpret_cast<const char *>(&blockCount_), sizeof(uint64_t));
+  file_.write(reinterpret_cast<const char*>(&blockCount_), sizeof(uint64_t));
 
   if (!file_.good()) {
     return Error("Failed to update block count in header: " + filepath_);
@@ -459,11 +452,11 @@ FileStore::Roe<void> FileStore::buildBlockIndex() {
   }
 
   blockIndex_.clear();
-  
+
   // Start scanning from after header
   int64_t offset = getDataOffset();
   int64_t fileEnd = static_cast<int64_t>(currentSize_);
-  
+
   while (blockIndex_.size() < blockCount_ && offset + static_cast<int64_t>(SIZE_PREFIX_BYTES) <= fileEnd) {
     // Seek to current position
     file_.seekg(offset, std::ios::beg);
@@ -474,7 +467,7 @@ FileStore::Roe<void> FileStore::buildBlockIndex() {
 
     // Read size prefix
     uint64_t blockSize = 0;
-    file_.read(reinterpret_cast<char *>(&blockSize), SIZE_PREFIX_BYTES);
+    file_.read(reinterpret_cast<char*>(&blockSize), SIZE_PREFIX_BYTES);
     if (file_.gcount() != static_cast<std::streamsize>(SIZE_PREFIX_BYTES)) {
       // End of file or partial read
       break;
@@ -484,11 +477,9 @@ FileStore::Roe<void> FileStore::buildBlockIndex() {
     // so a corrupted/malicious huge blockSize can't wrap the addition around
     // and slip past the check. Each subtraction is guarded locally rather than
     // relying on the while-condition, so an edit to the loop fails closed.
-    const uint64_t avail =
-        offset < fileEnd ? static_cast<uint64_t>(fileEnd - offset) : 0;
+    const uint64_t avail = offset < fileEnd ? static_cast<uint64_t>(fileEnd - offset) : 0;
     if (avail < SIZE_PREFIX_BYTES || blockSize > avail - SIZE_PREFIX_BYTES) {
-      log().warning << "Block at offset " << offset
-                    << " has invalid size " << blockSize;
+      log().warning << "Block at offset " << offset << " has invalid size " << blockSize;
       break;
     }
 
@@ -497,8 +488,7 @@ FileStore::Roe<void> FileStore::buildBlockIndex() {
 
     // Move to next block. Safe: SIZE_PREFIX_BYTES + blockSize <= avail, so the
     // new offset cannot exceed fileEnd (which already fits in int64_t).
-    offset += static_cast<int64_t>(SIZE_PREFIX_BYTES) +
-             static_cast<int64_t>(blockSize);
+    offset += static_cast<int64_t>(SIZE_PREFIX_BYTES) + static_cast<int64_t>(blockSize);
   }
 
   if (blockIndex_.size() != blockCount_) {
@@ -522,7 +512,7 @@ FileStore::Roe<void> FileStore::ensureBlockIndex() {
 FileStore::Roe<std::string> FileStore::readBlock(uint64_t index) const {
   // Need to cast away const for internal operations
   FileStore* nonConstThis = const_cast<FileStore*>(this);
-  
+
   // Ensure block index is built
   auto indexResult = nonConstThis->ensureBlockIndex();
   if (!indexResult.isOk()) {
@@ -530,15 +520,15 @@ FileStore::Roe<std::string> FileStore::readBlock(uint64_t index) const {
   }
 
   if (index >= blockIndex_.size()) {
-    return Error("Block index " + std::to_string(index) + " out of range (max: " +
-                 std::to_string(blockIndex_.size()) + ")");
+    return Error("Block index " + std::to_string(index) + " out of range (max: " + std::to_string(blockIndex_.size()) +
+                 ")");
   }
 
-  const BlockEntry &entry = blockIndex_[index];
-  
+  const BlockEntry& entry = blockIndex_[index];
+
   // Allocate buffer for block data
   std::string buffer(entry.size, '\0');
-  
+
   // Calculate data offset (skip size prefix)
   int64_t dataOffset = entry.offset + static_cast<int64_t>(SIZE_PREFIX_BYTES);
 
@@ -562,7 +552,7 @@ FileStore::Roe<std::string> FileStore::readBlock(uint64_t index) const {
   return buffer;
 }
 
-FileStore::Roe<uint64_t> FileStore::appendBlock(const std::string &block) {
+FileStore::Roe<uint64_t> FileStore::appendBlock(const std::string& block) {
   auto result = write(block.data(), block.size());
   if (!result.isOk()) {
     return Error(result.error().message);
@@ -578,8 +568,7 @@ FileStore::Roe<void> FileStore::rewindTo(uint64_t index) {
   }
 
   if (index > blockCount_) {
-    return Error("Cannot rewind to index " + std::to_string(index) + 
-                 " (max: " + std::to_string(blockCount_) + ")");
+    return Error("Cannot rewind to index " + std::to_string(index) + " (max: " + std::to_string(blockCount_) + ")");
   }
   if (index == blockCount_) {
     return {};

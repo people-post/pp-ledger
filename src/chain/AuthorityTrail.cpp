@@ -10,10 +10,12 @@
 namespace pp {
 
 AuthorityTrail::AuthorityTrail(std::string networkId, ChainAuthority authority, Client::Wallet admin)
-    : networkId_(std::move(networkId)), authority_(std::move(authority)), admin_(std::move(admin)),
+    : networkId_(std::move(networkId)),
+      authority_(std::move(authority)),
+      admin_(std::move(admin)),
       logger_(logging::getLogger("AuthorityTrail")) {}
 
-chain_tx::Roe<AuthorityTrail> AuthorityTrail::fromGenesis(const Ledger::Block &genesis) {
+chain_tx::Roe<AuthorityTrail> AuthorityTrail::fromGenesis(const Ledger::Block& genesis) {
   if (genesis.index != 0 || genesis.records.empty() || genesis.records[0].type != Ledger::T_GENESIS) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Not a genesis block");
   }
@@ -25,14 +27,14 @@ chain_tx::Roe<AuthorityTrail> AuthorityTrail::fromGenesis(const Ledger::Block &g
   return AuthorityTrail(gm.config.networkId, gm.authority, gm.genesis.wallet);
 }
 
-chain_tx::Roe<AuthorityTrail> AuthorityTrail::fromStartingBlock(const Ledger::Block &block) {
+chain_tx::Roe<AuthorityTrail> AuthorityTrail::fromStartingBlock(const Ledger::Block& block) {
   if (block.index == 0) {
     return fromGenesis(block);
   }
   if (block.records.empty() || !chain_block::isGenesisRenewal(block.records.front())) {
-    return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION,
-                             "Block " + std::to_string(block.index) +
-                                 " is not a checkpoint: it does not open with the genesis renewal");
+    return chain_tx::TxError(
+        chain_err::E_BLOCK_VALIDATION,
+        "Block " + std::to_string(block.index) + " is not a checkpoint: it does not open with the genesis renewal");
   }
   auto tx = utl::binaryUnpack<Ledger::TxRenewal>(block.records.front().data);
   GenesisAccountMeta gm;
@@ -42,16 +44,17 @@ chain_tx::Roe<AuthorityTrail> AuthorityTrail::fromStartingBlock(const Ledger::Bl
   return AuthorityTrail(gm.config.networkId, gm.authority, gm.genesis.wallet);
 }
 
-bool AuthorityTrail::changesAuthority(const Ledger::Record &record) {
-  return record.type == Ledger::T_CONFIG || record.type == Ledger::T_BEACON_CERT ||
-         record.type == Ledger::T_RECOVERY;
+bool AuthorityTrail::changesAuthority(const Ledger::Record& record) {
+  return record.type == Ledger::T_CONFIG || record.type == Ledger::T_BEACON_CERT || record.type == Ledger::T_RECOVERY;
 }
 
-void AuthorityTrail::enterEpoch(uint64_t epoch) { chain_tx::advanceAuthorityToEpoch(authority_, admin_, epoch); }
+void AuthorityTrail::enterEpoch(uint64_t epoch) {
+  chain_tx::advanceAuthorityToEpoch(authority_, admin_, epoch);
+}
 
-chain_tx::Roe<void> AuthorityTrail::observe(const Ledger::Block &block) {
+chain_tx::Roe<void> AuthorityTrail::observe(const Ledger::Block& block) {
   enterEpoch(block.epoch);
-  for (const auto &record : block.records) {
+  for (const auto& record : block.records) {
     if (auto observed = observeRecord(record, block.index, block.epoch); !observed) {
       return observed;
     }
@@ -74,7 +77,7 @@ chain_tx::Roe<void> AuthorityTrail::observe(const Ledger::Block &block) {
   return {};
 }
 
-chain_tx::Roe<void> AuthorityTrail::observeRecord(const Ledger::Record &record, uint64_t blockId, uint64_t epoch) {
+chain_tx::Roe<void> AuthorityTrail::observeRecord(const Ledger::Record& record, uint64_t blockId, uint64_t epoch) {
   chain_tx::Roe<void> observed;
   if (record.type == Ledger::T_CONFIG) {
     observed = observeConfig(record, epoch);
@@ -86,22 +89,22 @@ chain_tx::Roe<void> AuthorityTrail::observeRecord(const Ledger::Record &record, 
     observed = observeGenesisRenewal(record);
   }
   if (!observed) {
-    return chain_tx::TxError(observed.error().code, "Block " + std::to_string(blockId) + ": " +
-                                                        observed.error().message);
+    return chain_tx::TxError(observed.error().code,
+                             "Block " + std::to_string(blockId) + ": " + observed.error().message);
   }
   return {};
 }
 
-chain_tx::Roe<AuthorityTrail> AuthorityTrail::replayProof(const Ledger::Block &genesis,
-                                                          const Client::AuthorityProof &proof,
-                                                          uint64_t upToBlockId, uint64_t upToEpoch) {
+chain_tx::Roe<AuthorityTrail> AuthorityTrail::replayProof(const Ledger::Block& genesis,
+                                                          const Client::AuthorityProof& proof, uint64_t upToBlockId,
+                                                          uint64_t upToEpoch) {
   auto trail = fromGenesis(genesis);
   if (!trail) {
     return trail.error();
   }
   uint64_t lastBlockId = 0;
   uint64_t lastEpoch = 0;
-  for (const auto &step : proof.steps) {
+  for (const auto& step : proof.steps) {
     if (step.blockId == 0 || step.blockId < lastBlockId || step.blockId > upToBlockId || step.epoch < lastEpoch ||
         step.epoch > upToEpoch) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
@@ -123,7 +126,7 @@ chain_tx::Roe<AuthorityTrail> AuthorityTrail::replayProof(const Ledger::Block &g
   return trail.value();
 }
 
-chain_tx::Roe<void> AuthorityTrail::agrees(const ChainAuthority &authority, const Client::Wallet &admin) const {
+chain_tx::Roe<void> AuthorityTrail::agrees(const ChainAuthority& authority, const Client::Wallet& admin) const {
   if (authority != authority_) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Its beacon authority is not the one the proof reaches");
   }
@@ -134,15 +137,15 @@ chain_tx::Roe<void> AuthorityTrail::agrees(const ChainAuthority &authority, cons
   return {};
 }
 
-chain_tx::Roe<void> AuthorityTrail::verifyAdminSigned(const Ledger::Record &record) const {
+chain_tx::Roe<void> AuthorityTrail::verifyAdminSigned(const Ledger::Record& record) const {
   AccountBuffer::Account admin;
   admin.id = AccountBuffer::ID_GENESIS;
   admin.wallet = admin_;
-  return chain_tx::verifySignaturesAgainstAccount(record.signingMessage(networkId_), record.signatures, admin,
-                                                  crypto_, logger_);
+  return chain_tx::verifySignaturesAgainstAccount(record.signingMessage(networkId_), record.signatures, admin, crypto_,
+                                                  logger_);
 }
 
-chain_tx::Roe<void> AuthorityTrail::observeConfig(const Ledger::Record &record, uint64_t epoch) {
+chain_tx::Roe<void> AuthorityTrail::observeConfig(const Ledger::Record& record, uint64_t epoch) {
   // A config update replaces the admin set at once; only the admin set in force may sign it.
   auto tx = utl::binaryUnpack<Ledger::TxConfig>(record.data);
   GenesisAccountMeta gm;
@@ -160,7 +163,7 @@ chain_tx::Roe<void> AuthorityTrail::observeConfig(const Ledger::Record &record, 
   return {};
 }
 
-chain_tx::Roe<void> AuthorityTrail::observeGenesisRenewal(const Ledger::Record &record) {
+chain_tx::Roe<void> AuthorityTrail::observeGenesisRenewal(const Ledger::Record& record) {
   // A renewal re-records the genesis meta in force: it changes nothing, so it must agree.
   auto tx = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
   GenesisAccountMeta gm;
@@ -168,15 +171,14 @@ chain_tx::Roe<void> AuthorityTrail::observeGenesisRenewal(const Ledger::Record &
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Unreadable genesis renewal");
   }
   if (auto same = agrees(gm.authority, gm.genesis.wallet); !same) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Genesis renewal disagrees with the authority and admin set followed: " +
-                                 same.error().message);
+    return chain_tx::TxError(
+        chain_err::E_TX_VALIDATION,
+        "Genesis renewal disagrees with the authority and admin set followed: " + same.error().message);
   }
   return {};
 }
 
-chain_tx::Roe<void> AuthorityTrail::observeCertificate(const Ledger::Record &record, uint64_t blockId,
-                                                       uint64_t epoch) {
+chain_tx::Roe<void> AuthorityTrail::observeCertificate(const Ledger::Record& record, uint64_t blockId, uint64_t epoch) {
   if (auto frozen = chain_tx::requireAdminSetNotFrozen(authority_, "Beacon certificate", epoch); !frozen) {
     return frozen;
   }
@@ -204,7 +206,7 @@ chain_tx::Roe<void> AuthorityTrail::observeCertificate(const Ledger::Record &rec
   return {};
 }
 
-chain_tx::Roe<BeaconCertificate> AuthorityTrail::acceptOutOfBand(const Ledger::Record &record) {
+chain_tx::Roe<BeaconCertificate> AuthorityTrail::acceptOutOfBand(const Ledger::Record& record) {
   if (record.type != Ledger::T_BEACON_CERT) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Not a beacon certificate record");
   }
@@ -234,8 +236,8 @@ chain_tx::Roe<BeaconCertificate> AuthorityTrail::acceptOutOfBand(const Ledger::R
   return cert;
 }
 
-chain_tx::Roe<void> AuthorityTrail::verifyTip(const Client::SignedTip &tip) const {
-  const auto &beacon = authority_.beacon;
+chain_tx::Roe<void> AuthorityTrail::verifyTip(const Client::SignedTip& tip) const {
+  const auto& beacon = authority_.beacon;
   if (tip.networkId != networkId_) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Signed tip is for network '" + tip.networkId + "'");
   }
@@ -246,18 +248,17 @@ chain_tx::Roe<void> AuthorityTrail::verifyTip(const Client::SignedTip &tip) cons
                                  " (cutover at block " + std::to_string(beacon.cutoverHeight) + ")");
   }
   if (tip.generation > beacon.generation) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Signed tip is from beacon generation " + std::to_string(tip.generation) +
-                                 ", which no certificate here names (generation " +
-                                 std::to_string(beacon.generation) + " is in force)");
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Signed tip is from beacon generation " +
+                                                             std::to_string(tip.generation) +
+                                                             ", which no certificate here names (generation " +
+                                                             std::to_string(beacon.generation) + " is in force)");
   }
   if (seen_ && tip.generation < seen_->generation && tip.height > seen_->cutoverHeight) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Signed tip at block " + std::to_string(tip.height) + " is past block " +
-                                 std::to_string(seen_->cutoverHeight) + ", the last one generation " +
-                                 std::to_string(tip.generation) + " may sign: generation " +
-                                 std::to_string(seen_->generation) +
-                                 " is certified (seen out of band, not on chain here yet)");
+    return chain_tx::TxError(
+        chain_err::E_TX_VALIDATION,
+        "Signed tip at block " + std::to_string(tip.height) + " is past block " + std::to_string(seen_->cutoverHeight) +
+            ", the last one generation " + std::to_string(tip.generation) + " may sign: generation " +
+            std::to_string(seen_->generation) + " is certified (seen out of band, not on chain here yet)");
   }
   if (equivocation_ && tip.generation == equivocation_->generation() && tip.height > equivocation_->height()) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
@@ -273,8 +274,7 @@ chain_tx::Roe<void> AuthorityTrail::verifyTip(const Client::SignedTip &tip) cons
   return {};
 }
 
-chain_tx::Roe<void> AuthorityTrail::observeRecovery(const Ledger::Record &record, uint64_t blockId,
-                                                    uint64_t epoch) {
+chain_tx::Roe<void> AuthorityTrail::observeRecovery(const Ledger::Record& record, uint64_t blockId, uint64_t epoch) {
   // Only the recovery set in force may announce; the admin set it replaces cannot (B004).
   auto tx = utl::binaryUnpack<Ledger::TxRecovery>(record.data);
   if (!tx) {

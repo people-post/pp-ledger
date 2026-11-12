@@ -22,11 +22,8 @@ namespace pp {
 
 /** Callables for scanning block records for serialized account metadata. */
 struct FnAccountMetaForRecord {
-  std::function<std::optional<std::string>(const Ledger::Record &, uint64_t)>
-      fnUser;
-  std::function<std::optional<std::string>(const Ledger::Record &,
-                                             const Ledger::Block &)>
-      fnGenesis;
+  std::function<std::optional<std::string>(const Ledger::Record&, uint64_t)> fnUser;
+  std::function<std::optional<std::string>(const Ledger::Record&, const Ledger::Block&)> fnGenesis;
 };
 
 /**
@@ -85,32 +82,28 @@ struct TxContext {
   /** While an importing genesis's span is open (blocks 1..k); none otherwise. */
   std::optional<ImportProgress> importProgress{std::nullopt};
   std::optional<FnAccountMetaForRecord> fnAccountMetaForRecord{std::nullopt};
-  std::optional<chain_tx::FnIdempotencyKeyForRecord> fnIdempotencyKeyForRecord{
-      std::nullopt};
+  std::optional<chain_tx::FnIdempotencyKeyForRecord> fnIdempotencyKeyForRecord{std::nullopt};
   /** What the idempotency scan keeps of each block (read and decoded once; lr8). */
   std::shared_ptr<chain_tx::IdempotencyScanCache> idempotencyScanCache{
       std::make_shared<chain_tx::IdempotencyScanCache>()};
-  std::optional<chain_tx::FnBillableCustomMetaSizeForFee>
-      fnBillableCustomMetaSizeForFee{std::nullopt};
+  std::optional<chain_tx::FnBillableCustomMetaSizeForFee> fnBillableCustomMetaSizeForFee{std::nullopt};
 };
 
 /** Scratch-buffer / mempool path after signature validation. */
 struct BufferApplyContext {
-  const TxContext &ctx;
+  const TxContext& ctx;
   uint64_t blockId{0};
   uint64_t effectiveSlot{0};
-  chain_block::BlockAdmissionMode admissionMode{
-      chain_block::BlockAdmissionMode::Full};
+  chain_block::BlockAdmissionMode admissionMode{chain_block::BlockAdmissionMode::Full};
 };
 
 /** Committed-chain (block replay) path after signature validation. */
 struct BlockApplyContext {
-  TxContext &ctx;
+  TxContext& ctx;
   uint64_t blockId{0};
   uint64_t blockSlot{0};
   uint64_t slotLeaderId{0};
-  chain_block::BlockAdmissionMode admissionMode{
-      chain_block::BlockAdmissionMode::Full};
+  chain_block::BlockAdmissionMode admissionMode{chain_block::BlockAdmissionMode::Full};
 };
 
 } // namespace pp

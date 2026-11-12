@@ -63,8 +63,7 @@ TEST(EpochSeedV2, IsDeterministic) {
   const std::string prev(32, '\x07');
   const std::string r(32, '\x11');
   EXPECT_EQ(deriveEpochSeedV2(5, "net", prev, r), deriveEpochSeedV2(5, "net", prev, r));
-  EXPECT_EQ(deriveEpochSeedV2(5, "net", prev, std::nullopt),
-            deriveEpochSeedV2(5, "net", prev, std::nullopt));
+  EXPECT_EQ(deriveEpochSeedV2(5, "net", prev, std::nullopt), deriveEpochSeedV2(5, "net", prev, std::nullopt));
 }
 
 // Known answers, computed once from this code and checked against an independent implementation
@@ -72,8 +71,7 @@ TEST(EpochSeedV2, IsDeterministic) {
 // string or the preimage layout forks every network: it must fail here first.
 TEST(EpochSeedKnownAnswers, BeaconSeedStepAndValue) {
   const std::string s(32, '\x01');
-  EXPECT_EQ(pp::utl::hexEncode(beaconSeedStep(s)),
-            "d79cda60036be7c3d9e5559a093005acf56d5a6e5dbb992e0439dc9429883a23");
+  EXPECT_EQ(pp::utl::hexEncode(beaconSeedStep(s)), "d79cda60036be7c3d9e5559a093005acf56d5a6e5dbb992e0439dc9429883a23");
   EXPECT_EQ(pp::utl::hexEncode(beaconSeedValue(s, 3)),
             "d05393c3797843af41e89ef2f224bfe576c2fe2fb195a3b0d5f81840a9d70ed1");
 }

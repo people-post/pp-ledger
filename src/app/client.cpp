@@ -41,17 +41,15 @@
 static constexpr uint64_t ID_GENESIS = pp::AccountIds::ID_GENESIS;
 static constexpr uint64_t ID_FIRST_USER = pp::AccountIds::ID_FIRST_USER;
 
-static pp::Client::UserAccount makeNewUserAccountMeta(const std::string& pubkeyHex,
-                                                     uint64_t amount,
-                                                     const std::string& metaDesc,
-                                                     uint8_t minSignatures) {
+static pp::Client::UserAccount makeNewUserAccountMeta(const std::string& pubkeyHex, uint64_t amount,
+                                                      const std::string& metaDesc, uint8_t minSignatures) {
   pp::Client::UserAccount account;
   std::string pk = pubkeyHex;
   if (pk.size() >= 2 && (pk[0] == '0' && (pk[1] == 'x' || pk[1] == 'X')))
     pk = pk.substr(2);
   std::string decoded = pp::utl::hexDecode(pk);
   if (decoded.size() != pp::utl::kMlDsaPublicKeyBytes) {
-    return account;  // Caller should validate
+    return account; // Caller should validate
   }
   account.wallet.publicKeys.push_back(decoded);
   account.wallet.minSignatures = minSignatures;
@@ -71,13 +69,12 @@ static uint64_t randomAccountId() {
 }
 
 /** Set idempotency and validation window on a user transaction (T_DEFAULT, T_NEW_USER, etc.). */
-static void setValidationWindow(uint64_t& idempotentId, int64_t& validationTsMin,
-                                int64_t& validationTsMax) {
+static void setValidationWindow(uint64_t& idempotentId, int64_t& validationTsMin, int64_t& validationTsMax) {
   const int64_t now = static_cast<int64_t>(
-      std::chrono::duration_cast<std::chrono::seconds>(
-          std::chrono::system_clock::now().time_since_epoch()).count());
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
   idempotentId = static_cast<uint64_t>(now) ^ (randomAccountId() & 0xFFFFULL);
-  if (idempotentId == 0) idempotentId = 1;
+  if (idempotentId == 0)
+    idempotentId = 1;
   validationTsMin = now - 60;
   validationTsMax = now + 3600;
 }
@@ -97,7 +94,7 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
       std::cout << "Certificate: generation " << cert.generation << ", cutover "
                 << (cert.cutoverHeight == UINT64_MAX ? std::string("none") : std::to_string(cert.cutoverHeight))
                 << "\n";
-      for (const auto &hint : cert.dialHints) {
+      for (const auto& hint : cert.dialHints) {
         std::cout << "Certificate dial hint: " << hint << "\n";
       }
     } else {
@@ -112,13 +109,13 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
   }
   if (status.rewound) {
     std::cout << "Rewound: kept blocks up to " << status.rewound->keptUpTo << ", dropped "
-              << status.rewound->keptUpTo + 1 << " to " << status.rewound->droppedUpTo
-              << " (beacon generation " << status.rewound->generation << " cutover"
+              << status.rewound->keptUpTo + 1 << " to " << status.rewound->droppedUpTo << " (beacon generation "
+              << status.rewound->generation << " cutover"
               << (status.rewound->crossedFinality ? "; approved past finality: final blocks undone" : "") << ")\n";
   }
   if (status.finalizedHeight) {
-    std::cout << "Finalized: up to block " << *status.finalizedHeight << " (finality "
-              << status.finalitySeconds << " s of slot time)\n";
+    std::cout << "Finalized: up to block " << *status.finalizedHeight << " (finality " << status.finalitySeconds
+              << " s of slot time)\n";
   }
   if (status.equivocation) {
     std::cout << "Equivocation: generation " << status.equivocation->generation() << " at block "
@@ -143,8 +140,7 @@ static int signAndSubmit(pp::Client& client, uint16_t type, std::string payload,
     std::cerr << "Error: " << networkId.error().message << "\n";
     return 1;
   }
-  auto sigResult =
-      pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId.value()));
+  auto sigResult = pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId.value()));
   if (!sigResult) {
     std::cerr << "Error: " << sigResult.error().message << "\n";
     return 1;
@@ -159,8 +155,8 @@ static int signAndSubmit(pp::Client& client, uint16_t type, std::string payload,
   return 0;
 }
 
-static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
-                    uint64_t amount, uint64_t fee, const std::string& key, uint64_t idempotentId) {
+static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount, uint64_t fee,
+                    const std::string& key, uint64_t idempotentId) {
   pp::Ledger::TxDefault tx;
   tx.fromWalletId = fromWalletId;
   tx.toWalletId = toWalletId;
@@ -170,14 +166,13 @@ static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWallet
   if (idempotentId != 0) {
     tx.idempotentId = idempotentId; // run again with the same id, the chain takes it once
   }
-  std::cout << "Idempotent id: " << tx.idempotentId
-            << " (to run this again safely, pass --idempotent-id " << tx.idempotentId << ")\n";
+  std::cout << "Idempotent id: " << tx.idempotentId << " (to run this again safely, pass --idempotent-id "
+            << tx.idempotentId << ")\n";
   return signAndSubmit(client, pp::Ledger::T_DEFAULT, pp::utl::binaryPack(tx), key);
 }
 
 /** T_MINER_REGISTER / T_MINER_REVOKE, signed by the account itself. */
-static int runMinerTx(pp::Client& client, uint16_t type, uint64_t walletId, uint64_t fee,
-                      const std::string& key) {
+static int runMinerTx(pp::Client& client, uint16_t type, uint64_t walletId, uint64_t fee, const std::string& key) {
   pp::Ledger::TxMiner tx;
   tx.walletId = walletId;
   tx.fee = fee;
@@ -189,7 +184,8 @@ using TxRecord = pp::Ledger::Record;
 
 static pp::Roe<std::string> readFileContent(const std::string& path) {
   std::ifstream f(path, std::ios::binary);
-  if (!f) return pp::Error(1, "Cannot open file: " + path);
+  if (!f)
+    return pp::Error(1, "Cannot open file: " + path);
   std::ostringstream oss;
   oss << f.rdbuf();
   if (!f)
@@ -197,8 +193,7 @@ static pp::Roe<std::string> readFileContent(const std::string& path) {
   return oss.str();
 }
 
-static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount,
-                   const std::string& outputPath) {
+static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount, const std::string& outputPath) {
   pp::Ledger::TxDefault tx;
   tx.fromWalletId = fromWalletId;
   tx.toWalletId = toWalletId;
@@ -223,14 +218,14 @@ static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount,
  * at one height for two made-up blocks. For drills and tests: it halts every node that takes it
  * until the admins certify a later generation. Submit with add-equivocation.
  */
-static int runMkEquivocation(const std::string &networkId, uint64_t generation, uint64_t height,
-                             const std::string &key, const std::string &outputPath) {
+static int runMkEquivocation(const std::string& networkId, uint64_t generation, uint64_t height, const std::string& key,
+                             const std::string& outputPath) {
   auto keyResult = pp::utl::readPrivateKey(key, "");
   if (!keyResult) {
     std::cerr << "Error: --key: " << keyResult.error().message << "\n";
     return 1;
   }
-  auto tipFor = [&](const std::string &label) -> std::optional<pp::Client::SignedTip> {
+  auto tipFor = [&](const std::string& label) -> std::optional<pp::Client::SignedTip> {
     pp::Client::SignedTip tip;
     tip.networkId = networkId;
     tip.generation = generation;
@@ -260,7 +255,7 @@ static int runMkEquivocation(const std::string &networkId, uint64_t generation, 
 }
 
 /** add-equivocation (ba6): push evidence from a file to a node, which keeps it and passes it up. */
-static int runAddEquivocation(pp::Client &client, const std::string &filePath) {
+static int runAddEquivocation(pp::Client& client, const std::string& filePath) {
   auto content = readFileContent(filePath);
   if (!content) {
     std::cerr << "Error: " << content.error().message << "\n";
@@ -281,7 +276,7 @@ static int runAddEquivocation(pp::Client &client, const std::string &filePath) {
 }
 
 /** An ML-DSA-65 public key given as hex or as a .pub file; empty if it is not one. */
-static std::string readPublicKeyArg(const std::string &arg) {
+static std::string readPublicKeyArg(const std::string& arg) {
   std::string hex = arg;
   if (std::ifstream pubFile(arg); pubFile) {
     std::ostringstream text;
@@ -301,11 +296,11 @@ static std::string readPublicKeyArg(const std::string &arg) {
  * recovery key holders add their signatures with sign-tx (--network-id) and submit with submit-tx;
  * it applies `delayEpochs` after it commits, and freezes the admin set until then.
  */
-static int runMkRecovery(const std::string &networkId, const std::vector<std::string> &adminKeyArgs,
-                         unsigned minSignatures, const std::string &outputPath) {
+static int runMkRecovery(const std::string& networkId, const std::vector<std::string>& adminKeyArgs,
+                         unsigned minSignatures, const std::string& outputPath) {
   pp::RecoveryAnnouncement announcement;
   announcement.networkId = networkId;
-  for (const auto &arg : adminKeyArgs) {
+  for (const auto& arg : adminKeyArgs) {
     std::string key = readPublicKeyArg(arg);
     if (key.empty()) {
       std::cerr << "Error: --admin-pubkey " << arg << " is not an ML-DSA-65 public key (hex or a .pub file)\n";
@@ -330,9 +325,8 @@ static int runMkRecovery(const std::string &networkId, const std::vector<std::st
     std::cerr << "Error: " << result.error().message << "\n";
     return 1;
   }
-  std::cout << "Recovery announcement (" << announcement.adminPublicKeys.size() << " admin keys, "
-            << minSignatures << " signatures) written to " << outputPath
-            << ": sign with the recovery keys (sign-tx), then submit-tx\n";
+  std::cout << "Recovery announcement (" << announcement.adminPublicKeys.size() << " admin keys, " << minSignatures
+            << " signatures) written to " << outputPath << ": sign with the recovery keys (sign-tx), then submit-tx\n";
   return 0;
 }
 
@@ -341,7 +335,7 @@ static int runMkRecovery(const std::string &networkId, const std::vector<std::st
  * to, return its hash — computed from the block, not taken from the node — and print how much the
  * cut drops, so the admins see it before they sign.
  */
-static pp::Roe<std::string> describeCutover(pp::Client &client, uint64_t cutover) {
+static pp::Roe<std::string> describeCutover(pp::Client& client, uint64_t cutover) {
   auto status = client.fetchBeaconState();
   if (!status) {
     return pp::Error(1, "Failed to read the node's status: " + status.error().message);
@@ -349,7 +343,8 @@ static pp::Roe<std::string> describeCutover(pp::Client &client, uint64_t cutover
   const uint64_t next = status.value().nextBlockId;
   if (cutover >= next) {
     return pp::Error(1, "Block " + std::to_string(cutover) + " does not exist on this node (next block " +
-                            std::to_string(next) + "): a cutover names a block the old key already signed. An "
+                            std::to_string(next) +
+                            "): a cutover names a block the old key already signed. An "
                             "honest rotation needs no cutover");
   }
   auto block = client.fetchBlock(cutover);
@@ -371,10 +366,10 @@ static pp::Roe<std::string> describeCutover(pp::Client &client, uint64_t cutover
  * mk-beacon-cert (beacon-authority ba2): an unsigned T_BEACON_CERT record for the next beacon
  * generation. Admins add their signatures with sign-tx (--network-id) and submit with submit-tx.
  */
-static int runMkBeaconCert(const std::string &networkId, uint64_t generation, const std::string &pubkeyArg,
-                           uint64_t cutoverHeight, const std::string &cutoverHash,
-                           const std::vector<std::string> &dialHints, const std::string &seedAnchorArg,
-                           uint64_t seedAnchorEpoch, uint64_t seedChainLength, const std::string &outputPath) {
+static int runMkBeaconCert(const std::string& networkId, uint64_t generation, const std::string& pubkeyArg,
+                           uint64_t cutoverHeight, const std::string& cutoverHash,
+                           const std::vector<std::string>& dialHints, const std::string& seedAnchorArg,
+                           uint64_t seedAnchorEpoch, uint64_t seedChainLength, const std::string& outputPath) {
   pp::BeaconCertificate cert;
   cert.networkId = networkId;
   cert.generation = generation;
@@ -421,7 +416,7 @@ static int runMkBeaconCert(const std::string &networkId, uint64_t generation, co
 }
 
 /** beacon-seed-keygen: a seed chain secret, written like the beacon's own (hex, 0600, never overwritten). */
-static int runBeaconSeedKeygen(const std::string &outputPath, uint64_t length) {
+static int runBeaconSeedKeygen(const std::string& outputPath, uint64_t length) {
   if (length < 1 || length > pp::consensus::kMaxBeaconSeedChainLength) {
     std::cerr << "Error: --length must be 1 to " << pp::consensus::kMaxBeaconSeedChainLength << "\n";
     return 1;
@@ -433,21 +428,22 @@ static int runBeaconSeedKeygen(const std::string &outputPath, uint64_t length) {
     std::cerr << "Error: " << outputPath << ": " << written.error().message << "\n";
     return 1;
   }
-  std::cout << "Seed secret written to " << outputPath << " (keep secret; the beacon reads it as keys/beacon-seed.next.secret "
+  std::cout << "Seed secret written to " << outputPath
+            << " (keep secret; the beacon reads it as keys/beacon-seed.next.secret "
             << "until promoted)\n"
             << "Seed anchor (hex):  " << pp::utl::hexEncode(pp::consensus::beaconSeedValue(secret, length)) << "\n"
             << "Chain length:       " << length << " epochs\n"
-            << "Certify with: mk-beacon-cert --seed-anchor <anchor> --seed-anchor-epoch <an epoch at or before the one the certificate commits in> "
+            << "Certify with: mk-beacon-cert --seed-anchor <anchor> --seed-anchor-epoch <an epoch at or before the one "
+               "the certificate commits in> "
             << "--seed-chain-length " << length << "\n";
   return 0;
 }
 
-static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount,
-                       uint64_t fee, const std::string& newPubkeyHex,
-                       const std::string& metaDesc, uint8_t minSignatures,
-                       const std::string& outputPath, bool toWasGenerated) {
+static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount, uint64_t fee,
+                        const std::string& newPubkeyHex, const std::string& metaDesc, uint8_t minSignatures,
+                        const std::string& outputPath, bool toWasGenerated) {
   std::string pubkeyToUse;
-  std::string privateKeyToPrint;  // Non-empty when key was auto-generated
+  std::string privateKeyToPrint; // Non-empty when key was auto-generated
   if (!newPubkeyHex.empty()) {
     auto userAccount = makeNewUserAccountMeta(newPubkeyHex, amount, metaDesc, minSignatures);
     if (userAccount.wallet.publicKeys.empty()) {
@@ -490,7 +486,8 @@ static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amo
   }
   std::cout << "T_NEW_USER transaction written to " << outputPath << "\n";
   std::cout << "  New account ID:    " << toWalletId;
-  if (toWasGenerated) std::cout << " (randomly generated - save this ID)";
+  if (toWasGenerated)
+    std::cout << " (randomly generated - save this ID)";
   std::cout << "\n";
   if (!privateKeyToPrint.empty()) {
     std::cout << "\nGenerated new key pair. Save the private key securely:\n";
@@ -500,12 +497,11 @@ static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amo
   return 0;
 }
 
-static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
-                         uint64_t amount, uint64_t fee, const std::string& newPubkeyHex,
-                         const std::string& metaDesc, uint8_t minSignatures,
+static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount, uint64_t fee,
+                         const std::string& newPubkeyHex, const std::string& metaDesc, uint8_t minSignatures,
                          const std::string& key, bool toWasGenerated) {
   std::string pubkeyToUse;
-  std::string privateKeyToPrint;  // Non-empty when key was auto-generated
+  std::string privateKeyToPrint; // Non-empty when key was auto-generated
   if (!newPubkeyHex.empty()) {
     auto userAccount = makeNewUserAccountMeta(newPubkeyHex, amount, metaDesc, minSignatures);
     if (userAccount.wallet.publicKeys.empty()) {
@@ -551,8 +547,7 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
     std::cerr << "Error: " << networkId.error().message << "\n";
     return 1;
   }
-  auto sigResult =
-      pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId.value()));
+  auto sigResult = pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId.value()));
   if (!sigResult) {
     std::cerr << "Error: " << sigResult.error().message << "\n";
     return 1;
@@ -565,7 +560,8 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   }
   std::cout << "Account creation transaction submitted successfully\n";
   std::cout << "  New account ID:    " << toWalletId;
-  if (toWasGenerated) std::cout << " (randomly generated - save this ID)";
+  if (toWasGenerated)
+    std::cout << " (randomly generated - save this ID)";
   std::cout << "\n";
   if (!privateKeyToPrint.empty()) {
     std::cout << "\nGenerated new key pair. Save the private key securely:\n";
@@ -575,8 +571,7 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   return 0;
 }
 
-static int runSignTx(const std::string& filePath, const std::string& key,
-                     const std::string& networkId) {
+static int runSignTx(const std::string& filePath, const std::string& key, const std::string& networkId) {
   auto content = readFileContent(filePath);
   if (!content) {
     std::cerr << "Error: " << content.error().message << "\n";
@@ -676,8 +671,7 @@ static int runExportState(const std::string& dir, uint64_t height, const std::st
     return 1;
   }
   const std::string ledgerDir = (std::filesystem::path(dir) / "data" / "ledger").string();
-  auto snapshot =
-      pp::state_export::exportState(ledgerDir, height, scratch.empty() ? out + ".scratch" : scratch);
+  auto snapshot = pp::state_export::exportState(ledgerDir, height, scratch.empty() ? out + ".scratch" : scratch);
   if (!snapshot) {
     std::cerr << "Error: " << snapshot.error().message << "\n";
     return 1;
@@ -785,7 +779,7 @@ static int runLoad(const std::string& host, pp::load::RunConfig cfg, const std::
   return 0;
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   CLI::App app{"pp-client - Command-line client for pp-ledger beacon and miner servers"};
   app.require_subcommand(1);
 
@@ -794,16 +788,14 @@ int main(int argc, char *argv[]) {
   app.add_flag("--debug", debug, "Enable debug logging");
 
   std::string host = pp::Client::DEFAULT_HOST;
-  app.add_option("--host", host, "Server host (or host:port)")
-      ->capture_default_str();
+  app.add_option("--host", host, "Server host (or host:port)")->capture_default_str();
 
   std::string hostFile;
   app.add_option("--host-file", hostFile,
                  "Read the server multiaddr from a file (a node writes <work dir>/listen.multiaddr)");
 
   uint16_t port = 0;
-  app.add_option("-p,--port", port, "Server port (overrides default)")
-      ->check(CLI::Range(1, 65535));
+  app.add_option("-p,--port", port, "Server port (overrides default)")->check(CLI::Range(1, 65535));
 
   bool connectToBeacon = false;
   app.add_flag("-b,--beacon", connectToBeacon, "Connect to BeaconServer (default port: 8517)");
@@ -845,19 +837,20 @@ int main(int argc, char *argv[]) {
   uint64_t exportHeight = 0;
   std::string exportOut;
   std::string exportScratch;
-  export_state_cmd->add_option("-d,--dir", exportDir, "A full node's work directory (a relay's: from genesis); left as it is")
+  export_state_cmd
+      ->add_option("-d,--dir", exportDir, "A full node's work directory (a relay's: from genesis); left as it is")
       ->required();
   export_state_cmd->add_option("--height", exportHeight, "The last block whose state is exported")->required();
   export_state_cmd->add_option("-o,--out", exportOut, "Snapshot file to write (never overwritten)")->required();
-  export_state_cmd->add_option("--scratch", exportScratch,
-                               "Where to copy the ledger while exporting: a path that does not exist (default: <out>.scratch; removed after)");
+  export_state_cmd->add_option(
+      "--scratch", exportScratch,
+      "Where to copy the ledger while exporting: a path that does not exist (default: <out>.scratch; removed after)");
 
   // Local command: peer-id
   auto* peer_id_cmd = app.add_subcommand(
       "peer-id", "Print the network peer id and public key of a private key (to write multiaddrs ahead of start)");
   std::string peerIdKey;
-  peer_id_cmd->add_option("key", peerIdKey, "Private key: hex, or a key file (e.g. keys/amp-identity.txt)")
-      ->required();
+  peer_id_cmd->add_option("key", peerIdKey, "Private key: hex, or a key file (e.g. keys/amp-identity.txt)")->required();
 
   // Any node: health (a container health check: exit 0 when live, with --ready when ready)
   // Any node of a new network: check its re-genesis against an old ledger (beacon-authority B037)
@@ -883,7 +876,8 @@ int main(int argc, char *argv[]) {
       "config", "Get the config in force (and any update pending), the admin keys and the authority");
 
   auto* verified_cmd = app.add_subcommand(
-      "verified-account", "An account proven from a pinned genesis hash: no node believed (use -b/--beacon or -m/--miner)");
+      "verified-account",
+      "An account proven from a pinned genesis hash: no node believed (use -b/--beacon or -m/--miner)");
   uint64_t verifiedId = 0;
   std::string verifiedGenesis;
   verified_cmd->add_option("accountId", verifiedId, "Account ID")->required();
@@ -905,24 +899,22 @@ int main(int argc, char *argv[]) {
   uint64_t accountId = 0;
   account_cmd->add_option("accountId", accountId, "Account ID")->required();
 
-  auto* txs_cmd = app.add_subcommand("transactions",
-                                    "Get transactions by wallet ID (use -b/--beacon or -m/--miner)");
+  auto* txs_cmd = app.add_subcommand("transactions", "Get transactions by wallet ID (use -b/--beacon or -m/--miner)");
   uint64_t txs_walletId = 0;
   uint64_t txs_beforeBlockId = 0;
   txs_cmd->add_option("walletId", txs_walletId, "Wallet ID to query")->required();
-  txs_cmd->add_option("--before", txs_beforeBlockId,
-                     "Search backwards from before this block ID (0 = latest)")
+  txs_cmd->add_option("--before", txs_beforeBlockId, "Search backwards from before this block ID (0 = latest)")
       ->default_val(0);
 
   auto* producers_cmd = app.add_subcommand(
-      "producers", "Who produced blocks [--from, --to), the fees in them, misses charged (use -b/--beacon or -m/--miner)");
+      "producers",
+      "Who produced blocks [--from, --to), the fees in them, misses charged (use -b/--beacon or -m/--miner)");
   uint64_t producersFrom = 1;
   uint64_t producersTo = 0;
   producers_cmd->add_option("--from", producersFrom, "First block")->default_val(1);
   producers_cmd->add_option("--to", producersTo, "Block after the last (0: the tip)")->default_val(0);
 
-  auto* tx_cmd = app.add_subcommand("transaction",
-                                    "Get transaction by chain index (use -b/--beacon or -m/--miner)");
+  auto* tx_cmd = app.add_subcommand("transaction", "Get transaction by chain index (use -b/--beacon or -m/--miner)");
   uint64_t tx_index = 0;
   tx_cmd->add_option("index", tx_index, "Transaction index (0-based)")->required();
 
@@ -935,18 +927,15 @@ int main(int argc, char *argv[]) {
   add_tx_cmd->add_option("from", fromWalletId, "From wallet ID")->required();
   add_tx_cmd->add_option("to", toWalletId, "To wallet ID")->required();
   add_tx_cmd->add_option("amount", amount, "Amount to transfer")->required();
-  add_tx_cmd->add_option("-f,--fee", fee, "Transaction fee (default: 0)")
-      ->default_val(0);
-  add_tx_cmd->add_option("-k,--key", key, "Private key (hex or file) to sign the transaction")
-      ->required();
+  add_tx_cmd->add_option("-f,--fee", fee, "Transaction fee (default: 0)")->default_val(0);
+  add_tx_cmd->add_option("-k,--key", key, "Private key (hex or file) to sign the transaction")->required();
   uint64_t addTxIdempotentId = 0;
   add_tx_cmd->add_option("--idempotent-id", addTxIdempotentId,
                          "Idempotent id (default: random). The same id again is taken once: a safe re-run");
 
   // miner-register / miner-revoke: the account opts in or out of mining (from the next epoch)
   auto* miner_register_cmd = app.add_subcommand(
-      "miner-register",
-      "Register an account as a miner (fee: meta fee + minerRegistrationFee; relay or beacon, -b)");
+      "miner-register", "Register an account as a miner (fee: meta fee + minerRegistrationFee; relay or beacon, -b)");
   auto* miner_revoke_cmd =
       app.add_subcommand("miner-revoke", "Revoke an account's miner registration (relay or beacon, -b)");
   uint64_t minerWalletId = 0;
@@ -966,8 +955,7 @@ int main(int argc, char *argv[]) {
   mk_tx_cmd->add_option("from", mk_from, "From wallet ID")->required();
   mk_tx_cmd->add_option("to", mk_to, "To wallet ID")->required();
   mk_tx_cmd->add_option("amount", mk_amount, "Amount to transfer")->required();
-  mk_tx_cmd->add_option("-o,--output", mk_output, "Output file (must not exist)")
-      ->required();
+  mk_tx_cmd->add_option("-o,--output", mk_output, "Output file (must not exist)")->required();
 
   // mk-beacon-cert: create an unsigned T_BEACON_CERT record file
   auto* mk_cert_cmd = app.add_subcommand(
@@ -977,8 +965,7 @@ int main(int argc, char *argv[]) {
   std::vector<std::string> mk_cert_hints;
   mk_cert_cmd->add_option("--network-id", mk_cert_network, "The chain's networkId")->required();
   mk_cert_cmd->add_option("--generation", mk_cert_generation, "The new generation (current + 1)")->required();
-  mk_cert_cmd->add_option("--pubkey", mk_cert_pubkey, "New beacon signing public key (hex or .pub file)")
-      ->required();
+  mk_cert_cmd->add_option("--pubkey", mk_cert_pubkey, "New beacon signing public key (hex or .pub file)")->required();
   mk_cert_cmd->add_option("--cutover", mk_cert_cutover,
                           "Last block the previous generation may sign — when its key is stolen. Reads the "
                           "block from the node given with -b --host, fills its hash and shows what the cut "
@@ -988,22 +975,24 @@ int main(int argc, char *argv[]) {
                           "repeat for more (at most 8)");
   std::string mk_cert_seed_anchor;
   uint64_t mk_cert_seed_anchor_epoch = 0, mk_cert_seed_chain_length = pp::consensus::kDefaultBeaconSeedChainLength;
-  auto *mk_cert_seed_anchor_opt =
+  auto* mk_cert_seed_anchor_opt =
       mk_cert_cmd->add_option("--seed-anchor", mk_cert_seed_anchor,
                               "Anchor (hex) of the new beacon's seed chain, as beacon-seed-keygen prints it. "
                               "Default: none (the beacon contributes no seed)");
   // Without the anchor these would be dropped: refuse them rather than write a seedless certificate.
-  mk_cert_cmd->add_option("--seed-anchor-epoch", mk_cert_seed_anchor_epoch,
-                          "Epoch the anchor stands for; reveals count back from it (default 0). Needs --seed-anchor")
+  mk_cert_cmd
+      ->add_option("--seed-anchor-epoch", mk_cert_seed_anchor_epoch,
+                   "Epoch the anchor stands for; reveals count back from it (default 0). Needs --seed-anchor")
       ->needs(mk_cert_seed_anchor_opt);
-  mk_cert_cmd->add_option("--seed-chain-length", mk_cert_seed_chain_length,
-                          "Epochs the chain covers, 1 to 100000 (default 10000). Needs --seed-anchor")
+  mk_cert_cmd
+      ->add_option("--seed-chain-length", mk_cert_seed_chain_length,
+                   "Epochs the chain covers, 1 to 100000 (default 10000). Needs --seed-anchor")
       ->needs(mk_cert_seed_anchor_opt);
   mk_cert_cmd->add_option("-o,--output", mk_cert_output, "Output file (must not exist)")->required();
 
   // beacon-seed-keygen: the secret behind a certificate's seedAnchor
-  auto* seed_keygen_cmd = app.add_subcommand("beacon-seed-keygen",
-                                             "Generate a beacon seed chain secret and print its anchor");
+  auto* seed_keygen_cmd =
+      app.add_subcommand("beacon-seed-keygen", "Generate a beacon seed chain secret and print its anchor");
   std::string seedKeygenOut;
   uint64_t seedKeygenLength = pp::consensus::kDefaultBeaconSeedChainLength;
   seed_keygen_cmd->add_option("-o,--out", seedKeygenOut, "Secret file (hex, 0600; never overwrites)")->required();
@@ -1016,8 +1005,9 @@ int main(int argc, char *argv[]) {
   std::vector<std::string> mk_recovery_admins;
   unsigned mk_recovery_min_sig = 0;
   mk_recovery_cmd->add_option("--network-id", mk_recovery_network, "The chain's networkId")->required();
-  mk_recovery_cmd->add_option("--admin-pubkey", mk_recovery_admins,
-                              "A new admin public key (hex or .pub file); repeat for each (at least 3)")
+  mk_recovery_cmd
+      ->add_option("--admin-pubkey", mk_recovery_admins,
+                   "A new admin public key (hex or .pub file); repeat for each (at least 3)")
       ->required();
   mk_recovery_cmd->add_option("--min-signatures", mk_recovery_min_sig, "Signatures the new admin set requires")
       ->required();
@@ -1040,8 +1030,7 @@ int main(int argc, char *argv[]) {
       ->required();
 
   // mk-account: create unsigned T_NEW_USER transaction file
-  auto* mk_account_cmd = app.add_subcommand("mk-account",
-                                            "Create unsigned T_NEW_USER transaction file");
+  auto* mk_account_cmd = app.add_subcommand("mk-account", "Create unsigned T_NEW_USER transaction file");
   uint64_t mk_acc_from = 0, mk_acc_to = 0;
   uint64_t mk_acc_amount = 0;
   uint64_t mk_acc_fee = 0;
@@ -1051,22 +1040,17 @@ int main(int argc, char *argv[]) {
   std::string mk_acc_output;
   mk_account_cmd->add_option("from", mk_acc_from, "From wallet ID (funding account)")->required();
   mk_account_cmd->add_option("amount", mk_acc_amount, "Initial balance")->required();
-  mk_account_cmd->add_option("-t,--to", mk_acc_to,
-                             "New account ID; if omitted, a random ID is generated")
+  mk_account_cmd->add_option("-t,--to", mk_acc_to, "New account ID; if omitted, a random ID is generated")
       ->default_val(0);
   mk_account_cmd->add_option("-f,--fee", mk_acc_fee, "Transaction fee (default: 0)")->default_val(0);
   mk_account_cmd->add_option("--new-pubkey", mk_acc_pubkey,
                              "New account public key (hex); if omitted, key pair is auto-generated");
   mk_account_cmd->add_option("-m,--meta", mk_acc_meta, "Account description")->default_val("");
-  mk_account_cmd->add_option("--min-signatures", mk_acc_min_sig,
-                             "Required signatures (default: 1)")
-      ->default_val(1);
-  mk_account_cmd->add_option("-o,--output", mk_acc_output, "Output file (must not exist)")
-      ->required();
+  mk_account_cmd->add_option("--min-signatures", mk_acc_min_sig, "Required signatures (default: 1)")->default_val(1);
+  mk_account_cmd->add_option("-o,--output", mk_acc_output, "Output file (must not exist)")->required();
 
   // add-account: create, sign, and submit T_NEW_USER transaction
-  auto* add_account_cmd =
-      app.add_subcommand("add-account", "Create and submit T_NEW_USER account creation");
+  auto* add_account_cmd = app.add_subcommand("add-account", "Create and submit T_NEW_USER account creation");
   uint64_t add_acc_from = 0, add_acc_to = 0;
   uint64_t add_acc_amount = 0;
   uint64_t add_acc_fee = 0;
@@ -1074,23 +1058,16 @@ int main(int argc, char *argv[]) {
   std::string add_acc_meta;
   uint8_t add_acc_min_sig = 1;
   std::string add_account_key;
-  add_account_cmd->add_option("from", add_acc_from, "From wallet ID (funding account)")
-      ->required();
+  add_account_cmd->add_option("from", add_acc_from, "From wallet ID (funding account)")->required();
   add_account_cmd->add_option("amount", add_acc_amount, "Initial balance")->required();
-  add_account_cmd->add_option("-t,--to", add_acc_to,
-                               "New account ID; if omitted, a random ID is generated")
+  add_account_cmd->add_option("-t,--to", add_acc_to, "New account ID; if omitted, a random ID is generated")
       ->default_val(0);
-  add_account_cmd->add_option("-f,--fee", add_acc_fee, "Transaction fee (default: 0)")
-      ->default_val(0);
+  add_account_cmd->add_option("-f,--fee", add_acc_fee, "Transaction fee (default: 0)")->default_val(0);
   add_account_cmd->add_option("--new-pubkey", add_acc_pubkey,
-                               "New account public key (hex); if omitted, key pair is auto-generated");
+                              "New account public key (hex); if omitted, key pair is auto-generated");
   add_account_cmd->add_option("-m,--meta", add_acc_meta, "Account description")->default_val("");
-  add_account_cmd->add_option("--min-signatures", add_acc_min_sig,
-                              "Required signatures (default: 1)")
-      ->default_val(1);
-  add_account_cmd
-      ->add_option("-k,--key", add_account_key,
-                   "Private key (hex or file) of funding account to sign")
+  add_account_cmd->add_option("--min-signatures", add_acc_min_sig, "Required signatures (default: 1)")->default_val(1);
+  add_account_cmd->add_option("-k,--key", add_account_key, "Private key (hex or file) of funding account to sign")
       ->required();
 
   // load-setup / load: the load generator (projects/load-resilience)
@@ -1100,12 +1077,15 @@ int main(int argc, char *argv[]) {
   uint64_t loadSetupTimeout = 300;
   std::string loadSetupOut;
   load_setup_cmd->add_option("--from", loadSetup.from, "Funding account id")->required();
-  load_setup_cmd->add_option("-k,--key", loadSetup.fromKeys, "Funding account private key (hex or file; repeat for each signature)")
+  load_setup_cmd
+      ->add_option("-k,--key", loadSetup.fromKeys,
+                   "Funding account private key (hex or file; repeat for each signature)")
       ->required();
   load_setup_cmd->add_option("-n,--accounts", loadSetup.accounts, "Accounts to create")->default_val(100);
   load_setup_cmd->add_option("--amount", loadSetup.amount, "Balance of each")->default_val(100000);
   load_setup_cmd->add_option("-f,--fee", loadSetup.fee, "Fee of each creation")->default_val(1);
-  load_setup_cmd->add_option("--timeout", loadSetupTimeout, "Seconds to wait for the accounts to exist")->default_val(300);
+  load_setup_cmd->add_option("--timeout", loadSetupTimeout, "Seconds to wait for the accounts to exist")
+      ->default_val(300);
   load_setup_cmd->add_option("-o,--output", loadSetupOut, "Accounts file to write (must not exist)")->required();
 
   auto* load_cmd = app.add_subcommand(
@@ -1114,10 +1094,11 @@ int main(int argc, char *argv[]) {
   std::string loadAccounts, loadMix = "tx_add", loadJson;
   uint64_t loadDuration = 10, loadBurstAt = 0, loadDrain = 60;
   load_cmd->add_option("--accounts", loadAccounts, "Accounts file from load-setup (needed for transfers)");
-  load_cmd->add_option("--mix", loadMix,
-                       "Kinds and weights: tx_add, tx_junk, status, account_get, block_get, tx_get_by_wallet, big, "
-                       "block_wait, register "
-                       "(e.g. tx_add=9,tx_junk=1)")
+  load_cmd
+      ->add_option("--mix", loadMix,
+                   "Kinds and weights: tx_add, tx_junk, status, account_get, block_get, tx_get_by_wallet, big, "
+                   "block_wait, register "
+                   "(e.g. tx_add=9,tx_junk=1)")
       ->default_val("tx_add");
   load_cmd->add_option("-r,--rate", loadRun.rate, "Requests per second, all kinds")->default_val(10);
   load_cmd->add_option("-d,--duration", loadDuration, "Seconds of steady load")->default_val(10);
@@ -1140,13 +1121,13 @@ int main(int argc, char *argv[]) {
   std::string sign_key;
   std::string sign_network_id;
   sign_tx_cmd->add_option("file", sign_tx_file, "Transaction file to sign")->required();
-  sign_tx_cmd->add_option("-k,--key", sign_key, "Private key (hex or file) to sign")
-      ->required();
+  sign_tx_cmd->add_option("-k,--key", sign_key, "Private key (hex or file) to sign")->required();
   sign_tx_cmd->add_option("--network-id", sign_network_id,
                           "Chain networkId for the signing message (must match genesis)");
 
   // submit-tx: submit signed tx file (relay / beacon)
-  auto* submit_tx_cmd = app.add_subcommand("submit-tx", "Submit a signed transaction file (to a relay or the beacon, -b)");
+  auto* submit_tx_cmd =
+      app.add_subcommand("submit-tx", "Submit a signed transaction file (to a relay or the beacon, -b)");
   std::string submit_tx_file;
   submit_tx_cmd->add_option("file", submit_tx_file, "Signed transaction file")->required();
 
@@ -1215,18 +1196,21 @@ int main(int argc, char *argv[]) {
       std::cerr << "Error: " << keyImportIn << ": " << restored.error().message << "\n";
       return 1;
     }
-    if (auto written = pp::utl::writeToNewFile(keyImportOut + ".key", pp::utl::hexEncode(restored.value().privateKey) + "\n");
+    if (auto written =
+            pp::utl::writeToNewFile(keyImportOut + ".key", pp::utl::hexEncode(restored.value().privateKey) + "\n");
         !written) {
       std::cerr << "Error: " << keyImportOut << ".key: " << written.error().message << "\n";
       return 1;
     }
-    if (auto written = pp::utl::writeToNewFile(keyImportOut + ".pub", pp::utl::hexEncode(restored.value().publicKey) + "\n");
+    if (auto written =
+            pp::utl::writeToNewFile(keyImportOut + ".pub", pp::utl::hexEncode(restored.value().publicKey) + "\n");
         !written) {
       std::cerr << "Error: " << keyImportOut << ".pub: " << written.error().message << "\n";
       return 1;
     }
     std::cout << "Key " << (restored.value().label.empty() ? "" : "\"" + restored.value().label + "\" ")
-              << pp::operation::fingerprint(restored.value().publicKey) << " written to " << keyImportOut << ".key/.pub\n";
+              << pp::operation::fingerprint(restored.value().publicKey) << " written to " << keyImportOut
+              << ".key/.pub\n";
     return 0;
   }
 
@@ -1253,7 +1237,8 @@ int main(int argc, char *argv[]) {
     std::cout << "ML-DSA-65 key pair generated.\n";
     std::cout << "Public key (hex):   " << pp::utl::hexEncode(pair->publicKey) << "\n";
     std::cout << "Private key (hex):  " << pp::utl::hexEncode(pair->privateKey) << "\n";
-    std::cout << "\nKeep the private key secret. Use the public key in init-config.json (or -o <name> to write files).\n";
+    std::cout
+        << "\nKeep the private key secret. Use the public key in init-config.json (or -o <name> to write files).\n";
     return 0;
   }
 
@@ -1287,9 +1272,10 @@ int main(int argc, char *argv[]) {
   // Handle mk-account (no server connection needed)
   if (mk_account_cmd->parsed()) {
     uint64_t mk_acc_to_resolved = mk_acc_to;
-    if (mk_acc_to_resolved == 0) mk_acc_to_resolved = randomAccountId();
-    return runMkAccount(mk_acc_from, mk_acc_to_resolved, mk_acc_amount, mk_acc_fee, mk_acc_pubkey,
-                       mk_acc_meta, mk_acc_min_sig, mk_acc_output, mk_acc_to == 0);
+    if (mk_acc_to_resolved == 0)
+      mk_acc_to_resolved = randomAccountId();
+    return runMkAccount(mk_acc_from, mk_acc_to_resolved, mk_acc_amount, mk_acc_fee, mk_acc_pubkey, mk_acc_meta,
+                        mk_acc_min_sig, mk_acc_output, mk_acc_to == 0);
   }
 
   // Handle sign-tx (no server connection needed)
@@ -1342,12 +1328,10 @@ int main(int argc, char *argv[]) {
 
   // Set default port if not specified
   if (parsedPort == 0) {
-    parsedPort = connectToBeacon ? pp::Client::DEFAULT_BEACON_PORT
-                                 : pp::Client::DEFAULT_MINER_PORT;
+    parsedPort = connectToBeacon ? pp::Client::DEFAULT_BEACON_PORT : pp::Client::DEFAULT_MINER_PORT;
   }
 
-  pp::logging::getRootLogger().setLevel(debug ? pp::logging::Level::DEBUG
-                                              : pp::logging::Level::WARNING);
+  pp::logging::getRootLogger().setLevel(debug ? pp::logging::Level::DEBUG : pp::logging::Level::WARNING);
 
   std::string multiaddr = host;
   if (!multiaddr.empty() && multiaddr.front() != '/') {
@@ -1435,8 +1419,7 @@ int main(int argc, char *argv[]) {
   else if (block_cmd->parsed()) {
     auto result = client.fetchBlock(blockId);
     if (result) {
-      std::cout << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2)
-                << "\n";
+      std::cout << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2) << "\n";
     } else {
       std::cerr << "Error: " << result.error().message << "\n";
       exitCode = 1;
@@ -1449,21 +1432,20 @@ int main(int argc, char *argv[]) {
       std::cerr << "Error: " << meta.error().message << "\n";
       return 1;
     }
-    const auto &gm = meta.value();
+    const auto& gm = meta.value();
     std::cout << "Config in force: " << gm.config << "\n";
     if (gm.hasPending) {
       std::cout << "Pending from epoch " << gm.pending.activationEpoch << ": " << gm.pending.config << "\n";
     }
     std::cout << "Admin keys: " << static_cast<int>(gm.genesis.wallet.minSignatures) << " of "
               << gm.genesis.wallet.publicKeys.size() << ":";
-    for (const auto &adminKey : gm.genesis.wallet.publicKeys) {
+    for (const auto& adminKey : gm.genesis.wallet.publicKeys) {
       std::cout << " " << pp::operation::fingerprint(adminKey);
     }
     std::cout << "\nAuthority: " << gm.authority << "\n";
-  }
-  else if (verified_cmd->parsed() || verified_domain_cmd->parsed()) {
+  } else if (verified_cmd->parsed() || verified_domain_cmd->parsed()) {
     exitCode = [&]() -> int {
-      auto fail = [](const std::string &what) {
+      auto fail = [](const std::string& what) {
         std::cerr << "Not verified: " << what << "\n";
         return 1;
       };
@@ -1498,8 +1480,8 @@ int main(int argc, char *argv[]) {
         if (!authority) {
           return pp::Error("authority proof: " + authority.error().message);
         }
-        auto trail = pp::verify::authorityAt(genesis.value(), pinned, authority.value(), tip.height,
-                                             blocks.front().block.epoch);
+        auto trail =
+            pp::verify::authorityAt(genesis.value(), pinned, authority.value(), tip.height, blocks.front().block.epoch);
         if (!trail) {
           return pp::Error(trail.error().message);
         }
@@ -1525,9 +1507,9 @@ int main(int argc, char *argv[]) {
         if (!proven) {
           return pp::Error(proven.error().message);
         }
-        std::string out = "  \"account\": " + std::to_string(id) + ",\n  \"block\": " +
-                          std::to_string(proven.value().blockId) + ",\n  \"exists\": " +
-                          (proven.value().wallet ? "true" : "false");
+        std::string out = "  \"account\": " + std::to_string(id) +
+                          ",\n  \"block\": " + std::to_string(proven.value().blockId) +
+                          ",\n  \"exists\": " + (proven.value().wallet ? "true" : "false");
         if (proven.value().wallet) {
           out += ",\n  \"wallet\": " + pp::common::io::metaToJsonString(proven.value().wallet->ltsToMeta(), 2);
         }
@@ -1557,8 +1539,9 @@ int main(int argc, char *argv[]) {
       if (!proven) {
         return fail(proven.error().message);
       }
-      std::cout << "{\n  \"verified\": true,\n  \"domain\": \"" << *name << "\",\n  \"domainBlock\": "
-                << proven.value().blockId << ",\n  \"bound\": " << (proven.value().accountId ? "true" : "false");
+      std::cout << "{\n  \"verified\": true,\n  \"domain\": \"" << *name
+                << "\",\n  \"domainBlock\": " << proven.value().blockId
+                << ",\n  \"bound\": " << (proven.value().accountId ? "true" : "false");
       if (proven.value().accountId) {
         std::cout << ",\n";
         auto account = provenAccount(*proven.value().accountId);
@@ -1570,8 +1553,7 @@ int main(int argc, char *argv[]) {
       std::cout << "\n}\n";
       return 0;
     }();
-  }
-  else if (domain_cmd->parsed()) {
+  } else if (domain_cmd->parsed()) {
     auto name = pp::chain_domain::normalize(domainName);
     if (!name) {
       std::cerr << "Error: not a domain: 1 to 7 letters A-Z\n";
@@ -1582,19 +1564,17 @@ int main(int argc, char *argv[]) {
       std::cerr << "Error: " << proof.error().message << "\n";
       return 1;
     }
-    const auto &p = proof.value();
-    std::cout << "{\n  \"domain\": \"" << p.domain << "\",\n  \"block\": " << p.blockId << ",\n  \"bound\": "
-              << (p.present ? "true" : "false");
+    const auto& p = proof.value();
+    std::cout << "{\n  \"domain\": \"" << p.domain << "\",\n  \"block\": " << p.blockId
+              << ",\n  \"bound\": " << (p.present ? "true" : "false");
     if (p.present) {
       std::cout << ",\n  \"account\": " << p.accountId;
     }
     std::cout << "\n}\n";
-  }
-  else if (account_cmd->parsed()) {
+  } else if (account_cmd->parsed()) {
     auto result = client.fetchUserAccount(accountId);
     if (result) {
-      std::cout << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2)
-                << "\n";
+      std::cout << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2) << "\n";
     } else {
       std::cerr << "Error: " << result.error().message << "\n";
       exitCode = 1;
@@ -1607,8 +1587,7 @@ int main(int argc, char *argv[]) {
     req.beforeBlockId = txs_beforeBlockId;
     auto result = client.fetchTransactionsByWallet(req);
     if (result) {
-      std::cout << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2)
-                << "\n";
+      std::cout << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2) << "\n";
     } else {
       std::cerr << "Error: " << result.error().message << "\n";
       exitCode = 1;
@@ -1635,7 +1614,7 @@ int main(int argc, char *argv[]) {
           std::cerr << "Error: " << page.error().message << "\n";
           return 1;
         }
-        const auto &p = page.value();
+        const auto& p = page.value();
         if (p.blocks > 0 && total.blocks == 0) {
           total.firstSlot = p.firstSlot;
         }
@@ -1644,8 +1623,8 @@ int main(int argc, char *argv[]) {
         }
         total.blocks += p.blocks;
         total.fees += p.fees;
-        for (const auto &s : p.producers) {
-          auto &sum = byAccount[s.accountId];
+        for (const auto& s : p.producers) {
+          auto& sum = byAccount[s.accountId];
           sum.accountId = s.accountId;
           sum.blocks += s.blocks;
           sum.fees += s.fees;
@@ -1661,7 +1640,7 @@ int main(int argc, char *argv[]) {
                 << ",\n  \"firstSlot\": " << total.firstSlot << ",\n  \"lastSlot\": " << total.lastSlot
                 << ",\n  \"producers\": [";
       bool firstEntry = true;
-      for (const auto &[id, s] : byAccount) {
+      for (const auto& [id, s] : byAccount) {
         std::cout << (firstEntry ? "\n" : ",\n") << "    {\"account\": " << id << ", \"blocks\": " << s.blocks
                   << ", \"fees\": " << s.fees << ", \"missesCharged\": " << s.missesCharged << "}";
         firstEntry = false;
@@ -1676,8 +1655,7 @@ int main(int argc, char *argv[]) {
     req.txIndex = tx_index;
     auto result = client.fetchTransactionByIndex(req);
     if (result) {
-      std::cout << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2)
-                << "\n";
+      std::cout << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2) << "\n";
     } else {
       std::cerr << "Error: " << result.error().message << "\n";
       exitCode = 1;
@@ -1698,10 +1676,9 @@ int main(int argc, char *argv[]) {
       std::cerr << "Error: miner-register / miner-revoke submit to a relay or the beacon: use -b/--beacon.\n";
       exitCode = 1;
     } else {
-      exitCode = runMinerTx(client,
-                            miner_register_cmd->parsed() ? pp::Ledger::T_MINER_REGISTER
-                                                         : pp::Ledger::T_MINER_REVOKE,
-                            minerWalletId, minerFee, minerKey);
+      exitCode =
+          runMinerTx(client, miner_register_cmd->parsed() ? pp::Ledger::T_MINER_REGISTER : pp::Ledger::T_MINER_REVOKE,
+                     minerWalletId, minerFee, minerKey);
     }
   }
   // Handle add-account command (relay / beacon)
@@ -1711,10 +1688,10 @@ int main(int argc, char *argv[]) {
       exitCode = 1;
     } else {
       uint64_t add_acc_to_resolved = add_acc_to;
-      if (add_acc_to_resolved == 0) add_acc_to_resolved = randomAccountId();
-      exitCode = runAddAccount(client, add_acc_from, add_acc_to_resolved, add_acc_amount,
-                               add_acc_fee, add_acc_pubkey, add_acc_meta, add_acc_min_sig,
-                               add_account_key, add_acc_to == 0);
+      if (add_acc_to_resolved == 0)
+        add_acc_to_resolved = randomAccountId();
+      exitCode = runAddAccount(client, add_acc_from, add_acc_to_resolved, add_acc_amount, add_acc_fee, add_acc_pubkey,
+                               add_acc_meta, add_acc_min_sig, add_account_key, add_acc_to == 0);
     }
   }
   // Handle submit-tx command (relay / beacon)

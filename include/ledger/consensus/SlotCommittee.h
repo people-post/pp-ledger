@@ -30,17 +30,18 @@ namespace consensus {
 class SlotCommittee : public Module {
 public:
   struct Config {
-    int64_t genesisTime{ 0 };    // timestamp of genesis block
-    int64_t timeOffsetMs{ 0 };   // beacon time (ms) = local time (ms) + timeOffsetMs
-    uint64_t slotDuration{ 0 };  // duration of each slot in seconds
-    uint64_t slotsPerEpoch{ 0 }; // number of slots in each epoch
+    int64_t genesisTime{0};    // timestamp of genesis block
+    int64_t timeOffsetMs{0};   // beacon time (ms) = local time (ms) + timeOffsetMs
+    uint64_t slotDuration{0};  // duration of each slot in seconds
+    uint64_t slotsPerEpoch{0}; // number of slots in each epoch
   };
 
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
   };
 
-  template <typename T> using Roe = ResultOrError<T, Error>;
+  template <typename T>
+  using Roe = ResultOrError<T, Error>;
 
   SlotCommittee();
 
@@ -93,7 +94,7 @@ public:
   int64_t getTimestampMs() const;
 
   /** Active epoch seed (32 raw bytes) for leader election; empty if unset. */
-  const std::string &getEpochSeed() const { return epochSeed_; }
+  const std::string& getEpochSeed() const { return epochSeed_; }
   /** Epoch that `getEpochSeed()` applies to; undefined if seed empty. */
   uint64_t getEpochSeedEpoch() const { return epochSeedEpoch_; }
   bool hasEpochSeedFor(uint64_t epoch) const;
@@ -101,16 +102,15 @@ public:
   /** Set stakeholders and record update epoch (live: use getCurrentEpoch()). */
   void setStakeholders(const std::vector<Stakeholder>& stakeholders);
   /** Set stakeholders for a specific epoch (load-from-ledger: use block slot). */
-  void setStakeholders(const std::vector<Stakeholder>& stakeholders,
-                       uint64_t forEpoch);
+  void setStakeholders(const std::vector<Stakeholder>& stakeholders, uint64_t forEpoch);
 
   /** Chain-derived state (config, stake cache, seed); excludes test injectors. */
   struct TipState {
     Config config;
     std::map<uint64_t, uint64_t> stakeholders;
-    uint64_t lastStakeUpdateEpoch{ 0 };
+    uint64_t lastStakeUpdateEpoch{0};
     std::string epochSeed;
-    uint64_t epochSeedEpoch{ 0 };
+    uint64_t epochSeedEpoch{0};
   };
   TipState saveTipState() const;
   void restoreTipState(TipState state);
@@ -133,7 +133,7 @@ public:
    * Install the lottery seed for `epoch` (must be 32 raw bytes).
    * Production: Chain derives and sets; tests may call directly.
    */
-  void setEpochSeed(uint64_t epoch, const std::string &seed32);
+  void setEpochSeed(uint64_t epoch, const std::string& seed32);
   void clearEpochSeed();
 
   /**
@@ -148,7 +148,7 @@ public:
 private:
   struct Cache {
     std::map<uint64_t, uint64_t> mStakeholders;
-    uint64_t lastStakeUpdateEpoch{ static_cast<uint64_t>(-1) }; // -1 = never
+    uint64_t lastStakeUpdateEpoch{static_cast<uint64_t>(-1)}; // -1 = never
   };
 
   void assertConfigIsSet() const;
@@ -158,18 +158,16 @@ private:
    */
   std::vector<uint64_t> getEligibleLeaderPool() const;
   uint64_t selectSlotLeader(uint64_t slot, uint64_t epoch) const;
-  std::string hashSlotElection(uint64_t slot, uint64_t epoch,
-                               const std::string &epochSeed) const;
+  std::string hashSlotElection(uint64_t slot, uint64_t epoch, const std::string& epochSeed) const;
 
   static constexpr size_t kMaxLeaderPoolSize = 100; // protocol constant; see BLOCK_PIPELINE.md
-
 
   Config config_;
   Cache cache_;
   std::optional<int64_t> clockOverride_;
-  std::map<uint64_t, uint64_t> forcedLeaders_;  // slot -> stakeholderId
+  std::map<uint64_t, uint64_t> forcedLeaders_; // slot -> stakeholderId
   std::string epochSeed_;
-  uint64_t epochSeedEpoch_{ 0 };
+  uint64_t epochSeedEpoch_{0};
 };
 
 } // namespace consensus

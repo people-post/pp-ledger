@@ -127,9 +127,8 @@ void HandleInboundChannel(pp::amp::PeerLink& link, const std::string& remote_pee
   // A refused request is answered at once, before its body is sent: the client binds its channel when
   // it opens and sends the body only once the open is acknowledged, so it reads this reply first.
   auto refuse = [&](const Refusal why) {
-    session->Bind(*link.Mux(), channel_id, InboundPolicy(lane, read_timeout), [](pp::Roe<std::vector<uint8_t>>) {
-      return false;
-    });
+    session->Bind(*link.Mux(), channel_id, InboundPolicy(lane, read_timeout),
+                  [](pp::Roe<std::vector<uint8_t>>) { return false; });
     if (!options.refusal) {
       session->Reset();
       return;
@@ -146,9 +145,11 @@ void HandleInboundChannel(pp::amp::PeerLink& link, const std::string& remote_pee
   // waiting in the server's queue count too and cannot fill the queue small ones share. Released then,
   // or when the channel closes first (its handlers, holding the token, are dropped).
   auto refused = Refusal::PeerBusy;
-  const auto& receiving =
-      lane.trustedReceiving && options.trusted && options.trusted(remote_peer_id) ? lane.trustedReceiving : lane.receiving;
-  auto slot = std::make_shared<std::shared_ptr<Receiving::Slot>>(Receiving::acquire(receiving, remote_peer_id, refused));
+  const auto& receiving = lane.trustedReceiving && options.trusted && options.trusted(remote_peer_id)
+                              ? lane.trustedReceiving
+                              : lane.receiving;
+  auto slot =
+      std::make_shared<std::shared_ptr<Receiving::Slot>>(Receiving::acquire(receiving, remote_peer_id, refused));
   if (!*slot) {
     refuse(refused);
     return;
@@ -214,13 +215,13 @@ void AmpLedgerServer::BindAsync(pp::amp::PeerLinkManager& links, AsyncHandler ha
     if (shared->advertise) {
       Advertise(links, lane.protocolId);
     }
-    links.SetProtocolHandler(lane.protocolId, [&links, bound, shared, lane](pp::amp::LinkHandle link_handle,
-                                                                            const std::string& remote_peer_id,
-                                                                            const uint32_t channel_id) {
-      links.WithLiveLink(link_handle, [&](pp::amp::PeerLink& link) {
-        HandleInboundChannel(link, remote_peer_id, channel_id, *bound, *shared, lane);
-      });
-    });
+    links.SetProtocolHandler(
+        lane.protocolId, [&links, bound, shared, lane](pp::amp::LinkHandle link_handle,
+                                                       const std::string& remote_peer_id, const uint32_t channel_id) {
+          links.WithLiveLink(link_handle, [&](pp::amp::PeerLink& link) {
+            HandleInboundChannel(link, remote_peer_id, channel_id, *bound, *shared, lane);
+          });
+        });
   }
 }
 
@@ -232,8 +233,8 @@ void AmpLedgerServer::BindAsync(pp::amp::PeerLinkManager& links, AsyncHandler ha
   BindAsync(links, std::move(handler), std::move(options));
 }
 
-void AmpLedgerServer::Bind(pp::amp::PeerLinkManager& links, Handler handler, WorkerPost post_worker,
-                           IoPost post_io, const std::chrono::milliseconds read_timeout) {
+void AmpLedgerServer::Bind(pp::amp::PeerLinkManager& links, Handler handler, WorkerPost post_worker, IoPost post_io,
+                           const std::chrono::milliseconds read_timeout) {
   BindAsync(
       links,
       [handler = std::move(handler), post_worker = std::move(post_worker)](std::string /*remotePeerId*/,
@@ -248,7 +249,9 @@ void AmpLedgerServer::Bind(pp::amp::PeerLinkManager& links, Handler handler, Wor
       std::move(post_io), read_timeout);
 }
 
-std::vector<std::string> AmpLedgerServer::protocolIds() { return {kProtocolId, kBulkProtocolId}; }
+std::vector<std::string> AmpLedgerServer::protocolIds() {
+  return {kProtocolId, kBulkProtocolId};
+}
 
 void AmpLedgerServer::Unbind(pp::amp::PeerLinkManager& links) {
   links.RemoveProtocolHandler(kProtocolId);

@@ -9,9 +9,11 @@ namespace pp::rewind {
 
 namespace {
 
-std::string pathIn(const std::string &dataDir, const char *file) { return dataDir + "/" + file; }
+std::string pathIn(const std::string& dataDir, const char* file) {
+  return dataDir + "/" + file;
+}
 
-pp::Roe<std::optional<Client::RewindReport>> readReport(const std::string &path) {
+pp::Roe<std::optional<Client::RewindReport>> readReport(const std::string& path) {
   auto bytes = node_file::readIfExists(path);
   if (!bytes) {
     return pp::Error(1, bytes.error().message);
@@ -27,7 +29,7 @@ pp::Roe<std::optional<Client::RewindReport>> readReport(const std::string &path)
 }
 
 /** Cut the ledger at `ledgerDir` after `keptUpTo`, or remove it when that is below its first block. */
-pp::Roe<void> rewindLedger(const std::string &ledgerDir, uint64_t keptUpTo) {
+pp::Roe<void> rewindLedger(const std::string& ledgerDir, uint64_t keptUpTo) {
   if (!std::filesystem::exists(ledgerDir)) {
     return {};
   }
@@ -61,15 +63,15 @@ pp::Roe<void> rewindLedger(const std::string &ledgerDir, uint64_t keptUpTo) {
 
 } // namespace
 
-pp::Roe<void> writeOrder(const std::string &dataDir, const Client::RewindReport &order) {
+pp::Roe<void> writeOrder(const std::string& dataDir, const Client::RewindReport& order) {
   if (auto written = node_file::replace(pathIn(dataDir, FILE_ORDER), order.ltsToString()); !written) {
     return pp::Error(1, written.error().message);
   }
   return {};
 }
 
-pp::Roe<std::optional<Client::RewindReport>> applyPendingOrder(const std::string &dataDir,
-                                                               const std::string &ledgerDir) {
+pp::Roe<std::optional<Client::RewindReport>> applyPendingOrder(const std::string& dataDir,
+                                                               const std::string& ledgerDir) {
   auto order = readReport(pathIn(dataDir, FILE_ORDER));
   if (!order || !order.value()) {
     return order;
@@ -87,10 +89,10 @@ pp::Roe<std::optional<Client::RewindReport>> applyPendingOrder(const std::string
   return order;
 }
 
-pp::Roe<Scheduled> schedule(const Chain &chain, const std::string &dataDir, uint64_t approvedGeneration) {
+pp::Roe<Scheduled> schedule(const Chain& chain, const std::string& dataDir, uint64_t approvedGeneration) {
   Scheduled scheduled;
   if (chain.cutoverForked()) { // also at the cutover itself, where no rewind is due
-    const auto &cert = *chain.seenCertificate();
+    const auto& cert = *chain.seenCertificate();
     Client::RewindReport report;
     report.keptUpTo = cert.cutoverHeight;
     report.droppedUpTo = chain.getNextBlockId() - 1;
@@ -120,7 +122,7 @@ pp::Roe<Scheduled> schedule(const Chain &chain, const std::string &dataDir, uint
   return scheduled;
 }
 
-pp::Roe<std::optional<Client::RewindReport>> lastApplied(const std::string &dataDir) {
+pp::Roe<std::optional<Client::RewindReport>> lastApplied(const std::string& dataDir) {
   return readReport(pathIn(dataDir, FILE_DONE));
 }
 

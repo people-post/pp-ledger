@@ -16,8 +16,8 @@ namespace {
  * auditable path for new supply), and the epoch's net issuance (amount + fee)
  * stays within the config's maxIssuancePerEpoch.
  */
-chain_tx::Roe<void> checkGenesisIssuance(const Ledger::TxDefault &tx, const TxContext &ctx,
-                                         const AccountBuffer &bank, uint64_t slot) {
+chain_tx::Roe<void> checkGenesisIssuance(const Ledger::TxDefault& tx, const TxContext& ctx, const AccountBuffer& bank,
+                                         uint64_t slot) {
   if (tx.toWalletId != AccountBuffer::ID_RESERVE) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis transfers only to reserve");
   }
@@ -32,7 +32,7 @@ chain_tx::Roe<void> checkGenesisIssuance(const Ledger::TxDefault &tx, const TxCo
   // Baseline: genesis's balance at this epoch's first block; before that block
   // (mempool, new epoch) the committed balance.
   const uint64_t epoch = ctx.consensus.getEpochFromSlot(slot);
-  const auto &baseline = ctx.issuanceBaseline;
+  const auto& baseline = ctx.issuanceBaseline;
   const int64_t start = baseline.has_value() && baseline->epoch >= epoch
                             ? baseline->genesisBalance
                             : ctx.bank.getBalance(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS);
@@ -50,90 +50,72 @@ chain_tx::Roe<void> checkGenesisIssuance(const Ledger::TxDefault &tx, const TxCo
 
 } // namespace
 
-chain_tx::Roe<uint64_t>
-DefaultTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
-                                     uint64_t slotLeaderId) const {
+chain_tx::Roe<uint64_t> DefaultTxHandler::getSignerAccountId(const Ledger::TypedTx& tx, uint64_t slotLeaderId) const {
   (void)slotLeaderId;
-  auto pRoe = chain_tx::expectTx<Ledger::TxDefault>(tx, "getSignerAccountId",
-                                                    "TxDefault");
+  auto pRoe = chain_tx::expectTx<Ledger::TxDefault>(tx, "getSignerAccountId", "TxDefault");
   if (!pRoe) {
     return pRoe.error();
   }
   return pRoe.value()->fromWalletId;
 }
 
-chain_tx::Roe<bool>
-DefaultTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
-                                        uint64_t walletId) const {
-  auto pRoe = chain_tx::expectTx<Ledger::TxDefault>(tx, "matchesWalletForIndex",
-                                                    "TxDefault");
+chain_tx::Roe<bool> DefaultTxHandler::matchesWalletForIndex(const Ledger::TypedTx& tx, uint64_t walletId) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxDefault>(tx, "matchesWalletForIndex", "TxDefault");
   if (!pRoe) {
     return pRoe.error();
   }
-  const auto *p = pRoe.value();
+  const auto* p = pRoe.value();
   return p->fromWalletId == walletId || p->toWalletId == walletId;
 }
 
-chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
-DefaultTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
-  auto pRoe =
-      chain_tx::expectTx<Ledger::TxDefault>(tx, "getIdempotencyKey", "TxDefault");
+chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>> DefaultTxHandler::getIdempotencyKey(
+    const Ledger::TypedTx& tx) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxDefault>(tx, "getIdempotencyKey", "TxDefault");
   if (!pRoe) {
     return pRoe.error();
   }
-  const auto *p = pRoe.value();
+  const auto* p = pRoe.value();
   if (p->idempotentId == 0) {
     return std::optional<std::pair<uint64_t, uint64_t>>{};
   }
-  return std::optional<std::pair<uint64_t, uint64_t>>(
-      std::make_pair(p->fromWalletId, p->idempotentId));
+  return std::optional<std::pair<uint64_t, uint64_t>>(std::make_pair(p->fromWalletId, p->idempotentId));
 }
 
-chain_tx::Roe<void> DefaultTxHandler::applyBuffer(const Ledger::TypedTx &tx,
-                                                AccountBuffer &bank,
-                                                const BufferApplyContext &c) const {
-  auto pRoe =
-      chain_tx::expectTx<Ledger::TxDefault>(tx, "applyBuffer", "TxDefault");
+chain_tx::Roe<void> DefaultTxHandler::applyBuffer(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                                  const BufferApplyContext& c) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxDefault>(tx, "applyBuffer", "TxDefault");
   if (!pRoe) {
     return pRoe.error();
   }
-  const auto *p = pRoe.value();
-  if (auto idem = validateIdempotencyUsingContext(
-          c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
-          p->validationTsMax, c.effectiveSlot, c.admissionMode, /*requireNonZeroId=*/true);
+  const auto* p = pRoe.value();
+  if (auto idem = validateIdempotencyUsingContext(c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
+                                                  p->validationTsMax, c.effectiveSlot, c.admissionMode,
+                                                  /*requireNonZeroId=*/true);
       !idem) {
     return idem;
   }
-  if (auto seeded =
-          chain_tx::seedCommittedAccount(bank, c.ctx.bank, p->fromWalletId);
-      !seeded) {
+  if (auto seeded = chain_tx::seedCommittedAccount(bank, c.ctx.bank, p->fromWalletId); !seeded) {
     return seeded;
   }
-  if (auto seeded =
-          chain_tx::seedCommittedAccount(bank, c.ctx.bank, p->toWalletId);
-      !seeded) {
+  if (auto seeded = chain_tx::seedCommittedAccount(bank, c.ctx.bank, p->toWalletId); !seeded) {
     return seeded;
   }
-  if (auto seeded =
-          chain_tx::seedFeeAccountIfNeeded(bank, c.ctx.bank, p->fee);
-      !seeded) {
+  if (auto seeded = chain_tx::seedFeeAccountIfNeeded(bank, c.ctx.bank, p->fee); !seeded) {
     return seeded;
   }
   return applyDefaultTransferStrict(*p, c.ctx, bank, c.effectiveSlot);
 }
 
-chain_tx::Roe<void> DefaultTxHandler::applyBlock(const Ledger::TypedTx &tx,
-                                                AccountBuffer &bank,
-                                                const BlockApplyContext &c) const {
-  auto pRoe =
-      chain_tx::expectTx<Ledger::TxDefault>(tx, "applyBlock", "TxDefault");
+chain_tx::Roe<void> DefaultTxHandler::applyBlock(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                                 const BlockApplyContext& c) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxDefault>(tx, "applyBlock", "TxDefault");
   if (!pRoe) {
     return pRoe.error();
   }
-  const auto *p = pRoe.value();
-  if (auto idem = validateIdempotencyUsingContext(
-          c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
-          p->validationTsMax, c.blockSlot, c.admissionMode, /*requireNonZeroId=*/true);
+  const auto* p = pRoe.value();
+  if (auto idem =
+          validateIdempotencyUsingContext(c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
+                                          p->validationTsMax, c.blockSlot, c.admissionMode, /*requireNonZeroId=*/true);
       !idem) {
     return idem;
   }
@@ -143,9 +125,8 @@ chain_tx::Roe<void> DefaultTxHandler::applyBlock(const Ledger::TypedTx &tx,
   return applyDefaultTransferLoose(*p, c.ctx, bank);
 }
 
-chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
-    const Ledger::TxDefault &tx, const TxContext &ctx,
-    AccountBuffer &bank, uint64_t slot) const {
+chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(const Ledger::TxDefault& tx, const TxContext& ctx,
+                                                                 AccountBuffer& bank, uint64_t slot) const {
   if (tx.fromWalletId == tx.toWalletId) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "A transfer cannot pay the account itself");
   }
@@ -155,30 +136,24 @@ chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
     }
   }
   if (auto feeGate = chain_tx::requireMinimumFee(
-          ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,
-          Ledger::TypedTx(tx), tx.fee,
-          "Chain config required for strict default transfer fee validation",
-          "Transaction fee below minimum: ");
+          ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee, Ledger::TypedTx(tx), tx.fee,
+          "Chain config required for strict default transfer fee validation", "Transaction fee below minimum: ");
       !feeGate) {
     return feeGate;
   }
 
-  auto transferResult = bank.transferBalance(tx.fromWalletId, tx.toWalletId,
-                                             tx.tokenId, tx.amount, tx.fee);
+  auto transferResult = bank.transferBalance(tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount, tx.fee);
   if (!transferResult) {
-    return chain_tx::TxError(
-        chain_err::E_TX_TRANSFER,
-        "Transaction failed: " + transferResult.error().message);
+    return chain_tx::TxError(chain_err::E_TX_TRANSFER, "Transaction failed: " + transferResult.error().message);
   }
   return {};
 }
 
-chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferLoose(
-    const Ledger::TxDefault &tx, [[maybe_unused]] const TxContext &ctx,
-    AccountBuffer &bank) const {
+chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferLoose(const Ledger::TxDefault& tx,
+                                                                [[maybe_unused]] const TxContext& ctx,
+                                                                AccountBuffer& bank) const {
   // Warm-up (beacon-authority ba5b): every leg on an account this node holds, fee included.
-  return chain_tx::applyTransferToHeldAccounts(bank, tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount,
-                                               tx.fee);
+  return chain_tx::applyTransferToHeldAccounts(bank, tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount, tx.fee);
 }
 
 } // namespace pp

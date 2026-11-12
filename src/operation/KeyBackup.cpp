@@ -13,12 +13,14 @@ using pp::common::Object;
 
 namespace {
 
-constexpr const char *kKdf = "argon2id13";
-constexpr const char *kCipher = "xchacha20poly1305-ietf";
-constexpr const char *kKeyType = "ml-dsa-65";
+constexpr const char* kKdf = "argon2id13";
+constexpr const char* kCipher = "xchacha20poly1305-ietf";
+constexpr const char* kKeyType = "ml-dsa-65";
 
 /** What the ciphertext is bound to: the format and the public key named in the clear. */
-std::string aadFor(const std::string &publicKey) { return std::string("pp-ledger/key-backup/v1|") + utl::hexEncode(publicKey); }
+std::string aadFor(const std::string& publicKey) {
+  return std::string("pp-ledger/key-backup/v1|") + utl::hexEncode(publicKey);
+}
 
 /** Overwritten when it goes out of scope. */
 struct Wiped {
@@ -30,17 +32,17 @@ struct Wiped {
   }
 };
 
-pp::Roe<std::string> derive(std::string_view passphrase, const std::string &salt, const KeyBackupLimits &limits) {
+pp::Roe<std::string> derive(std::string_view passphrase, const std::string& salt, const KeyBackupLimits& limits) {
   std::string key(crypto_aead_xchacha20poly1305_ietf_KEYBYTES, '\0');
-  if (crypto_pwhash(reinterpret_cast<unsigned char *>(key.data()), key.size(), passphrase.data(), passphrase.size(),
-                    reinterpret_cast<const unsigned char *>(salt.data()), limits.opsLimit,
+  if (crypto_pwhash(reinterpret_cast<unsigned char*>(key.data()), key.size(), passphrase.data(), passphrase.size(),
+                    reinterpret_cast<const unsigned char*>(salt.data()), limits.opsLimit,
                     static_cast<size_t>(limits.memLimit), crypto_pwhash_ALG_ARGON2ID13) != 0) {
     return pp::Error("Deriving the key from the passphrase failed (out of memory?)");
   }
   return key;
 }
 
-pp::Roe<std::string> hexField(const Object &o, const char *name, size_t size) {
+pp::Roe<std::string> hexField(const Object& o, const char* name, size_t size) {
   std::string hex = o.getString(name).value_or("");
   if (hex.rfind("0x", 0) == 0) {
     hex = hex.substr(2);
@@ -52,7 +54,7 @@ pp::Roe<std::string> hexField(const Object &o, const char *name, size_t size) {
   return raw;
 }
 
-pp::Roe<Object> readHeader(const std::string &json) {
+pp::Roe<Object> readHeader(const std::string& json) {
   Object root;
   if (!pp::common::io::objectFromJsonString(root, json)) {
     return pp::Error("Not a key backup: not JSON");
@@ -75,12 +77,16 @@ KeyBackupLimits KeyBackupLimits::sensitive() {
   return {crypto_pwhash_OPSLIMIT_SENSITIVE, crypto_pwhash_MEMLIMIT_SENSITIVE};
 }
 
-KeyBackupLimits KeyBackupLimits::moderate() { return {crypto_pwhash_OPSLIMIT_MODERATE, crypto_pwhash_MEMLIMIT_MODERATE}; }
+KeyBackupLimits KeyBackupLimits::moderate() {
+  return {crypto_pwhash_OPSLIMIT_MODERATE, crypto_pwhash_MEMLIMIT_MODERATE};
+}
 
-KeyBackupLimits KeyBackupLimits::minimum() { return {crypto_pwhash_OPSLIMIT_MIN, crypto_pwhash_MEMLIMIT_MIN}; }
+KeyBackupLimits KeyBackupLimits::minimum() {
+  return {crypto_pwhash_OPSLIMIT_MIN, crypto_pwhash_MEMLIMIT_MIN};
+}
 
-pp::Roe<std::string> keyBackupToJson(const BackedUpKey &key, std::string_view passphrase,
-                                     const KeyBackupLimits &limits) {
+pp::Roe<std::string> keyBackupToJson(const BackedUpKey& key, std::string_view passphrase,
+                                     const KeyBackupLimits& limits) {
   if (sodium_init() < 0) {
     return pp::Error("No randomness");
   }
@@ -106,10 +112,11 @@ pp::Roe<std::string> keyBackupToJson(const BackedUpKey &key, std::string_view pa
   const std::string aad = aadFor(key.publicKey);
   std::string sealed(plain.value.size() + crypto_aead_xchacha20poly1305_ietf_ABYTES, '\0');
   unsigned long long length = 0;
-  crypto_aead_xchacha20poly1305_ietf_encrypt(
-      reinterpret_cast<unsigned char *>(sealed.data()), &length, reinterpret_cast<const unsigned char *>(plain.value.data()),
-      plain.value.size(), reinterpret_cast<const unsigned char *>(aad.data()), aad.size(), nullptr,
-      reinterpret_cast<const unsigned char *>(nonce.data()), reinterpret_cast<const unsigned char *>(secret.value.data()));
+  crypto_aead_xchacha20poly1305_ietf_encrypt(reinterpret_cast<unsigned char*>(sealed.data()), &length,
+                                             reinterpret_cast<const unsigned char*>(plain.value.data()),
+                                             plain.value.size(), reinterpret_cast<const unsigned char*>(aad.data()),
+                                             aad.size(), nullptr, reinterpret_cast<const unsigned char*>(nonce.data()),
+                                             reinterpret_cast<const unsigned char*>(secret.value.data()));
   sealed.resize(static_cast<size_t>(length));
 
   Object kdf;
@@ -131,7 +138,7 @@ pp::Roe<std::string> keyBackupToJson(const BackedUpKey &key, std::string_view pa
   return pp::common::io::objectToJsonString(root, 2) + "\n";
 }
 
-pp::Roe<std::string> keyBackupPublicKey(const std::string &json) {
+pp::Roe<std::string> keyBackupPublicKey(const std::string& json) {
   auto root = readHeader(json);
   if (!root) {
     return root.error();
@@ -139,7 +146,7 @@ pp::Roe<std::string> keyBackupPublicKey(const std::string &json) {
   return hexField(root.value(), "publicKey", utl::kMlDsaPublicKeyBytes);
 }
 
-pp::Roe<BackedUpKey> keyBackupFromJson(const std::string &json, std::string_view passphrase) {
+pp::Roe<BackedUpKey> keyBackupFromJson(const std::string& json, std::string_view passphrase) {
   if (sodium_init() < 0) {
     return pp::Error("No randomness");
   }
@@ -148,8 +155,8 @@ pp::Roe<BackedUpKey> keyBackupFromJson(const std::string &json, std::string_view
     return root.error();
   }
   auto publicKey = hexField(root.value(), "publicKey", utl::kMlDsaPublicKeyBytes);
-  const Object *kdf = root.value().getObject("kdf");
-  const Object *cipher = root.value().getObject("cipher");
+  const Object* kdf = root.value().getObject("kdf");
+  const Object* cipher = root.value().getObject("cipher");
   if (!publicKey || !kdf || !cipher || kdf->getString("algorithm").value_or("") != kKdf ||
       cipher->getString("algorithm").value_or("") != kCipher) {
     return pp::Error("The key backup names an encryption this reader does not know");
@@ -175,12 +182,11 @@ pp::Roe<BackedUpKey> keyBackupFromJson(const std::string &json, std::string_view
   const std::string aad = aadFor(publicKey.value());
   Wiped plain{std::string(sealed.size(), '\0')};
   unsigned long long length = 0;
-  if (crypto_aead_xchacha20poly1305_ietf_decrypt(
-          reinterpret_cast<unsigned char *>(plain.value.data()), &length, nullptr,
-          reinterpret_cast<const unsigned char *>(sealed.data()), sealed.size(),
-          reinterpret_cast<const unsigned char *>(aad.data()), aad.size(),
-          reinterpret_cast<const unsigned char *>(nonce.value().data()),
-          reinterpret_cast<const unsigned char *>(secret.value.data())) != 0) {
+  if (crypto_aead_xchacha20poly1305_ietf_decrypt(reinterpret_cast<unsigned char*>(plain.value.data()), &length, nullptr,
+                                                 reinterpret_cast<const unsigned char*>(sealed.data()), sealed.size(),
+                                                 reinterpret_cast<const unsigned char*>(aad.data()), aad.size(),
+                                                 reinterpret_cast<const unsigned char*>(nonce.value().data()),
+                                                 reinterpret_cast<const unsigned char*>(secret.value.data())) != 0) {
     return pp::Error("Wrong passphrase, or the key backup is damaged");
   }
   plain.value.resize(static_cast<size_t>(length));

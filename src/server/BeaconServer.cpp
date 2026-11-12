@@ -26,15 +26,15 @@ namespace pp {
 namespace {
 using pp::common::Array;
 using pp::common::ArrayPtr;
-using pp::common::Object;
-using pp::common::ObjectPtr;
-using pp::common::Value;
 using pp::common::asNonNegInt;
 using pp::common::asObject;
 using pp::common::asString;
+using pp::common::Object;
+using pp::common::ObjectPtr;
+using pp::common::Value;
 using pp::common::io::valueToJsonString;
 
-pp::Roe<std::string> encodeObjectPretty(const Object &o) {
+pp::Roe<std::string> encodeObjectPretty(const Object& o) {
   auto r = valueToJsonString(Value(std::make_shared<Object>(o)), 2);
   if (!r.isOk()) {
     return pp::Error(r.error().message);
@@ -49,8 +49,8 @@ namespace {
  * The beacon signing key pair under `workDir` (beacon-authority B006): both files must exist and
  * belong together.
  */
-BeaconServer::Roe<utl::MlDsaKeyPair> loadBeaconSigningKey(const std::string &workDir, const std::string &keyName,
-                                                          const std::string &pubName) {
+BeaconServer::Roe<utl::MlDsaKeyPair> loadBeaconSigningKey(const std::string& workDir, const std::string& keyName,
+                                                          const std::string& pubName) {
   const std::filesystem::path keyPath = std::filesystem::path(workDir) / keyName;
   const std::filesystem::path pubPath = std::filesystem::path(workDir) / pubName;
   if (!std::filesystem::exists(keyPath) || !std::filesystem::exists(pubPath)) {
@@ -58,7 +58,8 @@ BeaconServer::Roe<utl::MlDsaKeyPair> loadBeaconSigningKey(const std::string &wor
   }
   auto privateKey = utl::readPrivateKey(keyName, workDir);
   if (!privateKey) {
-    return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to read beacon signing key: " + privateKey.error().message);
+    return BeaconServer::Error(BeaconServer::E_CONFIG,
+                               "Failed to read beacon signing key: " + privateKey.error().message);
   }
   std::ifstream pubFile(pubPath);
   std::string pubHex((std::istreambuf_iterator<char>(pubFile)), std::istreambuf_iterator<char>());
@@ -83,7 +84,7 @@ BeaconServer::Roe<utl::MlDsaKeyPair> loadBeaconSigningKey(const std::string &wor
  * A beacon signing key from the environment (`variable` or `variable`_FILE: the hex private key);
  * its public key is derived. None when unset.
  */
-BeaconServer::Roe<std::optional<utl::MlDsaKeyPair>> beaconSigningKeyFromEnv(const std::string &variable) {
+BeaconServer::Roe<std::optional<utl::MlDsaKeyPair>> beaconSigningKeyFromEnv(const std::string& variable) {
   auto secret = env_config::secret(variable);
   if (!secret) {
     return BeaconServer::Error(BeaconServer::E_CONFIG, secret.error().message);
@@ -106,7 +107,7 @@ BeaconServer::Roe<std::optional<utl::MlDsaKeyPair>> beaconSigningKeyFromEnv(cons
  * (beacon-authority ba5). The beacon signs with whichever the certificate in force names. Each
  * comes from the environment (PP_BEACON_SIGNING_KEY, PP_BEACON_SIGNING_NEXT_KEY) or its files.
  */
-BeaconServer::Roe<std::vector<utl::MlDsaKeyPair>> loadBeaconSigningKeys(const std::string &workDir) {
+BeaconServer::Roe<std::vector<utl::MlDsaKeyPair>> loadBeaconSigningKeys(const std::string& workDir) {
   std::vector<utl::MlDsaKeyPair> keys;
   auto fromEnv = beaconSigningKeyFromEnv("PP_BEACON_SIGNING_KEY");
   if (!fromEnv) {
@@ -115,8 +116,8 @@ BeaconServer::Roe<std::vector<utl::MlDsaKeyPair>> loadBeaconSigningKeys(const st
   if (fromEnv.value()) {
     keys.push_back(*fromEnv.value());
   } else {
-    auto current = loadBeaconSigningKey(workDir, BeaconServer::FILE_BEACON_SIGNING_KEY,
-                                        BeaconServer::FILE_BEACON_SIGNING_PUB);
+    auto current =
+        loadBeaconSigningKey(workDir, BeaconServer::FILE_BEACON_SIGNING_KEY, BeaconServer::FILE_BEACON_SIGNING_PUB);
     if (!current) {
       return current.error();
     }
@@ -147,7 +148,7 @@ BeaconServer::Roe<std::vector<utl::MlDsaKeyPair>> loadBeaconSigningKeys(const st
  * --init: the beacon signing key pair, created when neither file exists (an operator may
  * pre-generate them with `pp-client keygen -o keys/beacon-signing`). Returns the raw public key.
  */
-BeaconServer::Roe<std::string> loadOrCreateBeaconSigningKey(const std::string &workDir) {
+BeaconServer::Roe<std::string> loadOrCreateBeaconSigningKey(const std::string& workDir) {
   // Held outside the work directory (PP_BEACON_SIGNING_KEY): nothing is written.
   auto fromEnv = beaconSigningKeyFromEnv("PP_BEACON_SIGNING_KEY");
   if (!fromEnv) {
@@ -163,17 +164,21 @@ BeaconServer::Roe<std::string> loadOrCreateBeaconSigningKey(const std::string &w
     std::filesystem::create_directories(keyPath.parent_path(), ec);
     auto pair = utl::mlDsaGenerate();
     if (!pair) {
-      return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to generate beacon signing key: " + pair.error().message);
+      return BeaconServer::Error(BeaconServer::E_CONFIG,
+                                 "Failed to generate beacon signing key: " + pair.error().message);
     }
     if (auto w = utl::writeToNewFile(keyPath.string(), utl::hexEncode(pair->privateKey) + "\n"); !w) {
-      return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to write " + keyPath.string() + ": " + w.error().message);
+      return BeaconServer::Error(BeaconServer::E_CONFIG,
+                                 "Failed to write " + keyPath.string() + ": " + w.error().message);
     }
     if (auto w = utl::writeToNewFile(pubPath.string(), utl::hexEncode(pair->publicKey) + "\n"); !w) {
-      return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to write " + pubPath.string() + ": " + w.error().message);
+      return BeaconServer::Error(BeaconServer::E_CONFIG,
+                                 "Failed to write " + pubPath.string() + ": " + w.error().message);
     }
     return pair->publicKey;
   }
-  auto pair = loadBeaconSigningKey(workDir, BeaconServer::FILE_BEACON_SIGNING_KEY, BeaconServer::FILE_BEACON_SIGNING_PUB);
+  auto pair =
+      loadBeaconSigningKey(workDir, BeaconServer::FILE_BEACON_SIGNING_KEY, BeaconServer::FILE_BEACON_SIGNING_PUB);
   if (!pair) {
     return pair.error();
   }
@@ -181,8 +186,8 @@ BeaconServer::Roe<std::string> loadOrCreateBeaconSigningKey(const std::string &w
 }
 
 /** A seed chain secret file under `workDir` (hex, 32 bytes); none when it does not exist. */
-BeaconServer::Roe<std::optional<std::string>> loadBeaconSeedSecret(const std::string &workDir,
-                                                                   const std::string &name) {
+BeaconServer::Roe<std::optional<std::string>> loadBeaconSeedSecret(const std::string& workDir,
+                                                                   const std::string& name) {
   const std::filesystem::path path = std::filesystem::path(workDir) / name;
   if (!std::filesystem::exists(path)) {
     return std::optional<std::string>{};
@@ -198,9 +203,9 @@ BeaconServer::Roe<std::optional<std::string>> loadBeaconSeedSecret(const std::st
 }
 
 /** Every start: the seed chain secret and the staged next one, each when its file exists. */
-BeaconServer::Roe<std::vector<std::string>> loadBeaconSeedSecrets(const std::string &workDir) {
+BeaconServer::Roe<std::vector<std::string>> loadBeaconSeedSecrets(const std::string& workDir) {
   std::vector<std::string> secrets;
-  for (const char *name : {BeaconServer::FILE_BEACON_SEED_SECRET, BeaconServer::FILE_BEACON_SEED_NEXT_SECRET}) {
+  for (const char* name : {BeaconServer::FILE_BEACON_SEED_SECRET, BeaconServer::FILE_BEACON_SEED_NEXT_SECRET}) {
     auto secret = loadBeaconSeedSecret(workDir, name);
     if (!secret) {
       return secret.error();
@@ -213,7 +218,7 @@ BeaconServer::Roe<std::vector<std::string>> loadBeaconSeedSecrets(const std::str
 }
 
 /** --init: the seed chain secret, created (0600) when its file does not exist. */
-BeaconServer::Roe<std::string> loadOrCreateBeaconSeedSecret(const std::string &workDir) {
+BeaconServer::Roe<std::string> loadOrCreateBeaconSeedSecret(const std::string& workDir) {
   auto existing = loadBeaconSeedSecret(workDir, BeaconServer::FILE_BEACON_SEED_SECRET);
   if (!existing) {
     return existing.error();
@@ -231,13 +236,13 @@ BeaconServer::Roe<std::string> loadOrCreateBeaconSeedSecret(const std::string &w
 }
 
 /** `entry.publicKeys` (hex ML-DSA-65) and optional `minSignatures` (1..count; default all). */
-BeaconServer::Roe<Beacon::AccountKeys> parseAccountKeys(const Object &entry, const std::string &where) {
-  const Array *keys = entry.getArray("publicKeys");
+BeaconServer::Roe<Beacon::AccountKeys> parseAccountKeys(const Object& entry, const std::string& where) {
+  const Array* keys = entry.getArray("publicKeys");
   if (!keys || keys->elements.empty()) {
     return BeaconServer::Error(BeaconServer::E_CONFIG, where + ".publicKeys must be a non-empty array of hex keys");
   }
   Beacon::AccountKeys out;
-  for (const auto &keyValue : keys->elements) {
+  for (const auto& keyValue : keys->elements) {
     auto hex = pp::common::asString(keyValue);
     std::string text = hex ? *hex : std::string{};
     if (text.rfind("0x", 0) == 0) {
@@ -269,7 +274,7 @@ Object BeaconServer::InitFileConfig::ltsToJson() {
     // Placeholders: each holder creates its key pair (pp-client keygen -o <name>)
     // and fills in the public key; the beacon never sees their private keys.
     Object accounts;
-    for (const char *name : {"genesis", "reserve", "registrar", "fee", "recycle"}) {
+    for (const char* name : {"genesis", "reserve", "registrar", "fee", "recycle"}) {
       Object entry;
       std::vector<Value> keys{Value(std::string("<hex public key from ") + name + ".pub>")};
       entry.set("publicKeys", Object::array(std::move(keys)));
@@ -320,10 +325,8 @@ Object BeaconServer::InitFileConfig::ltsToJson() {
   return j;
 }
 
-BeaconServer::Roe<void>
-BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
-  auto readU64 = [&](const char *field, uint64_t &out, bool required,
-                     bool allowZero) -> Roe<void> {
+BeaconServer::Roe<void> BeaconServer::InitFileConfig::ltsFromJson(const Object& jd) {
+  auto readU64 = [&](const char* field, uint64_t& out, bool required, bool allowZero) -> Roe<void> {
     if (!jd.contains(field)) {
       if (required) {
         return Error(E_CONFIG, std::string("Field '") + field + "' is required");
@@ -332,12 +335,10 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
     }
     auto v = jd.getNonNegInt(field);
     if (!v) {
-      return Error(E_CONFIG, std::string("Field '") + field +
-                                 "' must be a non-negative integer");
+      return Error(E_CONFIG, std::string("Field '") + field + "' must be a non-negative integer");
     }
     if (!allowZero && *v == 0) {
-      return Error(E_CONFIG, std::string("Field '") + field +
-                                 "' must be greater than 0");
+      return Error(E_CONFIG, std::string("Field '") + field + "' must be greater than 0");
     }
     out = *v;
     return {};
@@ -350,19 +351,22 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
   networkId = *id;
 
   if (jd.contains("slotDuration")) {
-    if (auto r = readU64("slotDuration", slotDuration, true, false); !r) return r;
+    if (auto r = readU64("slotDuration", slotDuration, true, false); !r)
+      return r;
   } else {
     slotDuration = DEFAULT_SLOT_DURATION;
   }
 
   if (jd.contains("slotsPerEpoch")) {
-    if (auto r = readU64("slotsPerEpoch", slotsPerEpoch, true, false); !r) return r;
+    if (auto r = readU64("slotsPerEpoch", slotsPerEpoch, true, false); !r)
+      return r;
   } else {
     slotsPerEpoch = DEFAULT_SLOTS_PER_EPOCH;
   }
 
   if (jd.contains("maxCustomMetaSize")) {
-    if (auto r = readU64("maxCustomMetaSize", maxCustomMetaSize, true, false); !r) return r;
+    if (auto r = readU64("maxCustomMetaSize", maxCustomMetaSize, true, false); !r)
+      return r;
   } else {
     maxCustomMetaSize = DEFAULT_MAX_CUSTOM_META_SIZE;
   }
@@ -382,16 +386,15 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
   }
 
   if (jd.contains("minFeeCoefficients")) {
-    const Array *arr = jd.getArray("minFeeCoefficients");
+    const Array* arr = jd.getArray("minFeeCoefficients");
     if (!arr) {
       return Error(E_CONFIG, "Field 'minFeeCoefficients' must be an array");
     }
     minFeeCoefficients.clear();
-    for (const auto &value : arr->elements) {
+    for (const auto& value : arr->elements) {
       auto coefficient = asNonNegInt(value);
       if (!coefficient) {
-        return Error(E_CONFIG,
-                     "Field 'minFeeCoefficients' values must be non-negative integers");
+        return Error(E_CONFIG, "Field 'minFeeCoefficients' values must be non-negative integers");
       }
       if (*coefficient > std::numeric_limits<uint16_t>::max()) {
         return Error(E_CONFIG, "Field 'minFeeCoefficients' values must be <= 65535");
@@ -404,7 +407,8 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
   }
 
   if (jd.contains("freeCustomMetaSize")) {
-    if (auto r = readU64("freeCustomMetaSize", freeCustomMetaSize, true, true); !r) return r;
+    if (auto r = readU64("freeCustomMetaSize", freeCustomMetaSize, true, true); !r)
+      return r;
     if (freeCustomMetaSize > maxCustomMetaSize) {
       return Error(E_CONFIG,
                    "Field 'freeCustomMetaSize' must be less than or equal to "
@@ -418,7 +422,8 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
   }
 
   if (jd.contains("checkpointMinBlocks")) {
-    if (auto r = readU64("checkpointMinBlocks", checkpointMinBlocks, true, true); !r) return r;
+    if (auto r = readU64("checkpointMinBlocks", checkpointMinBlocks, true, true); !r)
+      return r;
   } else {
     checkpointMinBlocks = DEFAULT_CHECKPOINT_MIN_BLOCKS;
   }
@@ -431,9 +436,7 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
   }
 
   if (jd.contains("maxValidationTimespanSeconds")) {
-    if (auto r = readU64("maxValidationTimespanSeconds", maxValidationTimespanSeconds, true,
-                         false);
-        !r)
+    if (auto r = readU64("maxValidationTimespanSeconds", maxValidationTimespanSeconds, true, false); !r)
       return r;
   } else {
     maxValidationTimespanSeconds = DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS;
@@ -465,7 +468,7 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
   } else {
     minerDueAfterSlots = (DEFAULT_MINER_DUE_SECONDS + slotDuration - 1) / slotDuration;
   }
-  for (const auto &[name, field] : {std::pair<const char *, uint64_t *>{"minerMinStake", &minerMinStake},
+  for (const auto& [name, field] : {std::pair<const char*, uint64_t*>{"minerMinStake", &minerMinStake},
                                     {"minerRegistrationFee", &minerRegistrationFee},
                                     {"minerMaxMissedSlots", &minerMaxMissedSlots},
                                     {"minerReregisterCooldownEpochs", &minerReregisterCooldownEpochs}}) {
@@ -483,11 +486,12 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
   return parseGenesisMiners(jd);
 }
 
-BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseRecovery(const Object &jd) {
-  const Object *entry = jd.getObject("recovery");
+BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseRecovery(const Object& jd) {
+  const Object* entry = jd.getObject("recovery");
   if (!entry) {
-    return Error(E_CONFIG, "Field 'recovery' {publicKeys, minSignatures, delayEpochs} is required: the key set "
-                           "that can replace the admin (genesis) keys");
+    return Error(E_CONFIG,
+                 "Field 'recovery' {publicKeys, minSignatures, delayEpochs} is required: the key set "
+                 "that can replace the admin (genesis) keys");
   }
   auto keys = parseAccountKeys(*entry, "recovery");
   if (!keys) {
@@ -507,18 +511,19 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseRecovery(const Object
   return {};
 }
 
-BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseSystemAccounts(const Object &jd) {
-  const Object *accounts = jd.getObject("systemAccounts");
+BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseSystemAccounts(const Object& jd) {
+  const Object* accounts = jd.getObject("systemAccounts");
   if (!accounts) {
-    return Error(E_CONFIG, "Field 'systemAccounts' {genesis, reserve, registrar, fee, recycle} with public keys is required");
+    return Error(E_CONFIG,
+                 "Field 'systemAccounts' {genesis, reserve, registrar, fee, recycle} with public keys is required");
   }
-  const std::pair<const char *, Beacon::AccountKeys *> slots[] = {{"genesis", &systemAccounts.genesis},
-                                                                  {"reserve", &systemAccounts.reserve},
-                                                                  {"registrar", &systemAccounts.registrar},
-                                                                  {"fee", &systemAccounts.fee},
-                                                                  {"recycle", &systemAccounts.recycle}};
-  for (const auto &[name, slot] : slots) {
-    const Object *entry = accounts->getObject(name);
+  const std::pair<const char*, Beacon::AccountKeys*> slots[] = {{"genesis", &systemAccounts.genesis},
+                                                                {"reserve", &systemAccounts.reserve},
+                                                                {"registrar", &systemAccounts.registrar},
+                                                                {"fee", &systemAccounts.fee},
+                                                                {"recycle", &systemAccounts.recycle}};
+  for (const auto& [name, slot] : slots) {
+    const Object* entry = accounts->getObject(name);
     if (!entry) {
       return Error(E_CONFIG, std::string("systemAccounts.") + name + " is required");
     }
@@ -531,12 +536,12 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseSystemAccounts(const 
   // Optional: the system accounts' domains (projects/domains); each omitted one keeps its default, an
   // empty one is none.
   if (jd.contains("systemNames")) {
-    const Object *names = jd.getObject("systemNames");
+    const Object* names = jd.getObject("systemNames");
     if (!names) {
       return Error(E_CONFIG, "Field 'systemNames' must be an object {genesis, reserve, registrar, fee, recycle}");
     }
-    chain_genesis::SystemNames &out = systemAccounts.names;
-    for (const auto &[name, field] : {std::pair<const char *, std::string *>{"genesis", &out.genesis},
+    chain_genesis::SystemNames& out = systemAccounts.names;
+    for (const auto& [name, field] : {std::pair<const char*, std::string*>{"genesis", &out.genesis},
                                       {"reserve", &out.reserve},
                                       {"registrar", &out.registrar},
                                       {"fee", &out.fee},
@@ -556,19 +561,19 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseSystemAccounts(const 
   return {};
 }
 
-BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseGenesisMiners(const Object &jd) {
+BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseGenesisMiners(const Object& jd) {
   genesisMiners.clear();
   if (!jd.contains("genesisMiners")) {
     return {};
   }
-  const Array *list = jd.getArray("genesisMiners");
+  const Array* list = jd.getArray("genesisMiners");
   if (!list) {
     return Error(E_CONFIG, "Field 'genesisMiners' must be an array");
   }
   size_t withoutStake = 0;
   for (size_t i = 0; i < list->elements.size(); ++i) {
     const std::string where = "genesisMiners[" + std::to_string(i) + "]";
-    const Object *entry = asObject(list->elements[i]);
+    const Object* entry = asObject(list->elements[i]);
     if (!entry) {
       return Error(E_CONFIG, where + " must be an object");
     }
@@ -597,7 +602,7 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseGenesisMiners(const O
   }
   if (withoutStake > 0) {
     const uint64_t share = AccountBuffer::INITIAL_TOKEN_SUPPLY / GENESIS_MINER_STAKE_SHARE / withoutStake;
-    for (auto &miner : genesisMiners) {
+    for (auto& miner : genesisMiners) {
       if (miner.stake == 0) {
         miner.stake = share;
       }
@@ -618,35 +623,37 @@ BeaconServer::BeaconServer() {
 namespace {
 
 /** Config fields `init-config.json` may override on a re-genesis (B032), by their JSON names. */
-const std::vector<std::pair<const char *, void (*)(Chain::BlockChainConfig &, const Chain::BlockChainConfig &)>>
+const std::vector<std::pair<const char*, void (*)(Chain::BlockChainConfig&, const Chain::BlockChainConfig&)>>
     kConfigOverrides = {
-        {"slotDuration", [](auto &to, const auto &from) { to.slotDuration = from.slotDuration; }},
-        {"slotsPerEpoch", [](auto &to, const auto &from) { to.slotsPerEpoch = from.slotsPerEpoch; }},
-        {"maxCustomMetaSize", [](auto &to, const auto &from) { to.maxCustomMetaSize = from.maxCustomMetaSize; }},
+        {"slotDuration", [](auto& to, const auto& from) { to.slotDuration = from.slotDuration; }},
+        {"slotsPerEpoch", [](auto& to, const auto& from) { to.slotsPerEpoch = from.slotsPerEpoch; }},
+        {"maxCustomMetaSize", [](auto& to, const auto& from) { to.maxCustomMetaSize = from.maxCustomMetaSize; }},
         {"maxTransactionsPerBlock",
-         [](auto &to, const auto &from) { to.maxTransactionsPerBlock = from.maxTransactionsPerBlock; }},
-        {"maxBlockBytes", [](auto &to, const auto &from) { to.maxBlockBytes = from.maxBlockBytes; }},
-        {"minFeeCoefficients", [](auto &to, const auto &from) { to.minFeeCoefficients = from.minFeeCoefficients; }},
-        {"freeCustomMetaSize", [](auto &to, const auto &from) { to.freeCustomMetaSize = from.freeCustomMetaSize; }},
-        {"checkpointMinBlocks", [](auto &to, const auto &from) { to.checkpoint.minBlocks = from.checkpoint.minBlocks; }},
+         [](auto& to, const auto& from) { to.maxTransactionsPerBlock = from.maxTransactionsPerBlock; }},
+        {"maxBlockBytes", [](auto& to, const auto& from) { to.maxBlockBytes = from.maxBlockBytes; }},
+        {"minFeeCoefficients", [](auto& to, const auto& from) { to.minFeeCoefficients = from.minFeeCoefficients; }},
+        {"freeCustomMetaSize", [](auto& to, const auto& from) { to.freeCustomMetaSize = from.freeCustomMetaSize; }},
+        {"checkpointMinBlocks",
+         [](auto& to, const auto& from) { to.checkpoint.minBlocks = from.checkpoint.minBlocks; }},
         {"checkpointMinAgeSeconds",
-         [](auto &to, const auto &from) { to.checkpoint.minAgeSeconds = from.checkpoint.minAgeSeconds; }},
+         [](auto& to, const auto& from) { to.checkpoint.minAgeSeconds = from.checkpoint.minAgeSeconds; }},
         {"maxValidationTimespanSeconds",
-         [](auto &to, const auto &from) { to.maxValidationTimespanSeconds = from.maxValidationTimespanSeconds; }},
-        {"heartbeatSlots", [](auto &to, const auto &from) { to.heartbeatSlots = from.heartbeatSlots; }},
-        {"maxIssuancePerEpoch", [](auto &to, const auto &from) { to.maxIssuancePerEpoch = from.maxIssuancePerEpoch; }},
-        {"newAccountFee", [](auto &to, const auto &from) { to.newAccountFee = from.newAccountFee; }},
-        {"minerMinStake", [](auto &to, const auto &from) { to.minerMinStake = from.minerMinStake; }},
-        {"minerRegistrationFee", [](auto &to, const auto &from) { to.minerRegistrationFee = from.minerRegistrationFee; }},
-        {"minerDueAfterSlots", [](auto &to, const auto &from) { to.minerDueAfterSlots = from.minerDueAfterSlots; }},
-        {"minerMaxMissedSlots", [](auto &to, const auto &from) { to.minerMaxMissedSlots = from.minerMaxMissedSlots; }},
+         [](auto& to, const auto& from) { to.maxValidationTimespanSeconds = from.maxValidationTimespanSeconds; }},
+        {"heartbeatSlots", [](auto& to, const auto& from) { to.heartbeatSlots = from.heartbeatSlots; }},
+        {"maxIssuancePerEpoch", [](auto& to, const auto& from) { to.maxIssuancePerEpoch = from.maxIssuancePerEpoch; }},
+        {"newAccountFee", [](auto& to, const auto& from) { to.newAccountFee = from.newAccountFee; }},
+        {"minerMinStake", [](auto& to, const auto& from) { to.minerMinStake = from.minerMinStake; }},
+        {"minerRegistrationFee",
+         [](auto& to, const auto& from) { to.minerRegistrationFee = from.minerRegistrationFee; }},
+        {"minerDueAfterSlots", [](auto& to, const auto& from) { to.minerDueAfterSlots = from.minerDueAfterSlots; }},
+        {"minerMaxMissedSlots", [](auto& to, const auto& from) { to.minerMaxMissedSlots = from.minerMaxMissedSlots; }},
         {"minerReregisterCooldownEpochs",
-         [](auto &to, const auto &from) { to.minerReregisterCooldownEpochs = from.minerReregisterCooldownEpochs; }},
-        {"finalitySeconds", [](auto &to, const auto &from) { to.finalitySeconds = from.finalitySeconds; }},
+         [](auto& to, const auto& from) { to.minerReregisterCooldownEpochs = from.minerReregisterCooldownEpochs; }},
+        {"finalitySeconds", [](auto& to, const auto& from) { to.finalitySeconds = from.finalitySeconds; }},
 };
 
 /** A re-genesis's snapshot (pp-client export-state), checked against its own root. */
-BeaconServer::Roe<StateSnapshot> loadSnapshot(const std::string &path) {
+BeaconServer::Roe<StateSnapshot> loadSnapshot(const std::string& path) {
   std::ifstream in(path, std::ios::binary);
   if (!in) {
     return BeaconServer::Error("Cannot read state snapshot " + path);
@@ -654,7 +661,8 @@ BeaconServer::Roe<StateSnapshot> loadSnapshot(const std::string &path) {
   const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   StateSnapshot snapshot;
   if (!snapshot.ltsFromString(bytes)) {
-    return BeaconServer::Error(path + " is not a state snapshot (version " + std::to_string(StateSnapshot::VERSION) + ")");
+    return BeaconServer::Error(path + " is not a state snapshot (version " + std::to_string(StateSnapshot::VERSION) +
+                               ")");
   }
   if (auto bound = chain_block::validatePredecessorHeader(snapshot.predecessor); !bound) {
     return BeaconServer::Error(path + ": " + bound.error().message);
@@ -667,8 +675,8 @@ BeaconServer::Roe<StateSnapshot> loadSnapshot(const std::string &path) {
 
 } // namespace
 
-BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::string &workDir,
-                                                               const std::string &importStatePath) {
+BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::string& workDir,
+                                                                const std::string& importStatePath) {
   log().info << "Initializing new beacon with work directory: " << workDir;
 
   std::filesystem::path workDirPath(workDir);
@@ -678,8 +686,7 @@ BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::strin
   if (!ensured) {
     return Error(ensured.error().code, ensured.error().message);
   }
-  if (!std::filesystem::exists(workDirPath / FILE_INIT_CONFIG) &&
-      !std::filesystem::exists(workDirPath / FILE_CONFIG)) {
+  if (!std::filesystem::exists(workDirPath / FILE_INIT_CONFIG) && !std::filesystem::exists(workDirPath / FILE_CONFIG)) {
     log().info << "Created work directory: " << workDir;
   }
 
@@ -692,14 +699,11 @@ BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::strin
     // Use default values from InitFileConfig struct
     auto encoded = encodeObjectPretty(initFileConfig.ltsToJson());
     if (!encoded) {
-      return Error("Failed to encode " + std::string(FILE_INIT_CONFIG) + ": " +
-                   encoded.error().message);
+      return Error("Failed to encode " + std::string(FILE_INIT_CONFIG) + ": " + encoded.error().message);
     }
-    auto result =
-        utl::writeToNewFile(initConfigPath.string(), encoded.value());
+    auto result = utl::writeToNewFile(initConfigPath.string(), encoded.value());
     if (!result) {
-      return Error("Failed to create " + std::string(FILE_INIT_CONFIG) + ": " +
-                   result.error().message);
+      return Error("Failed to create " + std::string(FILE_INIT_CONFIG) + ": " + result.error().message);
     }
 
     return Error("Created " + initConfigPath.string() +
@@ -714,24 +718,19 @@ BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::strin
 
   auto jsonResult = utl::loadJsonFile(initConfigPath.string());
   if (!jsonResult) {
-    return Error("Failed to load init config file: " +
-                 jsonResult.error().message);
+    return Error("Failed to load init config file: " + jsonResult.error().message);
   }
 
   auto parseResult = initFileConfig.ltsFromJson(jsonResult.value());
   if (!parseResult) {
-    return Error("Failed to parse init config file: " +
-                 parseResult.error().message);
+    return Error("Failed to parse init config file: " + parseResult.error().message);
   }
 
   log().info << "Configuration:";
-  log().info << "  Slot duration: " << initFileConfig.slotDuration
-             << " seconds";
+  log().info << "  Slot duration: " << initFileConfig.slotDuration << " seconds";
   log().info << "  Slots per epoch: " << initFileConfig.slotsPerEpoch;
-  log().info << "  Max custom meta size: "
-             << initFileConfig.maxCustomMetaSize;
-  log().info << "  Max transactions per block: "
-             << initFileConfig.maxTransactionsPerBlock;
+  log().info << "  Max custom meta size: " << initFileConfig.maxCustomMetaSize;
+  log().info << "  Max transactions per block: " << initFileConfig.maxTransactionsPerBlock;
   log().info << "  Heartbeat slots: " << initFileConfig.heartbeatSlots;
   log().info << "  Max issuance per epoch: " << initFileConfig.maxIssuancePerEpoch;
   log().info << "  New account fee: " << initFileConfig.newAccountFee;
@@ -743,21 +742,16 @@ BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::strin
   initConfig.chain.slotDuration = initFileConfig.slotDuration;
   initConfig.chain.slotsPerEpoch = initFileConfig.slotsPerEpoch;
   initConfig.chain.maxCustomMetaSize = initFileConfig.maxCustomMetaSize;
-  initConfig.chain.maxTransactionsPerBlock =
-      initFileConfig.maxTransactionsPerBlock;
+  initConfig.chain.maxTransactionsPerBlock = initFileConfig.maxTransactionsPerBlock;
   initConfig.chain.maxBlockBytes = initFileConfig.maxBlockBytes;
   initConfig.chain.minFeeCoefficients = initFileConfig.minFeeCoefficients;
-  if (initFileConfig.freeCustomMetaSize >
-      std::numeric_limits<uint32_t>::max()) {
+  if (initFileConfig.freeCustomMetaSize > std::numeric_limits<uint32_t>::max()) {
     return Error("freeCustomMetaSize exceeds uint32_t range");
   }
-  initConfig.chain.freeCustomMetaSize =
-      static_cast<uint32_t>(initFileConfig.freeCustomMetaSize);
+  initConfig.chain.freeCustomMetaSize = static_cast<uint32_t>(initFileConfig.freeCustomMetaSize);
   initConfig.chain.checkpoint.minBlocks = initFileConfig.checkpointMinBlocks;
-  initConfig.chain.checkpoint.minAgeSeconds =
-      initFileConfig.checkpointMinAgeSeconds;
-  initConfig.chain.maxValidationTimespanSeconds =
-      initFileConfig.maxValidationTimespanSeconds;
+  initConfig.chain.checkpoint.minAgeSeconds = initFileConfig.checkpointMinAgeSeconds;
+  initConfig.chain.maxValidationTimespanSeconds = initFileConfig.maxValidationTimespanSeconds;
   initConfig.chain.heartbeatSlots = initFileConfig.heartbeatSlots;
   initConfig.chain.maxIssuancePerEpoch = initFileConfig.maxIssuancePerEpoch;
   initConfig.chain.newAccountFee = initFileConfig.newAccountFee;
@@ -781,7 +775,7 @@ BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::strin
       return Error("A re-genesis imports its miners: remove genesisMiners from " + std::string(FILE_INIT_CONFIG));
     }
     Chain::BlockChainConfig chain = snapshot.value().config;
-    for (const auto &[key, take] : kConfigOverrides) {
+    for (const auto& [key, take] : kConfigOverrides) {
       if (jsonResult.value().contains(key)) {
         take(chain, initConfig.chain);
       }
@@ -789,8 +783,8 @@ BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::strin
     chain.networkId = initFileConfig.networkId;
     initConfig.chain = chain;
     log().info << "  Re-genesis: " << snapshot.value().accounts.size() << " accounts of network '"
-               << snapshot.value().predecessor.networkId << "' at block " << snapshot.value().predecessor.height
-               << " (" << importStatePath << ")";
+               << snapshot.value().predecessor.networkId << "' at block " << snapshot.value().predecessor.height << " ("
+               << importStatePath << ")";
     initConfig.import = std::move(snapshot.value());
   }
   if (auto liveness = chain_tx::validateLivenessSettings(initConfig.chain); !liveness) {
@@ -830,20 +824,19 @@ BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::strin
   log().info << "  Beacon seed chain: " << FILE_BEACON_SEED_SECRET << " (" << consensus::kDefaultBeaconSeedChainLength
              << " epochs from epoch 0)";
 
-  static_cast<chain_genesis::SystemKeys &>(initConfig.key) = initFileConfig.systemAccounts;
+  static_cast<chain_genesis::SystemKeys&>(initConfig.key) = initFileConfig.systemAccounts;
   initConfig.key.names = initFileConfig.systemAccounts.names;
   return initConfig;
 }
 
-BeaconServer::Roe<void>
-BeaconServer::init(const std::string &workDir, const std::vector<std::string> &genesisKeyFiles, bool force,
-                   const std::string &importStatePath) {
+BeaconServer::Roe<void> BeaconServer::init(const std::string& workDir, const std::vector<std::string>& genesisKeyFiles,
+                                           bool force, const std::string& importStatePath) {
   auto prepared = prepareInit(workDir, importStatePath);
   if (!prepared) {
     return prepared.error();
   }
   Beacon::InitConfig initConfig = std::move(prepared.value());
-  for (const auto &keyFile : genesisKeyFiles) {
+  for (const auto& keyFile : genesisKeyFiles) {
     auto privateKey = utl::readPrivateKey(keyFile, ".");
     if (!privateKey) {
       return Error("Failed to read genesis key '" + keyFile + "': " + privateKey.error().message);
@@ -866,18 +859,17 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
     return Error("Failed to initialize beacon: " + result.error().message);
   }
 
-
   log().info << "Beacon initialized successfully";
   return {};
 }
 
-BeaconServer::Roe<void> BeaconServer::planGenesis(const std::string &workDir, const std::string &outputPath,
-                                                  int64_t startTime, const std::string &notes) {
+BeaconServer::Roe<void> BeaconServer::planGenesis(const std::string& workDir, const std::string& outputPath,
+                                                  int64_t startTime, const std::string& notes) {
   auto prepared = prepareInit(workDir, "");
   if (!prepared) {
     return prepared.error();
   }
-  const Beacon::InitConfig &initConfig = prepared.value();
+  const Beacon::InitConfig& initConfig = prepared.value();
   chain_genesis::Plan plan;
   plan.config = initConfig.chain;
   plan.config.genesisTime = startTime;
@@ -900,7 +892,7 @@ BeaconServer::Roe<void> BeaconServer::planGenesis(const std::string &workDir, co
   return {};
 }
 
-BeaconServer::Roe<void> BeaconServer::initSigned(const std::string &workDir, const std::string &operationPath,
+BeaconServer::Roe<void> BeaconServer::initSigned(const std::string& workDir, const std::string& operationPath,
                                                  bool force) {
   log().info << "Initializing new beacon from a signed genesis: " << operationPath;
   auto op = operation::load(operationPath);
@@ -943,9 +935,8 @@ BeaconServer::Roe<void> BeaconServer::initSigned(const std::string &workDir, con
   return {};
 }
 
-BeaconServer::Roe<void>
-BeaconServer::initFromWorkDir(const Beacon::InitConfig &config, bool force,
-                              const std::vector<utl::MlDsaKeyPair> *tipKeys) {
+BeaconServer::Roe<void> BeaconServer::initFromWorkDir(const Beacon::InitConfig& config, bool force,
+                                                      const std::vector<utl::MlDsaKeyPair>* tipKeys) {
   log().info << "Initializing BeaconServer";
 
   // A chain is there already: genesis again would destroy it. Only on request.
@@ -985,8 +976,7 @@ BeaconServer::initFromWorkDir(const Beacon::InitConfig &config, bool force,
 
 Service::Roe<void> BeaconServer::onStart() {
   // Construct config file path
-  std::filesystem::path configPath =
-      std::filesystem::path(getWorkDir()) / FILE_CONFIG;
+  std::filesystem::path configPath = std::filesystem::path(getWorkDir()) / FILE_CONFIG;
   std::string configPathStr = configPath.string();
 
   // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
@@ -1009,8 +999,8 @@ Service::Roe<void> BeaconServer::onStart() {
       // No file and no environment: the defaults (nothing is written; the directory may be read-only).
       log().info << "No " << FILE_CONFIG << " and no PP_LEDGER_* settings: using defaults";
     } else if (auto parseResult = runFileConfig.fromJson(*loaded.value()); !parseResult) {
-      return Service::Error(E_CONFIG, "Failed to parse config (" + configPathStr + " and PP_LEDGER_* variables): " +
-                                          parseResult.error().message);
+      return Service::Error(E_CONFIG, "Failed to parse config (" + configPathStr +
+                                          " and PP_LEDGER_* variables): " + parseResult.error().message);
     }
   }
 
@@ -1041,8 +1031,7 @@ Service::Roe<void> BeaconServer::onStart() {
 
   setAllowedPeers(runFileConfig.allowedPeers);
   setTransportLimits(runFileConfig);
-  auto serverStarted =
-      startAmpServer(config_.network.udp_port, [this]() { return loadOrCreateIdentityKey(); });
+  auto serverStarted = startAmpServer(config_.network.udp_port, [this]() { return loadOrCreateIdentityKey(); });
   if (!serverStarted) {
     return Service::Error(-5, "Failed to start AMP server: " + serverStarted.error().message);
   }
@@ -1050,7 +1039,7 @@ Service::Roe<void> BeaconServer::onStart() {
   if (promote_) {
     client_.attachAmpTransport(*ampRuntime(), "clock:0");
     auto references = clockReferences;
-    for (const auto &hint : beacon_.getDialHints()) {
+    for (const auto& hint : beacon_.getDialHints()) {
       references.push_back(hint);
     }
     if (auto clock = checkClockForTakeover(std::move(references)); !clock) {
@@ -1067,7 +1056,7 @@ Service::Roe<void> BeaconServer::onStart() {
   return {};
 }
 
-BeaconServer::Roe<std::vector<utl::MlDsaKeyPair>> BeaconServer::openBeacon(const std::string &workDir) {
+BeaconServer::Roe<std::vector<utl::MlDsaKeyPair>> BeaconServer::openBeacon(const std::string& workDir) {
   Beacon::MountConfig mountConfig;
   mountConfig.workDir = workDir + "/" + DIR_DATA;
   if (auto mounted = beacon_.mount(mountConfig); !mounted) {
@@ -1082,7 +1071,7 @@ BeaconServer::Roe<std::vector<utl::MlDsaKeyPair>> BeaconServer::openBeacon(const
   return loadBeaconSigningKeys(workDir);
 }
 
-BeaconServer::Roe<void> BeaconServer::openForTest(const std::string &workDir, std::optional<int64_t> clockSeconds) {
+BeaconServer::Roe<void> BeaconServer::openForTest(const std::string& workDir, std::optional<int64_t> clockSeconds) {
   auto keys = openBeacon(workDir);
   if (!keys) {
     return keys.error();
@@ -1101,7 +1090,7 @@ BeaconServer::Roe<BeaconServer::Promotion> BeaconServer::readRelayConfig() const
   if (!json) {
     return Error(E_CONFIG, "Failed to load " + path + ": " + json.error().message);
   }
-  const Object &jd = json.value();
+  const Object& jd = json.value();
   if (!jd.contains("beacon") && !jd.contains("beacons")) {
     return Error(E_CONFIG, std::string(FILE_CONFIG) +
                                " is not a relay's (no `beacon` or `beacons`): --promote turns a relay's work "
@@ -1118,7 +1107,7 @@ BeaconServer::Roe<BeaconServer::Promotion> BeaconServer::readRelayConfig() const
   return promotion;
 }
 
-BeaconServer::Roe<void> BeaconServer::checkPromotion(const std::vector<utl::MlDsaKeyPair> &keys) const {
+BeaconServer::Roe<void> BeaconServer::checkPromotion(const std::vector<utl::MlDsaKeyPair>& keys) const {
   if (std::filesystem::exists(std::filesystem::path(getWorkDir()) / DIR_DATA / Beacon::FILE_SIGNED_TIP)) {
     return Error(E_CONFIG, std::string(DIR_DATA) + "/" + Beacon::FILE_SIGNED_TIP +
                                " exists: this directory was a beacon's, and --promote takes a relay's");
@@ -1131,9 +1120,8 @@ BeaconServer::Roe<void> BeaconServer::checkPromotion(const std::vector<utl::MlDs
   }
   const std::string generation = "the certificate held (beacon generation " + std::to_string(held->generation) + ")";
   if (!beacon_.takeoverWith(keys)) {
-    const bool namesOurs = std::any_of(keys.begin(), keys.end(), [&held](const utl::MlDsaKeyPair &key) {
-      return key.publicKey == held->publicKey;
-    });
+    const bool namesOurs = std::any_of(
+        keys.begin(), keys.end(), [&held](const utl::MlDsaKeyPair& key) { return key.publicKey == held->publicKey; });
     return Error(E_CONFIG, namesOurs ? std::string("this directory holds the key in force: it is a beacon's already")
                                      : generation + " names another key than " + FILE_BEACON_SIGNING_PUB);
   }
@@ -1141,8 +1129,8 @@ BeaconServer::Roe<void> BeaconServer::checkPromotion(const std::vector<utl::MlDs
     return Error(E_CONFIG, generation + " has no cutover: a beacon takes over at one (mk-beacon-cert --cutover)");
   }
   if (beacon_.cutoverForked()) {
-    return Error(E_CONFIG, "block " + std::to_string(held->cutoverHeight) +
-                               " here is not the one " + generation + " vouches for: promote another relay");
+    return Error(E_CONFIG, "block " + std::to_string(held->cutoverHeight) + " here is not the one " + generation +
+                               " vouches for: promote another relay");
   }
   if (beacon_.getNextBlockId() <= held->cutoverHeight) {
     return Error(E_CONFIG, "the chain here ends at block " + std::to_string(beacon_.getNextBlockId() - 1) +
@@ -1155,7 +1143,7 @@ BeaconServer::Roe<void> BeaconServer::checkPromotion(const std::vector<utl::MlDs
 BeaconServer::Roe<void> BeaconServer::checkClockForTakeover(std::vector<std::string> references) {
   std::vector<int64_t> offsets;
   std::set<std::string> asked;
-  for (const auto &reference : references) {
+  for (const auto& reference : references) {
     if (isSelf(reference) || !asked.insert(reference).second) {
       continue;
     }
@@ -1181,8 +1169,8 @@ BeaconServer::Roe<void> BeaconServer::checkClockForTakeover(std::vector<std::str
                                std::to_string(offsets.size()) + " node(s) asked), beyond the delivery window (" +
                                std::to_string(bound) + " ms): set its time (NTP) and promote again");
   }
-  log().info << "Clock check: " << median << " ms off the network (" << offsets.size() << " node(s); bound "
-             << bound << " ms)";
+  log().info << "Clock check: " << median << " ms off the network (" << offsets.size() << " node(s); bound " << bound
+             << " ms)";
   return {};
 }
 
@@ -1215,16 +1203,15 @@ void BeaconServer::onStop() {
 
 void BeaconServer::initHandlers() {
   // The chain reads and CALIBRATION are the base's (bindCore).
-  handle(Client::T_REQ_STATUS, [this](const Client::Request &request) { return hStatus(request); });
-  handle(Client::T_REQ_BLOCK_ADD, [this](const Client::Request &request) { return hBlockAdd(request); });
-  handle(Client::T_REQ_REGISTER, [this](const Client::Request &request) { return hRegister(request); });
-  handle(Client::T_REQ_MINER_LIST, [this](const Client::Request &request) { return hMinerList(request); });
+  handle(Client::T_REQ_STATUS, [this](const Client::Request& request) { return hStatus(request); });
+  handle(Client::T_REQ_BLOCK_ADD, [this](const Client::Request& request) { return hBlockAdd(request); });
+  handle(Client::T_REQ_REGISTER, [this](const Client::Request& request) { return hRegister(request); });
+  handle(Client::T_REQ_MINER_LIST, [this](const Client::Request& request) { return hMinerList(request); });
   handleLater(Client::T_REQ_TX_ADD,
-              [this](const Client::Request &request, const RequestQueue::Reply &reply) { dTxAdd(request, reply); });
-  handle(Client::T_REQ_EQUIVOCATION_ADD, [this](const Client::Request &request) { return hEquivocationAdd(request); });
-  handle(Client::T_REQ_TX_PULL, [this](const Client::Request &request) { return hTxPull(request); });
+              [this](const Client::Request& request, const RequestQueue::Reply& reply) { dTxAdd(request, reply); });
+  handle(Client::T_REQ_EQUIVOCATION_ADD, [this](const Client::Request& request) { return hEquivocationAdd(request); });
+  handle(Client::T_REQ_TX_PULL, [this](const Client::Request& request) { return hTxPull(request); });
 }
-
 
 namespace {
 int64_t nowSeconds() {
@@ -1232,7 +1219,7 @@ int64_t nowSeconds() {
 }
 } // namespace
 
-void BeaconServer::registerServer(const Client::MinerInfo &minerInfo) {
+void BeaconServer::registerServer(const Client::MinerInfo& minerInfo) {
   miners_.upsert(minerInfo, nowSeconds());
   log().debug << "Miner record: " << minerInfo.id;
   expireMinerRecords();
@@ -1247,14 +1234,12 @@ void BeaconServer::expireMinerRecords() {
 
 Client::BeaconState BeaconServer::buildStateResponse() const {
   int64_t currentTimestamp =
-      std::chrono::duration_cast<std::chrono::seconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count();
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
   Client::BeaconState state;
   state.currentTimestamp = currentTimestamp;
   const auto checkpoint = beacon_.getCheckpoint();
-  state.checkpointId = checkpoint.lastId;  // Use lastId so that miners can replay blocks to current checkpoint
+  state.checkpointId = checkpoint.lastId; // Use lastId so that miners can replay blocks to current checkpoint
   state.nextBlockId = beacon_.getNextBlockId();
   state.currentSlot = beacon_.getCurrentSlot();
   state.currentEpoch = beacon_.getCurrentEpoch();
@@ -1305,13 +1290,13 @@ bool isTerminalWrite(uint32_t type) {
 }
 } // namespace
 
-BeaconServer::Roe<void> BeaconServer::admit(const Client::Request &request) const {
+BeaconServer::Roe<void> BeaconServer::admit(const Client::Request& request) const {
   if (!isTerminalWrite(request.type)) {
     return {};
   }
   if (const auto by = beacon_.supersededBy()) {
-    return Error(E_REQUEST, "This beacon stood down: beacon generation " + std::to_string(*by) +
-                                " certifies another key");
+    return Error(E_REQUEST,
+                 "This beacon stood down: beacon generation " + std::to_string(*by) + " certifies another key");
   }
   if (const auto above = beacon_.haltedAbove()) {
     return Error(E_REQUEST, haltedMessage(*above));
@@ -1319,18 +1304,18 @@ BeaconServer::Roe<void> BeaconServer::admit(const Client::Request &request) cons
   return {};
 }
 
-void BeaconServer::dropStalePoolRecords(const std::vector<Ledger::Record> &committed) {
+void BeaconServer::dropStalePoolRecords(const std::vector<Ledger::Record>& committed) {
   // A record whose idempotent id a block just used, or that no longer applies on the new state
   // (its payer spent the funds, its window ended), would be pulled and refused by every leader.
   // Signatures were checked on the way in.
   std::set<std::pair<uint64_t, uint64_t>> used;
-  for (const auto &record : committed) {
+  for (const auto& record : committed) {
     if (auto key = beacon_.idempotencyKeyOf(record)) {
       used.insert(*key);
     }
   }
   const int64_t now = nowSeconds();
-  const size_t dropped = txPool_.removeIf([&](const Ledger::Record &record) {
+  const size_t dropped = txPool_.removeIf([&](const Ledger::Record& record) {
     const auto key = beacon_.idempotencyKeyOf(record);
     return (key && used.contains(*key)) || !beacon_.checkAdmission(record, now, /*verifySignatures=*/false);
   });
@@ -1339,27 +1324,26 @@ void BeaconServer::dropStalePoolRecords(const std::vector<Ledger::Record> &commi
   }
 }
 
-BeaconServer::Roe<std::string>
-BeaconServer::hBlockAdd(const Client::Request &request) {
+BeaconServer::Roe<std::string> BeaconServer::hBlockAdd(const Client::Request& request) {
   Ledger::ChainNode block;
   if (!block.ltsFromString(request.payload)) {
     return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
   }
   switch (checkBlockAdd(beacon_, block)) {
-  case BlockAddCheck::AlreadyHave:
-    return tipReply(); // a leader retrying: the signed tip covers its block
-  case BlockAddCheck::Conflicts:
-    return Error(E_REQUEST, "Block " + std::to_string(block.block.index) + " conflicts with the stored block");
-  case BlockAddCheck::New:
-    break;
+    case BlockAddCheck::AlreadyHave:
+      return tipReply(); // a leader retrying: the signed tip covers its block
+    case BlockAddCheck::Conflicts:
+      return Error(E_REQUEST, "Block " + std::to_string(block.block.index) + " conflicts with the stored block");
+    case BlockAddCheck::New:
+      break;
   }
   // The beacon decides missed slots: a leader seals once its slot ends and must deliver within
   // the delivery window — not before its slot ends either, or it would skip the leaders of the
   // slots before it while they run. Checked on live admission only (the beacon's clock), never on
   // replay or by relays, so every node follows the beacon's chain.
   if (!beacon_.isInDeliveryWindow(block.block.slot)) {
-    return Error(E_REQUEST, "Block for slot " + std::to_string(block.block.slot) +
-                                " arrived outside its delivery window");
+    return Error(E_REQUEST,
+                 "Block for slot " + std::to_string(block.block.slot) + " arrived outside its delivery window");
   }
   auto result = beacon_.addBlock(block);
   if (!result) {
@@ -1383,8 +1367,8 @@ std::string BeaconServer::tipReply() const {
   return utl::binaryPack(reply);
 }
 
-void BeaconServer::dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply) {
-  auto refuse = [&reply](const std::string &message) { replyWith(reply, Roe<std::string>(Error(E_REQUEST, message))); };
+void BeaconServer::dTxAdd(const Client::Request& request, const RequestQueue::Reply& reply) {
+  auto refuse = [&reply](const std::string& message) { replyWith(reply, Roe<std::string>(Error(E_REQUEST, message))); };
   auto record = utl::binaryUnpack<Ledger::Record>(request.payload);
   if (!record) {
     refuse("Failed to deserialize transaction: " + record.error().message);
@@ -1421,28 +1405,28 @@ void BeaconServer::dTxAdd(const Client::Request &request, const RequestQueue::Re
     return;
   }
   switch (admitted.value()) {
-  case TxPool::Add::Added:
-    reply(packResponse("Transaction submitted"));
-    return;
-  case TxPool::Add::Duplicate:
-    reply(packResponse("Transaction already submitted"));
-    return;
-  case TxPool::Add::Full:
-    reply(packError(Client::E_POOL_FULL, "Transaction pool full, please retry later", poolRetryAfterMs()));
-    return;
-  case TxPool::Add::SenderFull: {
-    const auto key = beacon_.idempotencyKeyOf(record.value());
-    const uint64_t sender = key ? key->first : AccountBuffer::ID_GENESIS;
-    reply(packError(Client::E_POOL_FULL,
-                    "Too many transactions of account " + std::to_string(sender) + " pooled, please retry later",
-                    poolRetryAfterMs()));
-    return;
-  }
+    case TxPool::Add::Added:
+      reply(packResponse("Transaction submitted"));
+      return;
+    case TxPool::Add::Duplicate:
+      reply(packResponse("Transaction already submitted"));
+      return;
+    case TxPool::Add::Full:
+      reply(packError(Client::E_POOL_FULL, "Transaction pool full, please retry later", poolRetryAfterMs()));
+      return;
+    case TxPool::Add::SenderFull: {
+      const auto key = beacon_.idempotencyKeyOf(record.value());
+      const uint64_t sender = key ? key->first : AccountBuffer::ID_GENESIS;
+      reply(packError(Client::E_POOL_FULL,
+                      "Too many transactions of account " + std::to_string(sender) + " pooled, please retry later",
+                      poolRetryAfterMs()));
+      return;
+    }
   }
   refuse("Transaction not accepted");
 }
 
-BeaconServer::Roe<TxPool::Add> BeaconServer::admitToPool(const Ledger::Record &record) {
+BeaconServer::Roe<TxPool::Add> BeaconServer::admitToPool(const Ledger::Record& record) {
   const int64_t now = nowSeconds();
   // Only what could apply takes a place in the pool (load-resilience lr4): a badly signed or unfunded
   // record would be pulled by every leader and refused by each, ahead of valid ones, until it expires.
@@ -1467,7 +1451,7 @@ void BeaconServer::submitBeaconSeedIfDue() {
   if (!authority || !authority->beacon.hasSeedChain()) {
     return;
   }
-  const BeaconCertificate &cert = authority->beacon;
+  const BeaconCertificate& cert = authority->beacon;
   const uint64_t target = beacon_.getCurrentEpoch() + 1;
   if (target <= cert.seedAnchorEpoch || target - cert.seedAnchorEpoch > cert.seedChainLength ||
       beacon_.getBeaconReveal(target)) {
@@ -1484,7 +1468,7 @@ void BeaconServer::submitBeaconSeedIfDue() {
     seedMatchedAnchor_ = cert.seedAnchor;
     seedMatchedLength_ = cert.seedChainLength;
     seedMatchedSecret_.reset();
-    for (const auto &secret : seedSecrets_) {
+    for (const auto& secret : seedSecrets_) {
       if (consensus::beaconSeedValue(secret, cert.seedChainLength) == cert.seedAnchor) {
         seedMatchedSecret_ = secret;
         break;
@@ -1536,7 +1520,7 @@ uint32_t BeaconServer::poolRetryAfterMs() const {
   return static_cast<uint32_t>(std::clamp<uint64_t>(blocks * slotMs, slotMs, 60000));
 }
 
-BeaconServer::Roe<std::string> BeaconServer::hEquivocationAdd(const Client::Request &request) {
+BeaconServer::Roe<std::string> BeaconServer::hEquivocationAdd(const Client::Request& request) {
   Client::Equivocation evidence;
   if (!evidence.ltsFromString(request.payload)) {
     return Error(E_REQUEST, "Invalid equivocation evidence");
@@ -1546,34 +1530,33 @@ BeaconServer::Roe<std::string> BeaconServer::hEquivocationAdd(const Client::Requ
     return Error(E_REQUEST, "Equivocation evidence refused: " + offered.error().message);
   }
   switch (offered.value()) {
-  case Chain::EquivocationOffer::Newer:
-  case Chain::EquivocationOffer::Same:
-    return {"Equivocation evidence kept: halted above block " + std::to_string(evidence.height())};
-  case Chain::EquivocationOffer::Ignored:
-    return {"Equivocation evidence ignored: its generation is superseded, or evidence is already held"};
+    case Chain::EquivocationOffer::Newer:
+    case Chain::EquivocationOffer::Same:
+      return {"Equivocation evidence kept: halted above block " + std::to_string(evidence.height())};
+    case Chain::EquivocationOffer::Ignored:
+      return {"Equivocation evidence ignored: its generation is superseded, or evidence is already held"};
   }
   return {"Equivocation evidence ignored"};
 }
 
-BeaconServer::Roe<void> BeaconServer::offerCertificate(const Ledger::Record &record) {
+BeaconServer::Roe<void> BeaconServer::offerCertificate(const Ledger::Record& record) {
   auto offered = beacon_.offerCertificate(record);
   if (!offered) {
     return Error(E_REQUEST, "Beacon certificate refused: " + offered.error().message);
   }
   switch (offered.value()) {
-  case Chain::CertificateOffer::Newer:
-  case Chain::CertificateOffer::Same:
-    return {};
-  case Chain::CertificateOffer::Older:
-    return Error(E_REQUEST, "Beacon certificate refused: its generation is not above the one in force or held");
-  case Chain::CertificateOffer::Conflict:
-    return Error(E_REQUEST, "Beacon certificate refused: another certificate for its generation is held");
+    case Chain::CertificateOffer::Newer:
+    case Chain::CertificateOffer::Same:
+      return {};
+    case Chain::CertificateOffer::Older:
+      return Error(E_REQUEST, "Beacon certificate refused: its generation is not above the one in force or held");
+    case Chain::CertificateOffer::Conflict:
+      return Error(E_REQUEST, "Beacon certificate refused: another certificate for its generation is held");
   }
   return {};
 }
 
-BeaconServer::Roe<std::string>
-BeaconServer::hTxPull(const Client::Request & /*request*/) {
+BeaconServer::Roe<std::string> BeaconServer::hTxPull(const Client::Request& /*request*/) {
   txPool_.expire(nowSeconds());
   // No more than a leader can put in a block (B034, load-resilience lr5): the config's records and
   // bytes, so the reply always travels and the pull never sets the drain rate below the block's.
@@ -1583,12 +1566,10 @@ BeaconServer::hTxPull(const Client::Request & /*request*/) {
                                          maxBytes > 0 ? maxBytes : chain_tx::kMaxBlockBytesCeiling));
 }
 
-BeaconServer::Roe<std::string>
-BeaconServer::hRegister(const Client::Request &request) {
+BeaconServer::Roe<std::string> BeaconServer::hRegister(const Client::Request& request) {
   auto unpacked = utl::binaryUnpack<pp::common::Meta>(request.payload);
   if (!unpacked) {
-    return Error(E_REQUEST,
-                 "Failed to unpack miner info Meta: " + unpacked.error().message);
+    return Error(E_REQUEST, "Failed to unpack miner info Meta: " + unpacked.error().message);
   }
   Client::MinerInfo minerInfo;
   auto parsed = minerInfo.ltsFromMeta(unpacked.value());
@@ -1607,8 +1588,7 @@ BeaconServer::hRegister(const Client::Request &request) {
   if (!miners_.isNewer(minerInfo)) {
     return Error(E_REQUEST, "Registration is not newer than the recorded one");
   }
-  if (auto verified = beacon_.verifyMinerRegistration(minerInfo, buildStateResponse().networkId);
-      !verified) {
+  if (auto verified = beacon_.verifyMinerRegistration(minerInfo, buildStateResponse().networkId); !verified) {
     return Error(E_REQUEST, verified.error().message);
   }
   registerServer(minerInfo);
@@ -1620,17 +1600,15 @@ BeaconServer::hRegister(const Client::Request &request) {
   return utl::binaryPack(buildStateResponse().ltsToMeta());
 }
 
-BeaconServer::Roe<std::string>
-BeaconServer::hStatus(const Client::Request & /*request*/) {
+BeaconServer::Roe<std::string> BeaconServer::hStatus(const Client::Request& /*request*/) {
   return utl::binaryPack(buildStateResponse().ltsToMeta());
 }
 
-BeaconServer::Roe<std::string>
-BeaconServer::hMinerList(const Client::Request & /*request*/) {
+BeaconServer::Roe<std::string> BeaconServer::hMinerList(const Client::Request& /*request*/) {
   expireMinerRecords();
   std::vector<pp::common::Meta> list;
   list.reserve(miners_.miners().size());
-  for (const auto &[id, info] : miners_.miners()) {
+  for (const auto& [id, info] : miners_.miners()) {
     Client::MinerInfo listed = info;
     listed.peerId.clear(); // ids only, no addresses or peers
     list.push_back(listed.ltsToMeta());
@@ -1638,14 +1616,14 @@ BeaconServer::hMinerList(const Client::Request & /*request*/) {
   return utl::binaryPack(list);
 }
 
-void BeaconServer::fillHealth(Client::NodeHealth &health) const {
+void BeaconServer::fillHealth(Client::NodeHealth& health) const {
   Server::fillHealth(health);
   health.role = "beacon";
   health.standingDown = beacon_.isSuperseded();
   health.txPoolRecords = txPool_.size();
   health.txPoolBytes = txPool_.bytes();
   health.txPoolOldestAgeSeconds = txPool_.oldestAgeSeconds(nowSeconds());
-  const auto &pool = txPool_.counters();
+  const auto& pool = txPool_.counters();
   health.txPoolAdded = pool.added;
   health.txPoolDuplicates = pool.duplicates;
   health.txPoolFull = pool.full;

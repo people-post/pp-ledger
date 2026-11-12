@@ -70,8 +70,8 @@ public:
                         std::chrono::milliseconds read_timeout = kDefaultReadTimeout);
 
   /** Synchronous handler, run inline on the io lane or via `post_worker`. */
-  static void Bind(pp::amp::PeerLinkManager& links, Handler handler, WorkerPost post_worker = {},
-                   IoPost post_io = {}, std::chrono::milliseconds read_timeout = kDefaultReadTimeout);
+  static void Bind(pp::amp::PeerLinkManager& links, Handler handler, WorkerPost post_worker = {}, IoPost post_io = {},
+                   std::chrono::milliseconds read_timeout = kDefaultReadTimeout);
 
   static void Unbind(pp::amp::PeerLinkManager& links);
 };

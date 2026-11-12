@@ -22,17 +22,18 @@ namespace pp {
 struct MinerState {
   constexpr static uint64_t kNever = UINT64_MAX;
 
-  bool registered{ false };
+  bool registered{false};
   /** Slot of its last block (or of its registration); it is due once this is old enough. */
-  uint64_t lastProducedSlot{ 0 };
+  uint64_t lastProducedSlot{0};
   /** Consecutive slots it led while due and produced nothing. */
-  uint32_t missedDue{ 0 };
+  uint32_t missedDue{0};
   /** Epoch it was deregistered by the liveness rule (cool-down); kNever if never. */
-  uint64_t autoDeregisteredEpoch{ kNever };
+  uint64_t autoDeregisteredEpoch{kNever};
 
   bool operator==(const MinerState& other) const = default;
 
-  template <typename Archive> void serialize(Archive &ar) {
+  template <typename Archive>
+  void serialize(Archive& ar) {
     ar & registered & lastProducedSlot & missedDue & autoDeregisteredEpoch;
   }
 };
@@ -47,20 +48,21 @@ struct MinerState {
 struct AccountRecovery {
   /** Who may announce, and how many must sign; none: the account has no recovery. */
   std::vector<std::string> publicKeys;
-  uint8_t minSignatures{ 0 };
+  uint8_t minSignatures{0};
   /** Seconds from an announcement's slot to the earliest its keys take over (at least half an epoch). */
-  uint64_t delaySeconds{ 0 };
+  uint64_t delaySeconds{0};
   /** An announcement waiting: the account's next keys, the epoch they take over at, the block it is in. */
-  bool pending{ false };
+  bool pending{false};
   std::vector<std::string> nextPublicKeys;
-  uint8_t nextMinSignatures{ 0 };
-  uint64_t applyEpoch{ 0 };
-  uint64_t announcedAt{ 0 };
+  uint8_t nextMinSignatures{0};
+  uint64_t applyEpoch{0};
+  uint64_t announcedAt{0};
 
   bool hasSet() const { return !publicKeys.empty(); }
-  bool operator==(const AccountRecovery &other) const = default;
+  bool operator==(const AccountRecovery& other) const = default;
 
-  template <typename Archive> void serialize(Archive &ar) {
+  template <typename Archive>
+  void serialize(Archive& ar) {
     ar & publicKeys & minSignatures & delaySeconds & pending & nextPublicKeys & nextMinSignatures & applyEpoch &
         announcedAt;
   }
@@ -79,22 +81,25 @@ struct AccountRecoveryAction {
     CHANGE = 3,
   };
 
-  uint8_t kind{ 0 };
+  uint8_t kind{0};
   std::vector<std::string> publicKeys;
-  uint8_t minSignatures{ 0 };
-  uint64_t delaySeconds{ 0 };
+  uint8_t minSignatures{0};
+  uint64_t delaySeconds{0};
 
-  template <typename Archive> void serialize(Archive &ar) { ar & kind & publicKeys & minSignatures & delaySeconds; }
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & kind & publicKeys & minSignatures & delaySeconds;
+  }
 
   std::string ltsToString() const;
-  bool ltsFromString(const std::string &str);
+  bool ltsFromString(const std::string& str);
 };
 
 struct Wallet {
   std::map<uint64_t, int64_t> mBalances; // tokenId -> balance
   std::vector<std::string> publicKeys;
-  uint8_t minSignatures{ 0 };
-  uint8_t keyType{ 0 };  // Crypto::TK_ML_DSA_65 = 1; use Crypto::isSupported() to check
+  uint8_t minSignatures{0};
+  uint8_t keyType{0}; // Crypto::TK_ML_DSA_65 = 1; use Crypto::isSupported() to check
   MinerState miner;
   AccountRecovery recovery;
   /**
@@ -107,7 +112,8 @@ struct Wallet {
   /** Every field, including any added later: renewals rely on it (chain_tx::renewalChangedWalletField). */
   bool operator==(const Wallet& other) const = default;
 
-  template <typename Archive> void serialize(Archive &ar) {
+  template <typename Archive>
+  void serialize(Archive& ar) {
     ar & mBalances & publicKeys & minSignatures & keyType & miner & recovery & domain;
   }
 
@@ -120,11 +126,10 @@ struct UserAccount {
   Wallet wallet;
   std::string meta;
 
-  bool operator==(const UserAccount& other) const {
-    return wallet == other.wallet && meta == other.meta;
-  }
+  bool operator==(const UserAccount& other) const { return wallet == other.wallet && meta == other.meta; }
 
-  template <typename Archive> void serialize(Archive &ar) {
+  template <typename Archive>
+  void serialize(Archive& ar) {
     ar & wallet & meta;
   }
 
@@ -133,7 +138,7 @@ struct UserAccount {
   pp::common::Meta ltsToMeta() const;
 };
 
-std::ostream &operator<<(std::ostream &os, const Wallet &wallet);
-std::ostream &operator<<(std::ostream &os, const UserAccount &account);
+std::ostream& operator<<(std::ostream& os, const Wallet& wallet);
+std::ostream& operator<<(std::ostream& os, const UserAccount& account);
 
 } // namespace pp

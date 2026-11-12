@@ -20,7 +20,7 @@ namespace {
 /**
  * A block whose hash is real and whose previousHash links it to `previous` (empty for the first).
  */
-Ledger::ChainNode makeBlock(uint64_t index, const std::string &previousHash = "") {
+Ledger::ChainNode makeBlock(uint64_t index, const std::string& previousHash = "") {
   Ledger::ChainNode node;
   node.block.index = index;
   node.block.previousHash = previousHash;
@@ -29,13 +29,13 @@ Ledger::ChainNode makeBlock(uint64_t index, const std::string &previousHash = ""
 }
 
 /** The generation-1 beacon key of the test chain. */
-const utl::MlDsaKeyPair &beaconKey() {
+const utl::MlDsaKeyPair& beaconKey() {
   static const utl::MlDsaKeyPair key = utl::mlDsaGenerate().value();
   return key;
 }
 
 /** The test chain's admin set: one key. */
-const utl::MlDsaKeyPair &adminKey() {
+const utl::MlDsaKeyPair& adminKey() {
   static const utl::MlDsaKeyPair key = utl::mlDsaGenerate().value();
   return key;
 }
@@ -64,7 +64,7 @@ Ledger::Record genesisRecord() {
 }
 
 /** A genesis renewal carrying `gm`: what a checkpoint block opens with. */
-Ledger::Record genesisRenewal(const GenesisAccountMeta &gm = testGenesisMeta()) {
+Ledger::Record genesisRenewal(const GenesisAccountMeta& gm = testGenesisMeta()) {
   Ledger::TxRenewal tx;
   tx.walletId = AccountBuffer::ID_GENESIS;
   tx.meta = gm.ltsToString();
@@ -75,7 +75,8 @@ Ledger::Record genesisRenewal(const GenesisAccountMeta &gm = testGenesisMeta()) 
 }
 
 /** `length` linked blocks; `records` puts records in some of them. */
-std::vector<Ledger::ChainNode> makeChain(size_t length, const std::map<uint64_t, std::vector<Ledger::Record>> &records = {}) {
+std::vector<Ledger::ChainNode> makeChain(size_t length,
+                                         const std::map<uint64_t, std::vector<Ledger::Record>>& records = {}) {
   std::vector<Ledger::ChainNode> chain;
   for (uint64_t i = 0; i < length; ++i) {
     Ledger::ChainNode node;
@@ -93,7 +94,7 @@ std::vector<Ledger::ChainNode> makeChain(size_t length, const std::map<uint64_t,
 }
 
 /** A tip over `block`, signed by `key` (the test beacon's unless given). */
-Client::SignedTip tipFor(const Ledger::ChainNode &block, const utl::MlDsaKeyPair &key = beaconKey(),
+Client::SignedTip tipFor(const Ledger::ChainNode& block, const utl::MlDsaKeyPair& key = beaconKey(),
                          uint64_t generation = 1) {
   Client::SignedTip tip;
   tip.networkId = "net";
@@ -111,9 +112,9 @@ pp::Roe<AuthorityTrail> testTrail() {
 }
 
 /** A T_BEACON_CERT for `generation` with `key`, signed by `signer` (the admin set's key unless given). */
-Ledger::Record certRecord(uint64_t generation, const utl::MlDsaKeyPair &key, uint64_t cutoverHeight,
-                          const utl::MlDsaKeyPair &signer = adminKey(),
-                          const std::string &cutoverHash = std::string(32, 'c')) {
+Ledger::Record certRecord(uint64_t generation, const utl::MlDsaKeyPair& key, uint64_t cutoverHeight,
+                          const utl::MlDsaKeyPair& signer = adminKey(),
+                          const std::string& cutoverHash = std::string(32, 'c')) {
   BeaconCertificate cert;
   cert.networkId = "net";
   cert.generation = generation;
@@ -130,9 +131,9 @@ Ledger::Record certRecord(uint64_t generation, const utl::MlDsaKeyPair &key, uin
 }
 
 /** STATUS as an upstream serves it: its next block id, signed tip and current certificate. */
-std::string statusPayload(const std::vector<Ledger::ChainNode> &chain, const std::optional<Client::SignedTip> &tip,
-                          const std::optional<Ledger::Record> &certificate = std::nullopt,
-                          const std::optional<Client::Equivocation> &equivocation = std::nullopt) {
+std::string statusPayload(const std::vector<Ledger::ChainNode>& chain, const std::optional<Client::SignedTip>& tip,
+                          const std::optional<Ledger::Record>& certificate = std::nullopt,
+                          const std::optional<Client::Equivocation>& equivocation = std::nullopt) {
   Client::BeaconState state;
   state.nextBlockId = chain.size();
   state.signedTip = tip;
@@ -166,10 +167,10 @@ public:
   }
   std::deque<std::pair<Client::Request, Done>> pending;
 
-  Roe<std::string> roundTrip(const std::string &, std::chrono::milliseconds) override {
+  Roe<std::string> roundTrip(const std::string&, std::chrono::milliseconds) override {
     return LedgerTransportError(-1, "sync path must be async");
   }
-  void roundTripAsync(const std::string &body, std::chrono::milliseconds, Done done) override {
+  void roundTripAsync(const std::string& body, std::chrono::milliseconds, Done done) override {
     auto request = utl::binaryUnpack<Client::Request>(body);
     ASSERT_TRUE(request.isOk());
     pending.emplace_back(request.value(), std::move(done));
@@ -228,7 +229,7 @@ protected:
       return local_.empty() ? std::optional<std::string>() : std::optional<std::string>(local_.back().hash);
     };
     h.authorityTrail = testTrail;
-    h.applyBlock = [this](const Ledger::ChainNode &block) -> pp::Roe<void> {
+    h.applyBlock = [this](const Ledger::ChainNode& block) -> pp::Roe<void> {
       if (block.block.index != startAt_ + local_.size()) {
         return pp::Error("out of order: " + std::to_string(block.block.index));
       }
@@ -239,7 +240,7 @@ protected:
       return {};
     };
     h.postToServerThread = [this](std::function<void()> task) { tasks_.push_back(std::move(task)); };
-    h.onFinished = [this](const BlockSync::Result &r) { results_.push_back(r); };
+    h.onFinished = [this](const BlockSync::Result& r) { results_.push_back(r); };
     return h;
   }
 
@@ -252,7 +253,7 @@ protected:
     }
   }
 
-  FakeUpstream *upstream_ = new FakeUpstream();  // owned by client_
+  FakeUpstream* upstream_ = new FakeUpstream(); // owned by client_
   Client client_;
   std::vector<Ledger::ChainNode> local_;
   std::deque<std::function<void()>> tasks_;
@@ -266,9 +267,9 @@ TEST_F(BlockSyncTest, FetchesGapWithBoundedPipelineAndAppliesInOrder) {
   BlockSync sync(client_, hooks());
   ASSERT_EQ(sync.start(), BlockSync::Start::Started);
   EXPECT_EQ(sync.start(), BlockSync::Start::AlreadyRunning);
-  upstream_->complete(0);  // status
+  upstream_->complete(0); // status
   drain();
-  EXPECT_EQ(upstream_->pending.size(), 4u);  // window of 4 block gets
+  EXPECT_EQ(upstream_->pending.size(), 4u); // window of 4 block gets
   while (!upstream_->pending.empty() || !tasks_.empty()) {
     upstream_->completeAll();
     drain();
@@ -290,7 +291,7 @@ TEST_F(BlockSyncTest, OutOfOrderResponsesStillApplyInOrder) {
     upstream_->complete(i);
   }
   drain();
-  EXPECT_EQ(local_.size(), 3u);  // nothing commits before the signed tip is reached
+  EXPECT_EQ(local_.size(), 3u); // nothing commits before the signed tip is reached
   runToEnd();
   ASSERT_EQ(results_.size(), 1u);
   EXPECT_TRUE(results_[0].ok);
@@ -316,7 +317,7 @@ TEST_F(BlockSyncTest, FailureBacksOffAndIgnoresLateResults) {
   sync.start();
   upstream_->complete(0);
   drain();
-  upstream_->complete(0, /*fail=*/true);  // first block get fails
+  upstream_->complete(0, /*fail=*/true); // first block get fails
   drain();
   ASSERT_EQ(results_.size(), 1u);
   EXPECT_FALSE(results_[0].ok);
@@ -529,7 +530,7 @@ TEST_F(BlockSyncTest, TheStartingAuthorityCanBeVetted) {
   startAt_ = 4;
   auto h = hooks();
   std::optional<uint64_t> vettedAt;
-  h.checkStartingAuthority = [&](uint64_t blockId, const ChainAuthority &authority, const Client::Wallet &admin) {
+  h.checkStartingAuthority = [&](uint64_t blockId, const ChainAuthority& authority, const Client::Wallet& admin) {
     vettedAt = blockId;
     EXPECT_EQ(authority.beacon.publicKey, beaconKey().publicKey);
     EXPECT_EQ(admin.publicKeys, std::vector<std::string>{adminKey().publicKey});
@@ -574,7 +575,8 @@ TEST_F(BlockSyncTest, TheOldGenerationAboveTheCertificateIsSuperseded) {
 
 TEST_F(BlockSyncTest, ACertificateTheAdminSetDidNotSignMovesNothing) {
   const auto thiefKey = utl::mlDsaGenerate().value();
-  upstream_->chain = makeChain(10, {{5, {certRecord(2, thiefKey, BeaconCertificate::kNoCutover, /*signer=*/thiefKey)}}});
+  upstream_->chain =
+      makeChain(10, {{5, {certRecord(2, thiefKey, BeaconCertificate::kNoCutover, /*signer=*/thiefKey)}}});
   local_.assign(upstream_->chain.begin(), upstream_->chain.begin() + 3);
   upstream_->signedTip = tipFor(upstream_->chain.back(), thiefKey, 2);
   BlockSync sync(client_, hooks());
@@ -605,7 +607,7 @@ TEST_F(BlockSyncTest, ATipPastTheCutoverOfACertificateOnStatusIsRefused) {
   upstream_->certificate = certRecord(2, utl::mlDsaGenerate().value(), 6);
   std::optional<Ledger::Record> seen;
   auto h = hooks();
-  h.offerCertificate = [&](const Ledger::Record &record) { seen = record; };
+  h.offerCertificate = [&](const Ledger::Record& record) { seen = record; };
   h.authorityTrail = [&]() -> pp::Roe<AuthorityTrail> {
     auto trail = testTrail();
     if (seen) {
@@ -644,7 +646,7 @@ TEST_F(BlockSyncTest, ATipPastEquivocationEvidenceOnStatusIsRefused) {
   ASSERT_TRUE(upstream_->equivocation.has_value());
   std::optional<Client::Equivocation> held;
   auto h = hooks();
-  h.offerEquivocation = [&](const Client::Equivocation &evidence) { held = evidence; };
+  h.offerEquivocation = [&](const Client::Equivocation& evidence) { held = evidence; };
   h.authorityTrail = [&]() -> pp::Roe<AuthorityTrail> {
     auto trail = testTrail();
     trail.value().setEquivocation(held);
@@ -673,8 +675,8 @@ TEST_F(BlockSyncTest, ATipPastEquivocationEvidenceOnStatusIsRefused) {
 namespace {
 
 /** `chain` grown to `length` blocks, `records` in some of the new ones. */
-void extendChain(std::vector<Ledger::ChainNode> &chain, size_t length,
-                 const std::map<uint64_t, std::vector<Ledger::Record>> &records = {}) {
+void extendChain(std::vector<Ledger::ChainNode>& chain, size_t length,
+                 const std::map<uint64_t, std::vector<Ledger::Record>>& records = {}) {
   while (chain.size() < length) {
     Ledger::ChainNode node;
     node.block.index = chain.size();
@@ -792,7 +794,7 @@ TEST_F(BlockSyncTest, AGenesisTheNodeRefusesIsNotTaken) {
   local_.clear();
   bool accept = false;
   auto h = hooks();
-  h.checkGenesis = [&](const Ledger::ChainNode &genesis) -> pp::Roe<void> {
+  h.checkGenesis = [&](const Ledger::ChainNode& genesis) -> pp::Roe<void> {
     EXPECT_EQ(genesis.block.index, 0u);
     return accept ? pp::Roe<void>() : pp::Roe<void>(pp::Error("not the predecessor"));
   };
@@ -876,15 +878,15 @@ public:
   std::vector<std::thread> late;
 
   ~FlakyUpstream() override {
-    for (auto &t : late) {
+    for (auto& t : late) {
       t.join();
     }
   }
 
-  Roe<std::string> roundTrip(const std::string &, std::chrono::milliseconds) override {
+  Roe<std::string> roundTrip(const std::string&, std::chrono::milliseconds) override {
     return LedgerTransportError(-1, "async only");
   }
-  void roundTripAsync(const std::string &body, std::chrono::milliseconds timeout, Done done) override {
+  void roundTripAsync(const std::string& body, std::chrono::milliseconds timeout, Done done) override {
     if (perBlock.count() > 0) {
       late.emplace_back([this, body, timeout, done = std::move(done)]() mutable {
         std::this_thread::sleep_for(perBlock);
@@ -895,7 +897,7 @@ public:
     answer(body, timeout, std::move(done));
   }
 
-  void answer(const std::string &body, std::chrono::milliseconds, Done done) {
+  void answer(const std::string& body, std::chrono::milliseconds, Done done) {
     if (failures > 0) {
       --failures;
       done(LedgerTransportError(-1, "upstream unavailable"));
@@ -936,19 +938,19 @@ protected:
       return local_.empty() ? std::optional<std::string>() : std::optional<std::string>(local_.back().hash);
     };
     h.authorityTrail = testTrail;
-    h.applyBlock = [this](const Ledger::ChainNode &block) -> pp::Roe<void> {
+    h.applyBlock = [this](const Ledger::ChainNode& block) -> pp::Roe<void> {
       local_.push_back(block);
       return {};
     };
     h.postToServerThread = [this](std::function<void()> task) { server_.postToServerThread(std::move(task)); };
-    h.onFinished = [this](const BlockSync::Result &r) { last_ = r; };
+    h.onFinished = [this](const BlockSync::Result& r) { last_ = r; };
     BlockSync::Options options;
     options.initialBackoff = std::chrono::milliseconds(20);
     options.maxBackoff = std::chrono::milliseconds(40);
     sync_ = std::make_unique<BlockSync>(client_, std::move(h), options);
   }
 
-  FlakyUpstream *upstream_ = new FlakyUpstream();  // owned by client_
+  FlakyUpstream* upstream_ = new FlakyUpstream(); // owned by client_
   Client client_;
   StartupServer server_;
   std::vector<Ledger::ChainNode> local_;
@@ -1006,7 +1008,7 @@ protected:
     h.dialUpstream = []() { return pp::Roe<void>(); };
     h.nextBlockId = [this]() { return static_cast<uint64_t>(local_.size()); };
     h.onUpstreamAhead = [this]() { ++syncRequests_; };
-    h.onSignedTip = [this](const Client::SignedTip &tip) { tips_.push_back(tip); };
+    h.onSignedTip = [this](const Client::SignedTip& tip) { tips_.push_back(tip); };
     h.postToServerThread = [this](std::function<void()> task) { tasks_.push_back(std::move(task)); };
     return h;
   }

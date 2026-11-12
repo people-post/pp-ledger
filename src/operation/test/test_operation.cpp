@@ -24,14 +24,14 @@ struct Keys {
   }
   std::vector<std::string> publicKeys() const {
     std::vector<std::string> out;
-    for (const auto &p : pairs) {
+    for (const auto& p : pairs) {
       out.push_back(p.publicKey);
     }
     return out;
   }
 };
 
-Common common(const Keys &keys, uint32_t minSignatures, std::optional<uint64_t> account) {
+Common common(const Keys& keys, uint32_t minSignatures, std::optional<uint64_t> account) {
   Common c;
   c.networkId = "test-net";
   c.genesisHash = std::string(32, '\x07');
@@ -79,9 +79,9 @@ TEST(OperationTest, CopiesSignedApartMergeIntoACompleteOperation) {
   EXPECT_EQ(merged.value().signatures.size(), 2u) << "a key counted once";
   auto record = signedRecord(merged.value());
   ASSERT_TRUE(record) << record.error().message;
-  for (const auto &signature : record.value().signatures) { // as the chain checks them
+  for (const auto& signature : record.value().signatures) { // as the chain checks them
     bool byASigner = false;
-    for (const auto &key : keys.publicKeys()) {
+    for (const auto& key : keys.publicKeys()) {
       byASigner = byASigner || utl::mlDsaVerify(key, record.value().signingMessage("test-net"), signature);
     }
     EXPECT_TRUE(byASigner);
@@ -136,7 +136,7 @@ TEST(OperationTest, SummariesComeFromTheRecord) {
   ASSERT_TRUE(s) << s.error().message;
   EXPECT_EQ(s.value().title, "Mint new tokens to the reserve");
   bool amount = false;
-  for (const auto &[label, value] : s.value().lines) {
+  for (const auto& [label, value] : s.value().lines) {
     amount = amount || (label == "Amount" && value == "1,234,567");
   }
   EXPECT_TRUE(amount);
@@ -174,7 +174,7 @@ TEST(OperationTest, SummariesComeFromTheRecord) {
 
 TEST(OperationTest, ABeaconCertificateShowsItsSeedAnchor) {
   Keys keys(2);
-  auto show = [&](const std::string &anchor) {
+  auto show = [&](const std::string& anchor) {
     BeaconCertificate cert;
     cert.networkId = "test-net";
     cert.generation = 2;
@@ -221,7 +221,7 @@ TEST(OperationTest, TheSignersAreTheAccountTheChainChecks) {
 }
 
 /** Block 0 by hand (the beacon builds it with chain_genesis::records): genesis meta, two accounts. */
-std::vector<Ledger::Record> genesisRecords(const Keys &admins) {
+std::vector<Ledger::Record> genesisRecords(const Keys& admins) {
   GenesisAccountMeta meta;
   meta.config.networkId = "test-net";
   meta.config.genesisTime = 1'800'000'000;
@@ -272,7 +272,7 @@ TEST(OperationTest, AGenesisIsSignedRecordByRecordAndMerged) {
   auto records = signedRecords(merged.value());
   ASSERT_TRUE(records) << records.error().message;
   ASSERT_EQ(records.value().size(), 3u);
-  for (const auto &record : records.value()) {
+  for (const auto& record : records.value()) {
     EXPECT_EQ(record.signatures.size(), 2u);
   }
 
@@ -294,7 +294,7 @@ TEST(OperationTest, AGenesisIsSignedRecordByRecordAndMerged) {
   ASSERT_TRUE(s) << s.error().message;
   EXPECT_EQ(s.value().title, "Start the chain (genesis)");
   bool reserve = false;
-  for (const auto &[label, value] : s.value().lines) {
+  for (const auto& [label, value] : s.value().lines) {
     reserve = reserve || (label == "Reserve" && value.rfind("1,000,000; keys 1 of 1:", 0) == 0);
   }
   EXPECT_TRUE(reserve);
@@ -340,7 +340,7 @@ TEST(OperationTest, ABatchIsSignedOnceAndSubmittedTransferByTransfer) {
   ASSERT_EQ(op.value().moreRecords.size(), 2u);
   // Each its own transaction: distinct idempotency ids, one window, the same metadata.
   std::set<uint64_t> ids;
-  for (const auto *record : {&op.value().record, &op.value().moreRecords[0], &op.value().moreRecords[1]}) {
+  for (const auto* record : {&op.value().record, &op.value().moreRecords[0], &op.value().moreRecords[1]}) {
     auto tx = utl::binaryUnpack<Ledger::TxDefault>(record->data);
     ASSERT_TRUE(tx);
     EXPECT_EQ(tx.value().fromWalletId, AccountIds::ID_FEE);
@@ -362,7 +362,7 @@ TEST(OperationTest, ABatchIsSignedOnceAndSubmittedTransferByTransfer) {
   auto records = signedRecords(merged.value());
   ASSERT_TRUE(records) << records.error().message;
   ASSERT_EQ(records.value().size(), 3u);
-  for (const auto &record : records.value()) {
+  for (const auto& record : records.value()) {
     EXPECT_EQ(record.signatures.size(), 2u);
   }
 
@@ -371,7 +371,7 @@ TEST(OperationTest, ABatchIsSignedOnceAndSubmittedTransferByTransfer) {
   EXPECT_EQ(summary.value().title, "3 transfers from Fee");
   bool total = false;
   bool fees = false;
-  for (const auto &[label, value] : summary.value().lines) {
+  for (const auto& [label, value] : summary.value().lines) {
     total = total || (label == "Total" && value == "1,000");
     fees = fees || (label == "Fees, all" && value == "6");
   }
@@ -394,7 +394,7 @@ TEST(OperationTest, AnAccountReplacesItsKeysSignedByThoseInForce) {
   current.wallet.mBalances[issuer] = -1000; // its own token, issued
   current.meta = "attachment";
 
-  EXPECT_FALSE(replaceKeys(common(inForce, 2, issuer), current, next.publicKeys(), 4, 10)); // more than the keys
+  EXPECT_FALSE(replaceKeys(common(inForce, 2, issuer), current, next.publicKeys(), 4, 10));  // more than the keys
   EXPECT_FALSE(replaceKeys(common(inForce, 2, issuer), current, next.publicKeys(), 2, 501)); // cannot pay
   auto update = replaceKeys(common(inForce, 2, issuer), current, next.publicKeys(), 2, 10);
   ASSERT_TRUE(update) << update.error().message;

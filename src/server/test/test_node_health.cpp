@@ -55,14 +55,13 @@ TEST(NodeHealthTest, AStaleReportIsNeitherLiveNorReady) {
 }
 
 TEST(HealthMetricsTest, OneSeriesPerNodeAndANodeThatDidNotAnswerIsDown) {
-  const std::string body =
-      renderHealthMetrics({{"relay", relayHealth(true)}, {"miner", std::nullopt}});
+  const std::string body = renderHealthMetrics({{"relay", relayHealth(true)}, {"miner", std::nullopt}});
   EXPECT_NE(body.find("pp_ledger_info{node=\"relay\",role=\"relay\",peer_id=\"12D3KooWrelay\",network=\"net\\\"1\"} 1"),
             std::string::npos);
   EXPECT_NE(body.find("pp_ledger_up{node=\"relay\"} 1\n"), std::string::npos);
   EXPECT_NE(body.find("pp_ledger_up{node=\"miner\"} 0\n"), std::string::npos);
   EXPECT_NE(body.find("pp_ledger_ready{node=\"relay\"} 1\n"), std::string::npos);
-  EXPECT_EQ(body.find("pp_ledger_ready{node=\"miner\"}"), std::string::npos); // no answer, no sample
+  EXPECT_EQ(body.find("pp_ledger_ready{node=\"miner\"}"), std::string::npos);                   // no answer, no sample
   EXPECT_NE(body.find("pp_ledger_next_block_id{node=\"relay\"} 1234567\n"), std::string::npos); // exact
   EXPECT_NE(body.find("pp_ledger_sync_lag_blocks{node=\"relay\"} 3\n"), std::string::npos);
   EXPECT_NE(body.find("pp_ledger_report_age_seconds{node=\"relay\"} 0.250\n"), std::string::npos);

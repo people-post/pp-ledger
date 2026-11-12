@@ -8,965 +8,962 @@ using namespace pp;
 
 class AccountBufferTest : public ::testing::Test {
 protected:
-    AccountBuffer buf;
+  AccountBuffer buf;
 
-    AccountBuffer::Account makeAccount(uint64_t id, int64_t balance) {
-        AccountBuffer::Account a;
-        a.id = id;
-        a.wallet.publicKeys = {"pk-" + std::to_string(id)};
-        a.wallet.keyType = Crypto::TK_ML_DSA_65;
-        a.wallet.mBalances[AccountBuffer::ID_GENESIS] = balance; // Use native token (ID ID_GENESIS)
-        return a;
-    }
+  AccountBuffer::Account makeAccount(uint64_t id, int64_t balance) {
+    AccountBuffer::Account a;
+    a.id = id;
+    a.wallet.publicKeys = {"pk-" + std::to_string(id)};
+    a.wallet.keyType = Crypto::TK_ML_DSA_65;
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = balance; // Use native token (ID ID_GENESIS)
+    return a;
+  }
 
-    /** Add fee account (ID_FEE) with zero balance. Required before transferBalance with fee > 0. */
-    void addFeeAccount() {
-        auto feeAccount = makeAccount(AccountBuffer::ID_FEE, 0);
-        ASSERT_TRUE(buf.add(feeAccount).isOk());
-    }
+  /** Add fee account (ID_FEE) with zero balance. Required before transferBalance with fee > 0. */
+  void addFeeAccount() {
+    auto feeAccount = makeAccount(AccountBuffer::ID_FEE, 0);
+    ASSERT_TRUE(buf.add(feeAccount).isOk());
+  }
 };
 
 // --- depositBalance ---
 
 TEST_F(AccountBufferTest, DepositBalance_Success_IncreasesBalance) {
-    auto a = makeAccount(1, 100);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 100);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    auto r = buf.depositBalance(1, AccountBuffer::ID_GENESIS, 50); // tokenId = ID_GENESIS
-    ASSERT_TRUE(r.isOk());
+  auto r = buf.depositBalance(1, AccountBuffer::ID_GENESIS, 50); // tokenId = ID_GENESIS
+  ASSERT_TRUE(r.isOk());
 
-    auto got = buf.getAccount(1);
-    ASSERT_TRUE(got.isOk());
-    EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 150);
+  auto got = buf.getAccount(1);
+  ASSERT_TRUE(got.isOk());
+  EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 150);
 }
 
 TEST_F(AccountBufferTest, DepositBalance_ZeroAmount_Success) {
-    auto a = makeAccount(1, 100);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 100);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    auto r = buf.depositBalance(1, AccountBuffer::ID_GENESIS, 0); // tokenId = ID_GENESIS
-    ASSERT_TRUE(r.isOk());
+  auto r = buf.depositBalance(1, AccountBuffer::ID_GENESIS, 0); // tokenId = ID_GENESIS
+  ASSERT_TRUE(r.isOk());
 
-    auto got = buf.getAccount(1);
-    ASSERT_TRUE(got.isOk());
-    EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
+  auto got = buf.getAccount(1);
+  ASSERT_TRUE(got.isOk());
+  EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
 }
 
 TEST_F(AccountBufferTest, DepositBalance_NegativeAmount_Error) {
-    auto a = makeAccount(1, 100);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 100);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    auto r = buf.depositBalance(1, AccountBuffer::ID_GENESIS, -10); // tokenId = ID_GENESIS
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
-    EXPECT_EQ(r.error().message, "Deposit amount must be non-negative");
+  auto r = buf.depositBalance(1, AccountBuffer::ID_GENESIS, -10); // tokenId = ID_GENESIS
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
+  EXPECT_EQ(r.error().message, "Deposit amount must be non-negative");
 }
 
 TEST_F(AccountBufferTest, DepositBalance_AccountNotFound_Error) {
-    auto r = buf.depositBalance(999, AccountBuffer::ID_GENESIS, 100); // tokenId = ID_GENESIS
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_ACCOUNT);
-    EXPECT_EQ(r.error().message, "Account not found: 999");
+  auto r = buf.depositBalance(999, AccountBuffer::ID_GENESIS, 100); // tokenId = ID_GENESIS
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_ACCOUNT);
+  EXPECT_EQ(r.error().message, "Account not found: 999");
 }
 
 TEST_F(AccountBufferTest, DepositBalance_Overflow_Error) {
-    auto a = makeAccount(1, INT64_MAX);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, INT64_MAX);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    auto r = buf.depositBalance(1, AccountBuffer::ID_GENESIS, 1); // tokenId = ID_GENESIS
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
-    EXPECT_EQ(r.error().message, "Deposit would cause balance overflow");
+  auto r = buf.depositBalance(1, AccountBuffer::ID_GENESIS, 1); // tokenId = ID_GENESIS
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  EXPECT_EQ(r.error().message, "Deposit would cause balance overflow");
 
-    auto got = buf.getAccount(1);
-    ASSERT_TRUE(got.isOk());
-    EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), INT64_MAX);
+  auto got = buf.getAccount(1);
+  ASSERT_TRUE(got.isOk());
+  EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), INT64_MAX);
 }
 
 // --- withdrawBalance ---
 
 TEST_F(AccountBufferTest, WithdrawBalance_Success_DecreasesBalance) {
-    auto a = makeAccount(1, 100);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 100);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    auto r = buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, 30); // tokenId = ID_GENESIS
-    ASSERT_TRUE(r.isOk());
+  auto r = buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, 30); // tokenId = ID_GENESIS
+  ASSERT_TRUE(r.isOk());
 
-    auto got = buf.getAccount(1);
-    ASSERT_TRUE(got.isOk());
-    EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 70);
+  auto got = buf.getAccount(1);
+  ASSERT_TRUE(got.isOk());
+  EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 70);
 }
 
 TEST_F(AccountBufferTest, WithdrawBalance_ZeroAmount_Success) {
-    auto a = makeAccount(1, 100);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 100);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    auto r = buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, 0); // tokenId = ID_GENESIS
-    ASSERT_TRUE(r.isOk());
+  auto r = buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, 0); // tokenId = ID_GENESIS
+  ASSERT_TRUE(r.isOk());
 
-    auto got = buf.getAccount(1);
-    ASSERT_TRUE(got.isOk());
-    EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
+  auto got = buf.getAccount(1);
+  ASSERT_TRUE(got.isOk());
+  EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
 }
 
 TEST_F(AccountBufferTest, WithdrawBalance_ExactBalance_Success) {
-    auto a = makeAccount(1, 100);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 100);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    auto r = buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, 100); // tokenId = ID_GENESIS
-    ASSERT_TRUE(r.isOk());
+  auto r = buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, 100); // tokenId = ID_GENESIS
+  ASSERT_TRUE(r.isOk());
 
-    auto got = buf.getAccount(1);
-    ASSERT_TRUE(got.isOk());
-    EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 0);
+  auto got = buf.getAccount(1);
+  ASSERT_TRUE(got.isOk());
+  EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 0);
 }
 
 TEST_F(AccountBufferTest, WithdrawBalance_NegativeAmount_Error) {
-    auto a = makeAccount(1, 100);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 100);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    auto r = buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, -5); // tokenId = ID_GENESIS
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
-    EXPECT_EQ(r.error().message, "Withdraw amount must be non-negative");
+  auto r = buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, -5); // tokenId = ID_GENESIS
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
+  EXPECT_EQ(r.error().message, "Withdraw amount must be non-negative");
 }
 
 TEST_F(AccountBufferTest, WithdrawBalance_AccountNotFound_Error) {
-    auto r = buf.withdrawBalance(999, AccountBuffer::ID_GENESIS, 100); // tokenId = ID_GENESIS
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_ACCOUNT);
-    EXPECT_EQ(r.error().message, "Account not found: 999");
+  auto r = buf.withdrawBalance(999, AccountBuffer::ID_GENESIS, 100); // tokenId = ID_GENESIS
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_ACCOUNT);
+  EXPECT_EQ(r.error().message, "Account not found: 999");
 }
 
 TEST_F(AccountBufferTest, WithdrawBalance_InsufficientBalance_Error) {
-    auto a = makeAccount(1, 50);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 50);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    auto r = buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, 100); // tokenId = ID_GENESIS
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
-    EXPECT_EQ(r.error().message, "Insufficient balance");
+  auto r = buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, 100); // tokenId = ID_GENESIS
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  EXPECT_EQ(r.error().message, "Insufficient balance");
 
-    auto got = buf.getAccount(1);
-    ASSERT_TRUE(got.isOk());
-    EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 50);
+  auto got = buf.getAccount(1);
+  ASSERT_TRUE(got.isOk());
+  EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 50);
 }
 
 TEST_F(AccountBufferTest, WithdrawBalance_Underflow_Error) {
-    auto a = makeAccount(AccountBuffer::ID_GENESIS, INT64_MIN);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(AccountBuffer::ID_GENESIS, INT64_MIN);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    auto r = buf.withdrawBalance(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS, 1); // tokenId = ID_GENESIS
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
-    EXPECT_EQ(r.error().message, "Withdraw would cause balance underflow");
+  auto r = buf.withdrawBalance(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS, 1); // tokenId = ID_GENESIS
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  EXPECT_EQ(r.error().message, "Withdraw would cause balance underflow");
 
-    auto got = buf.getAccount(AccountBuffer::ID_GENESIS);
-    ASSERT_TRUE(got.isOk());
-    EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), INT64_MIN);
+  auto got = buf.getAccount(AccountBuffer::ID_GENESIS);
+  ASSERT_TRUE(got.isOk());
+  EXPECT_EQ(got.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), INT64_MIN);
 }
 
 // --- hSpendingPower ---
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_SufficientBalance_GenesisToken_ReturnsTrue) {
-    auto a = makeAccount(1, 1000);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 1000);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Account has 1000, needs 100 + 10 = 110
-    EXPECT_TRUE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10).isOk());
+  // Account has 1000, needs 100 + 10 = 110
+  EXPECT_TRUE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_ExactBalance_GenesisToken_ReturnsTrue) {
-    auto a = makeAccount(1, 110);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 110);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Account has exactly 110, needs 100 + 10 = 110
-    EXPECT_TRUE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10).isOk());
+  // Account has exactly 110, needs 100 + 10 = 110
+  EXPECT_TRUE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_InsufficientBalance_GenesisToken_ReturnsFalse) {
-    auto a = makeAccount(1, 100);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 100);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Account has 100, needs 100 + 10 = 110
-    EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10).isOk());
+  // Account has 100, needs 100 + 10 = 110
+  EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_SufficientBalance_CustomToken_ReturnsTrue) {
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    
-    AccountBuffer::Account a;
-    a.id = 1;
-    a.wallet.mBalances[CUSTOM_TOKEN] = 500;
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
-    ASSERT_TRUE(buf.add(a).isOk());
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // Has 500 of custom token and 100 genesis, needs 200 + 10 fee
-    EXPECT_TRUE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 200, 10).isOk());
+  buf.reset();
+
+  AccountBuffer::Account a;
+  a.id = 1;
+  a.wallet.mBalances[CUSTOM_TOKEN] = 500;
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
+  ASSERT_TRUE(buf.add(a).isOk());
+
+  // Has 500 of custom token and 100 genesis, needs 200 + 10 fee
+  EXPECT_TRUE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 200, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_InsufficientTokenBalance_CustomToken_ReturnsFalse) {
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    
-    AccountBuffer::Account a;
-    a.id = 1;
-    a.wallet.mBalances[CUSTOM_TOKEN] = 50;
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
-    ASSERT_TRUE(buf.add(a).isOk());
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // Has 50 of custom token but needs 100
-    EXPECT_FALSE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 100, 10).isOk());
+  buf.reset();
+
+  AccountBuffer::Account a;
+  a.id = 1;
+  a.wallet.mBalances[CUSTOM_TOKEN] = 50;
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
+  ASSERT_TRUE(buf.add(a).isOk());
+
+  // Has 50 of custom token but needs 100
+  EXPECT_FALSE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_InsufficientFeeBalance_CustomToken_ReturnsFalse) {
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    
-    AccountBuffer::Account a;
-    a.id = 1;
-    a.wallet.mBalances[CUSTOM_TOKEN] = 500;
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 5;
-    ASSERT_TRUE(buf.add(a).isOk());
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // Has enough custom token but not enough genesis for fee
-    EXPECT_FALSE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 100, 10).isOk());
+  buf.reset();
+
+  AccountBuffer::Account a;
+  a.id = 1;
+  a.wallet.mBalances[CUSTOM_TOKEN] = 500;
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 5;
+  ASSERT_TRUE(buf.add(a).isOk());
+
+  // Has enough custom token but not enough genesis for fee
+  EXPECT_FALSE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_AccountNotFound_ReturnsFalse) {
-    // Account 999 doesn't exist
-    EXPECT_FALSE(buf.verifySpendingPower(999, AccountBuffer::ID_GENESIS, 100, 10).isOk());
+  // Account 999 doesn't exist
+  EXPECT_FALSE(buf.verifySpendingPower(999, AccountBuffer::ID_GENESIS, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_NegativeAmount_ReturnsFalse) {
-    auto a = makeAccount(1, 1000);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 1000);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, static_cast<uint64_t>(-100), 10).isOk());
+  EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, static_cast<uint64_t>(-100), 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_NegativeFee_ReturnsFalse) {
-    auto a = makeAccount(1, 1000);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 1000);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, static_cast<uint64_t>(-10)).isOk());
+  EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, static_cast<uint64_t>(-10)).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_ZeroAmount_ReturnsTrue) {
-    auto a = makeAccount(1, 100);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 100);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Even with low balance, zero amount should work
-    EXPECT_TRUE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 0, 10).isOk());
+  // Even with low balance, zero amount should work
+  EXPECT_TRUE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 0, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_ZeroFee_ReturnsTrue) {
-    auto a = makeAccount(1, 100);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 100);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    EXPECT_TRUE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, 0).isOk());
+  EXPECT_TRUE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, 0).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_GenesisAccount_AllowsNegativeBalance_ReturnsTrue) {
-    // Genesis account (ID_GENESIS) can have negative balance
-    auto a = makeAccount(AccountBuffer::ID_GENESIS, -1000);
-    ASSERT_TRUE(buf.add(a).isOk());
+  // Genesis account (ID_GENESIS) can have negative balance
+  auto a = makeAccount(AccountBuffer::ID_GENESIS, -1000);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Even with negative balance, genesis account should return true
-    EXPECT_TRUE(buf.verifySpendingPower(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS, 100, 10).isOk());
+  // Even with negative balance, genesis account should return true
+  EXPECT_TRUE(buf.verifySpendingPower(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_NoTokenBalance_ReturnsFalse) {
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    
-    // Account only has genesis balance, no custom token balance
-    auto a = makeAccount(1, 100);
-    ASSERT_TRUE(buf.add(a).isOk());
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // Doesn't have any custom token balance
-    EXPECT_FALSE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 50, 10).isOk());
+  buf.reset();
+
+  // Account only has genesis balance, no custom token balance
+  auto a = makeAccount(1, 100);
+  ASSERT_TRUE(buf.add(a).isOk());
+
+  // Doesn't have any custom token balance
+  EXPECT_FALSE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 50, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_GenesisToken_AmountPlusFeeOverflow_ReturnsFalse) {
-    // amount and fee are each individually within int64_t range, but their
-    // sum overflows int64_t. Regression for a check-bypass via signed
-    // overflow wraparound.
-    auto a = makeAccount(1, 1000);
-    ASSERT_TRUE(buf.add(a).isOk());
+  // amount and fee are each individually within int64_t range, but their
+  // sum overflows int64_t. Regression for a check-bypass via signed
+  // overflow wraparound.
+  auto a = makeAccount(1, 1000);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    const uint64_t nearMax = static_cast<uint64_t>(INT64_MAX) - 5;
-    EXPECT_FALSE(
-        buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, nearMax, nearMax)
-            .isOk());
+  const uint64_t nearMax = static_cast<uint64_t>(INT64_MAX) - 5;
+  EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, nearMax, nearMax).isOk());
 }
 
 // --- transferBalance with fee parameter ---
 
 TEST_F(AccountBufferTest, TransferBalance_WithFee_GenesisToken_Success) {
-    buf.reset();
-    // Fee account (ID_FEE=1) first, then from=10, to=2 to avoid id clash
-    addFeeAccount();
-    auto a = makeAccount(10, 1000);
-    ASSERT_TRUE(buf.add(a).isOk());
-    auto b = makeAccount(2, 0);
-    ASSERT_TRUE(buf.add(b).isOk());
+  buf.reset();
+  // Fee account (ID_FEE=1) first, then from=10, to=2 to avoid id clash
+  addFeeAccount();
+  auto a = makeAccount(10, 1000);
+  ASSERT_TRUE(buf.add(a).isOk());
+  auto b = makeAccount(2, 0);
+  ASSERT_TRUE(buf.add(b).isOk());
 
-    // Transfer 100 with 10 fee (both from ID_GENESIS balance)
-    auto r = buf.transferBalance(10, 2, AccountBuffer::ID_GENESIS, 100, 10);
-    ASSERT_TRUE(r.isOk());
+  // Transfer 100 with 10 fee (both from ID_GENESIS balance)
+  auto r = buf.transferBalance(10, 2, AccountBuffer::ID_GENESIS, 100, 10);
+  ASSERT_TRUE(r.isOk());
 
-    // Source: 1000 - 100 - 10 = 890
-    auto from = buf.getAccount(10);
-    ASSERT_TRUE(from.isOk());
-    EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 890);
+  // Source: 1000 - 100 - 10 = 890
+  auto from = buf.getAccount(10);
+  ASSERT_TRUE(from.isOk());
+  EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 890);
 
-    // Destination: 0 + 100 = 100
-    auto to = buf.getAccount(2);
-    ASSERT_TRUE(to.isOk());
-    EXPECT_EQ(to.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
+  // Destination: 0 + 100 = 100
+  auto to = buf.getAccount(2);
+  ASSERT_TRUE(to.isOk());
+  EXPECT_EQ(to.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
 
-    // Fee account receives the fee
-    auto feeAccount = buf.getAccount(AccountBuffer::ID_FEE);
-    ASSERT_TRUE(feeAccount.isOk());
-    EXPECT_EQ(feeAccount.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 10);
+  // Fee account receives the fee
+  auto feeAccount = buf.getAccount(AccountBuffer::ID_FEE);
+  ASSERT_TRUE(feeAccount.isOk());
+  EXPECT_EQ(feeAccount.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 10);
 }
 
 TEST_F(AccountBufferTest, TransferBalance_WithFee_CustomToken_Success) {
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    addFeeAccount();
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // Create source account with both token balances (use id 10 to avoid clash with ID_FEE=1)
-    AccountBuffer::Account a;
-    a.id = 10;
-    a.wallet.mBalances[CUSTOM_TOKEN] = 500;
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
-    ASSERT_TRUE(buf.add(a).isOk());
-    
-    // Create destination account
-    AccountBuffer::Account b;
-    b.id = 2;
-    b.wallet.mBalances[CUSTOM_TOKEN] = 0;
-    ASSERT_TRUE(buf.add(b).isOk());
+  buf.reset();
+  addFeeAccount();
 
-    // Transfer 200 of custom token with 10 fee in ID_GENESIS
-    auto r = buf.transferBalance(10, 2, CUSTOM_TOKEN, 200, 10);
-    ASSERT_TRUE(r.isOk());
+  // Create source account with both token balances (use id 10 to avoid clash with ID_FEE=1)
+  AccountBuffer::Account a;
+  a.id = 10;
+  a.wallet.mBalances[CUSTOM_TOKEN] = 500;
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Source: custom token 500 - 200 = 300, genesis 100 - 10 = 90
-    auto from = buf.getAccount(10);
-    ASSERT_TRUE(from.isOk());
-    EXPECT_EQ(from.value().wallet.mBalances.at(CUSTOM_TOKEN), 300);
-    EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 90);
+  // Create destination account
+  AccountBuffer::Account b;
+  b.id = 2;
+  b.wallet.mBalances[CUSTOM_TOKEN] = 0;
+  ASSERT_TRUE(buf.add(b).isOk());
 
-    // Destination: custom token 0 + 200 = 200
-    auto to = buf.getAccount(2);
-    ASSERT_TRUE(to.isOk());
-    EXPECT_EQ(to.value().wallet.mBalances.at(CUSTOM_TOKEN), 200);
+  // Transfer 200 of custom token with 10 fee in ID_GENESIS
+  auto r = buf.transferBalance(10, 2, CUSTOM_TOKEN, 200, 10);
+  ASSERT_TRUE(r.isOk());
 
-    // Fee account receives the fee
-    auto feeAccount = buf.getAccount(AccountBuffer::ID_FEE);
-    ASSERT_TRUE(feeAccount.isOk());
-    EXPECT_EQ(feeAccount.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 10);
+  // Source: custom token 500 - 200 = 300, genesis 100 - 10 = 90
+  auto from = buf.getAccount(10);
+  ASSERT_TRUE(from.isOk());
+  EXPECT_EQ(from.value().wallet.mBalances.at(CUSTOM_TOKEN), 300);
+  EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 90);
+
+  // Destination: custom token 0 + 200 = 200
+  auto to = buf.getAccount(2);
+  ASSERT_TRUE(to.isOk());
+  EXPECT_EQ(to.value().wallet.mBalances.at(CUSTOM_TOKEN), 200);
+
+  // Fee account receives the fee
+  auto feeAccount = buf.getAccount(AccountBuffer::ID_FEE);
+  ASSERT_TRUE(feeAccount.isOk());
+  EXPECT_EQ(feeAccount.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 10);
 }
 
 TEST_F(AccountBufferTest, TransferBalance_WithZeroFee_Success) {
-    auto a = makeAccount(1, 1000);
-    ASSERT_TRUE(buf.add(a).isOk());
-    
-    auto b = makeAccount(2, 0);
-    ASSERT_TRUE(buf.add(b).isOk());
+  auto a = makeAccount(1, 1000);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Transfer with zero fee (explicit)
-    auto r = buf.transferBalance(1, 2, AccountBuffer::ID_GENESIS, 100, 0);
-    ASSERT_TRUE(r.isOk());
+  auto b = makeAccount(2, 0);
+  ASSERT_TRUE(buf.add(b).isOk());
 
-    // Source: 1000 - 100 = 900 (no fee deducted)
-    auto from = buf.getAccount(1);
-    ASSERT_TRUE(from.isOk());
-    EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 900);
+  // Transfer with zero fee (explicit)
+  auto r = buf.transferBalance(1, 2, AccountBuffer::ID_GENESIS, 100, 0);
+  ASSERT_TRUE(r.isOk());
 
-    // Destination: 100
-    auto to = buf.getAccount(2);
-    ASSERT_TRUE(to.isOk());
-    EXPECT_EQ(to.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
+  // Source: 1000 - 100 = 900 (no fee deducted)
+  auto from = buf.getAccount(1);
+  ASSERT_TRUE(from.isOk());
+  EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 900);
+
+  // Destination: 100
+  auto to = buf.getAccount(2);
+  ASSERT_TRUE(to.isOk());
+  EXPECT_EQ(to.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
 }
 
 TEST_F(AccountBufferTest, TransferBalance_WithOutOfRangeFee_Error) {
-    auto a = makeAccount(1, 1000);
-    ASSERT_TRUE(buf.add(a).isOk());
-    
-    auto b = makeAccount(2, 0);
-    ASSERT_TRUE(buf.add(b).isOk());
+  auto a = makeAccount(1, 1000);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Negative literal wraps to a large uint64_t fee and should fail range checks
-    auto r = buf.transferBalance(1, 2, AccountBuffer::ID_GENESIS, 100, static_cast<uint64_t>(-10));
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
-    EXPECT_EQ(r.error().message, "Fee exceeds int64_t range");
+  auto b = makeAccount(2, 0);
+  ASSERT_TRUE(buf.add(b).isOk());
+
+  // Negative literal wraps to a large uint64_t fee and should fail range checks
+  auto r = buf.transferBalance(1, 2, AccountBuffer::ID_GENESIS, 100, static_cast<uint64_t>(-10));
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
+  EXPECT_EQ(r.error().message, "Fee exceeds int64_t range");
 }
 
 TEST_F(AccountBufferTest, TransferBalance_InsufficientBalance_GenesisToken_WithFee_Error) {
-    buf.reset();
-    // Account has 100, trying to transfer 95 with 10 fee = 105 total
-    addFeeAccount();
-    auto a = makeAccount(10, 100);
-    ASSERT_TRUE(buf.add(a).isOk());
-    auto b = makeAccount(2, 0);
-    ASSERT_TRUE(buf.add(b).isOk());
+  buf.reset();
+  // Account has 100, trying to transfer 95 with 10 fee = 105 total
+  addFeeAccount();
+  auto a = makeAccount(10, 100);
+  ASSERT_TRUE(buf.add(a).isOk());
+  auto b = makeAccount(2, 0);
+  ASSERT_TRUE(buf.add(b).isOk());
 
-    auto r = buf.transferBalance(10, 2, AccountBuffer::ID_GENESIS, 95, 10);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
-    EXPECT_EQ(r.error().message, "Insufficient balance for transfer and fee");
-    
-    // Balance should remain unchanged
-    auto from = buf.getAccount(10);
-    ASSERT_TRUE(from.isOk());
-    EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
+  auto r = buf.transferBalance(10, 2, AccountBuffer::ID_GENESIS, 95, 10);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  EXPECT_EQ(r.error().message, "Insufficient balance for transfer and fee");
+
+  // Balance should remain unchanged
+  auto from = buf.getAccount(10);
+  ASSERT_TRUE(from.isOk());
+  EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
 }
 
 TEST_F(AccountBufferTest, TransferBalance_InsufficientBalance_CustomToken_WithFee_Error) {
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    addFeeAccount();
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // Account has enough custom token but not enough ID_GENESIS for fee (use id 10)
-    AccountBuffer::Account a;
-    a.id = 10;
-    a.wallet.mBalances[CUSTOM_TOKEN] = 500;
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 5; // Not enough for fee of 10
-    ASSERT_TRUE(buf.add(a).isOk());
-    
-    AccountBuffer::Account b;
-    b.id = 2;
-    b.wallet.mBalances[CUSTOM_TOKEN] = 0;
-    ASSERT_TRUE(buf.add(b).isOk());
+  buf.reset();
+  addFeeAccount();
 
-    auto r = buf.transferBalance(10, 2, CUSTOM_TOKEN, 100, 10);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
-    EXPECT_EQ(r.error().message, "Insufficient balance for fee");
+  // Account has enough custom token but not enough ID_GENESIS for fee (use id 10)
+  AccountBuffer::Account a;
+  a.id = 10;
+  a.wallet.mBalances[CUSTOM_TOKEN] = 500;
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 5; // Not enough for fee of 10
+  ASSERT_TRUE(buf.add(a).isOk());
+
+  AccountBuffer::Account b;
+  b.id = 2;
+  b.wallet.mBalances[CUSTOM_TOKEN] = 0;
+  ASSERT_TRUE(buf.add(b).isOk());
+
+  auto r = buf.transferBalance(10, 2, CUSTOM_TOKEN, 100, 10);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  EXPECT_EQ(r.error().message, "Insufficient balance for fee");
 }
 
 TEST_F(AccountBufferTest, TransferBalance_ExactBalance_GenesisToken_WithFee_Success) {
-    buf.reset();
-    // Account has exactly enough for transfer + fee
-    addFeeAccount();
-    auto a = makeAccount(10, 110);
-    ASSERT_TRUE(buf.add(a).isOk());
-    auto b = makeAccount(2, 0);
-    ASSERT_TRUE(buf.add(b).isOk());
+  buf.reset();
+  // Account has exactly enough for transfer + fee
+  addFeeAccount();
+  auto a = makeAccount(10, 110);
+  ASSERT_TRUE(buf.add(a).isOk());
+  auto b = makeAccount(2, 0);
+  ASSERT_TRUE(buf.add(b).isOk());
 
-    auto r = buf.transferBalance(10, 2, AccountBuffer::ID_GENESIS, 100, 10);
-    ASSERT_TRUE(r.isOk());
+  auto r = buf.transferBalance(10, 2, AccountBuffer::ID_GENESIS, 100, 10);
+  ASSERT_TRUE(r.isOk());
 
-    // Source: 110 - 100 - 10 = 0
-    auto from = buf.getAccount(10);
-    ASSERT_TRUE(from.isOk());
-    EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 0);
+  // Source: 110 - 100 - 10 = 0
+  auto from = buf.getAccount(10);
+  ASSERT_TRUE(from.isOk());
+  EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 0);
 
-    // Destination: 100
-    auto to = buf.getAccount(2);
-    ASSERT_TRUE(to.isOk());
-    EXPECT_EQ(to.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
+  // Destination: 100
+  auto to = buf.getAccount(2);
+  ASSERT_TRUE(to.isOk());
+  EXPECT_EQ(to.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
 
-    // Fee account receives the fee
-    auto feeAccount = buf.getAccount(AccountBuffer::ID_FEE);
-    ASSERT_TRUE(feeAccount.isOk());
-    EXPECT_EQ(feeAccount.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 10);
+  // Fee account receives the fee
+  auto feeAccount = buf.getAccount(AccountBuffer::ID_FEE);
+  ASSERT_TRUE(feeAccount.isOk());
+  EXPECT_EQ(feeAccount.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 10);
 }
 
 TEST_F(AccountBufferTest, TransferBalance_GenesisAccount_WithFee_AllowsNegativeBalance) {
-    // Genesis account can have negative balance
-    auto a = makeAccount(AccountBuffer::ID_GENESIS, 50);
-    ASSERT_TRUE(buf.add(a).isOk());
-    auto b = makeAccount(2, 0);
-    ASSERT_TRUE(buf.add(b).isOk());
-    addFeeAccount();
+  // Genesis account can have negative balance
+  auto a = makeAccount(AccountBuffer::ID_GENESIS, 50);
+  ASSERT_TRUE(buf.add(a).isOk());
+  auto b = makeAccount(2, 0);
+  ASSERT_TRUE(buf.add(b).isOk());
+  addFeeAccount();
 
-    // Transfer more than balance with fee (should work for genesis account)
-    auto r = buf.transferBalance(AccountBuffer::ID_GENESIS, 2, AccountBuffer::ID_GENESIS, 100, 10);
-    ASSERT_TRUE(r.isOk());
+  // Transfer more than balance with fee (should work for genesis account)
+  auto r = buf.transferBalance(AccountBuffer::ID_GENESIS, 2, AccountBuffer::ID_GENESIS, 100, 10);
+  ASSERT_TRUE(r.isOk());
 
-    // Genesis: 50 - 100 - 10 = -60 (negative allowed)
-    auto genesis = buf.getAccount(AccountBuffer::ID_GENESIS);
-    ASSERT_TRUE(genesis.isOk());
-    EXPECT_EQ(genesis.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), -60);
+  // Genesis: 50 - 100 - 10 = -60 (negative allowed)
+  auto genesis = buf.getAccount(AccountBuffer::ID_GENESIS);
+  ASSERT_TRUE(genesis.isOk());
+  EXPECT_EQ(genesis.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), -60);
 
-    // Destination: 100
-    auto to = buf.getAccount(2);
-    ASSERT_TRUE(to.isOk());
-    EXPECT_EQ(to.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
+  // Destination: 100
+  auto to = buf.getAccount(2);
+  ASSERT_TRUE(to.isOk());
+  EXPECT_EQ(to.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
 
-    // Fee account receives the fee
-    auto feeAccount = buf.getAccount(AccountBuffer::ID_FEE);
-    ASSERT_TRUE(feeAccount.isOk());
-    EXPECT_EQ(feeAccount.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 10);
+  // Fee account receives the fee
+  auto feeAccount = buf.getAccount(AccountBuffer::ID_FEE);
+  ASSERT_TRUE(feeAccount.isOk());
+  EXPECT_EQ(feeAccount.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 10);
 }
 
 // --- Custom Token Genesis Account Tests ---
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_NegativeBalance_SufficientFee_ReturnsTrue) {
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    
-    // Create custom token genesis account (accountId == tokenId)
-    AccountBuffer::Account a;
-    a.id = CUSTOM_TOKEN;
-    a.wallet.mBalances[CUSTOM_TOKEN] = -500; // Negative custom token balance
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100; // Sufficient fee balance
-    ASSERT_TRUE(buf.add(a).isOk());
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // Should return true: can have negative custom token balance, has enough fee
-    EXPECT_TRUE(buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50).isOk());
+  buf.reset();
+
+  // Create custom token genesis account (accountId == tokenId)
+  AccountBuffer::Account a;
+  a.id = CUSTOM_TOKEN;
+  a.wallet.mBalances[CUSTOM_TOKEN] = -500;             // Negative custom token balance
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100; // Sufficient fee balance
+  ASSERT_TRUE(buf.add(a).isOk());
+
+  // Should return true: can have negative custom token balance, has enough fee
+  EXPECT_TRUE(buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_NegativeBalance_InsufficientFee_ReturnsFalse) {
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    
-    // Create custom token genesis account (accountId == tokenId)
-    AccountBuffer::Account a;
-    a.id = CUSTOM_TOKEN;
-    a.wallet.mBalances[CUSTOM_TOKEN] = -500; // Negative custom token balance
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 10; // Insufficient fee balance
-    ASSERT_TRUE(buf.add(a).isOk());
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // Should return false: has negative custom token balance but not enough fee
-    EXPECT_FALSE(buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50).isOk());
+  buf.reset();
+
+  // Create custom token genesis account (accountId == tokenId)
+  AccountBuffer::Account a;
+  a.id = CUSTOM_TOKEN;
+  a.wallet.mBalances[CUSTOM_TOKEN] = -500;            // Negative custom token balance
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 10; // Insufficient fee balance
+  ASSERT_TRUE(buf.add(a).isOk());
+
+  // Should return false: has negative custom token balance but not enough fee
+  EXPECT_FALSE(buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_ZeroBalance_SufficientFee_ReturnsTrue) {
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    
-    // Create custom token genesis account (accountId == tokenId)
-    AccountBuffer::Account a;
-    a.id = CUSTOM_TOKEN;
-    a.wallet.mBalances[CUSTOM_TOKEN] = 0; // Zero custom token balance
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100; // Sufficient fee balance
-    ASSERT_TRUE(buf.add(a).isOk());
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // Should return true: genesis account can have negative balance, has enough fee
-    EXPECT_TRUE(buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50).isOk());
+  buf.reset();
+
+  // Create custom token genesis account (accountId == tokenId)
+  AccountBuffer::Account a;
+  a.id = CUSTOM_TOKEN;
+  a.wallet.mBalances[CUSTOM_TOKEN] = 0;                // Zero custom token balance
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100; // Sufficient fee balance
+  ASSERT_TRUE(buf.add(a).isOk());
+
+  // Should return true: genesis account can have negative balance, has enough fee
+  EXPECT_TRUE(buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_NoFee_ReturnsTrue) {
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    
-    // Create custom token genesis account (accountId == tokenId)
-    AccountBuffer::Account a;
-    a.id = CUSTOM_TOKEN;
-    a.wallet.mBalances[CUSTOM_TOKEN] = -500; // Negative custom token balance
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0; // No fee balance needed
-    ASSERT_TRUE(buf.add(a).isOk());
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // Should return true: no fee required
-    EXPECT_TRUE(buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 0).isOk());
+  buf.reset();
+
+  // Create custom token genesis account (accountId == tokenId)
+  AccountBuffer::Account a;
+  a.id = CUSTOM_TOKEN;
+  a.wallet.mBalances[CUSTOM_TOKEN] = -500;           // Negative custom token balance
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0; // No fee balance needed
+  ASSERT_TRUE(buf.add(a).isOk());
+
+  // Should return true: no fee required
+  EXPECT_TRUE(buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 0).isOk());
 }
 
 TEST_F(AccountBufferTest, WithdrawBalance_CustomTokenGenesis_UnderflowProtection) {
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    
-    // Create custom token genesis account at INT64_MIN
-    AccountBuffer::Account a;
-    a.id = CUSTOM_TOKEN;
-    a.wallet.mBalances[CUSTOM_TOKEN] = INT64_MIN;
-    ASSERT_TRUE(buf.add(a).isOk());
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // Try to withdraw 1, which would cause underflow below INT64_MIN
-    auto r = buf.withdrawBalance(CUSTOM_TOKEN, CUSTOM_TOKEN, 1);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
-    EXPECT_EQ(r.error().message, "Withdraw would cause balance underflow");
+  buf.reset();
 
-    // Balance should remain unchanged
-    auto acc = buf.getAccount(CUSTOM_TOKEN);
-    ASSERT_TRUE(acc.isOk());
-    EXPECT_EQ(acc.value().wallet.mBalances.at(CUSTOM_TOKEN), INT64_MIN);
+  // Create custom token genesis account at INT64_MIN
+  AccountBuffer::Account a;
+  a.id = CUSTOM_TOKEN;
+  a.wallet.mBalances[CUSTOM_TOKEN] = INT64_MIN;
+  ASSERT_TRUE(buf.add(a).isOk());
+
+  // Try to withdraw 1, which would cause underflow below INT64_MIN
+  auto r = buf.withdrawBalance(CUSTOM_TOKEN, CUSTOM_TOKEN, 1);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  EXPECT_EQ(r.error().message, "Withdraw would cause balance underflow");
+
+  // Balance should remain unchanged
+  auto acc = buf.getAccount(CUSTOM_TOKEN);
+  ASSERT_TRUE(acc.isOk());
+  EXPECT_EQ(acc.value().wallet.mBalances.at(CUSTOM_TOKEN), INT64_MIN);
 }
 
 TEST_F(AccountBufferTest, WithdrawBalance_CustomTokenGenesis_AllowsNegativeBalance) {
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    
-    // Create custom token genesis account with positive balance
-    AccountBuffer::Account a;
-    a.id = CUSTOM_TOKEN;
-    a.wallet.mBalances[CUSTOM_TOKEN] = 100;
-    ASSERT_TRUE(buf.add(a).isOk());
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // Withdraw more than balance (should succeed for genesis account)
-    auto r = buf.withdrawBalance(CUSTOM_TOKEN, CUSTOM_TOKEN, 500);
-    ASSERT_TRUE(r.isOk());
+  buf.reset();
 
-    // Balance should be negative
-    auto acc = buf.getAccount(CUSTOM_TOKEN);
-    ASSERT_TRUE(acc.isOk());
-    EXPECT_EQ(acc.value().wallet.mBalances.at(CUSTOM_TOKEN), -400);
+  // Create custom token genesis account with positive balance
+  AccountBuffer::Account a;
+  a.id = CUSTOM_TOKEN;
+  a.wallet.mBalances[CUSTOM_TOKEN] = 100;
+  ASSERT_TRUE(buf.add(a).isOk());
+
+  // Withdraw more than balance (should succeed for genesis account)
+  auto r = buf.withdrawBalance(CUSTOM_TOKEN, CUSTOM_TOKEN, 500);
+  ASSERT_TRUE(r.isOk());
+
+  // Balance should be negative
+  auto acc = buf.getAccount(CUSTOM_TOKEN);
+  ASSERT_TRUE(acc.isOk());
+  EXPECT_EQ(acc.value().wallet.mBalances.at(CUSTOM_TOKEN), -400);
 }
 
 TEST_F(AccountBufferTest, TransferBalance_CustomTokenGenesis_NegativeBalance_SufficientFee_Success) {
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    
-    // Create custom token genesis account with negative token balance
-    AccountBuffer::Account a;
-    a.id = CUSTOM_TOKEN;
-    a.wallet.mBalances[CUSTOM_TOKEN] = -500;
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
-    ASSERT_TRUE(buf.add(a).isOk());
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    AccountBuffer::Account b;
-    b.id = 2;
-    b.wallet.mBalances[CUSTOM_TOKEN] = 0;
-    ASSERT_TRUE(buf.add(b).isOk());
-    addFeeAccount();
+  buf.reset();
 
-    // Should succeed: genesis can have negative balance, has enough fee
-    auto r = buf.transferBalance(CUSTOM_TOKEN, 2, CUSTOM_TOKEN, 200, 50);
-    ASSERT_TRUE(r.isOk());
+  // Create custom token genesis account with negative token balance
+  AccountBuffer::Account a;
+  a.id = CUSTOM_TOKEN;
+  a.wallet.mBalances[CUSTOM_TOKEN] = -500;
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Check source account: custom token -500 - 200 = -700, genesis 100 - 50 = 50
-    auto from = buf.getAccount(CUSTOM_TOKEN);
-    ASSERT_TRUE(from.isOk());
-    EXPECT_EQ(from.value().wallet.mBalances.at(CUSTOM_TOKEN), -700);
-    EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 50);
+  AccountBuffer::Account b;
+  b.id = 2;
+  b.wallet.mBalances[CUSTOM_TOKEN] = 0;
+  ASSERT_TRUE(buf.add(b).isOk());
+  addFeeAccount();
 
-    // Check destination account: custom token 0 + 200 = 200
-    auto to = buf.getAccount(2);
-    ASSERT_TRUE(to.isOk());
-    EXPECT_EQ(to.value().wallet.mBalances.at(CUSTOM_TOKEN), 200);
+  // Should succeed: genesis can have negative balance, has enough fee
+  auto r = buf.transferBalance(CUSTOM_TOKEN, 2, CUSTOM_TOKEN, 200, 50);
+  ASSERT_TRUE(r.isOk());
 
-    // Fee account receives the fee
-    auto feeAccount = buf.getAccount(AccountBuffer::ID_FEE);
-    ASSERT_TRUE(feeAccount.isOk());
-    EXPECT_EQ(feeAccount.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 50);
+  // Check source account: custom token -500 - 200 = -700, genesis 100 - 50 = 50
+  auto from = buf.getAccount(CUSTOM_TOKEN);
+  ASSERT_TRUE(from.isOk());
+  EXPECT_EQ(from.value().wallet.mBalances.at(CUSTOM_TOKEN), -700);
+  EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 50);
+
+  // Check destination account: custom token 0 + 200 = 200
+  auto to = buf.getAccount(2);
+  ASSERT_TRUE(to.isOk());
+  EXPECT_EQ(to.value().wallet.mBalances.at(CUSTOM_TOKEN), 200);
+
+  // Fee account receives the fee
+  auto feeAccount = buf.getAccount(AccountBuffer::ID_FEE);
+  ASSERT_TRUE(feeAccount.isOk());
+  EXPECT_EQ(feeAccount.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 50);
 }
 
 TEST_F(AccountBufferTest, VerifySpendingPower_GenesisAccount_GenesisToken_Underflow_Error) {
-    // Test for underflow check when genesis account tries to transfer with large fee
-    // that would cause balance to underflow (go below INT64_MIN)
-    auto a = makeAccount(AccountBuffer::ID_GENESIS, INT64_MIN + 100);
-    ASSERT_TRUE(buf.add(a).isOk());
+  // Test for underflow check when genesis account tries to transfer with large fee
+  // that would cause balance to underflow (go below INT64_MIN)
+  auto a = makeAccount(AccountBuffer::ID_GENESIS, INT64_MIN + 100);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Try to transfer/fee that would cause: (INT64_MIN + 100) - 150 - 100 to underflow
-    // amount + fee = 150 + 100 = 250
-    // Check: 150 + 100 + INT64_MIN > tokenBalance
-    //        250 + INT64_MIN > INT64_MIN + 100
-    //        This is true, so should return error
-    auto r = buf.verifySpendingPower(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS, 150, 100);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
-    EXPECT_EQ(r.error().message, "Transfer amount and fee would cause balance underflow");
+  // Try to transfer/fee that would cause: (INT64_MIN + 100) - 150 - 100 to underflow
+  // amount + fee = 150 + 100 = 250
+  // Check: 150 + 100 + INT64_MIN > tokenBalance
+  //        250 + INT64_MIN > INT64_MIN + 100
+  //        This is true, so should return error
+  auto r = buf.verifySpendingPower(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS, 150, 100);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  EXPECT_EQ(r.error().message, "Transfer amount and fee would cause balance underflow");
 }
 
 TEST_F(AccountBufferTest, VerifySpendingPower_CustomTokenGenesis_Underflow_Error) {
-    // Test for underflow check when custom token genesis account tries to transfer large amount
-    // that would cause balance to underflow (go below INT64_MIN)
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    
-    // Create custom token genesis account with balance near INT64_MIN
-    AccountBuffer::Account a;
-    a.id = CUSTOM_TOKEN;
-    a.wallet.mBalances[CUSTOM_TOKEN] = INT64_MIN + 100; // Balance near minimum
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100; // Sufficient fee balance
-    ASSERT_TRUE(buf.add(a).isOk());
+  // Test for underflow check when custom token genesis account tries to transfer large amount
+  // that would cause balance to underflow (go below INT64_MIN)
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // Try to transfer amount that would cause underflow
-    // Check: amount + INT64_MIN > tokenBalance
-    //        200 + INT64_MIN > INT64_MIN + 100
-    //        This is true, so should return error
-    auto r = buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 10);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
-    EXPECT_EQ(r.error().message, "Transfer amount would cause balance underflow");
+  buf.reset();
+
+  // Create custom token genesis account with balance near INT64_MIN
+  AccountBuffer::Account a;
+  a.id = CUSTOM_TOKEN;
+  a.wallet.mBalances[CUSTOM_TOKEN] = INT64_MIN + 100;  // Balance near minimum
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100; // Sufficient fee balance
+  ASSERT_TRUE(buf.add(a).isOk());
+
+  // Try to transfer amount that would cause underflow
+  // Check: amount + INT64_MIN > tokenBalance
+  //        200 + INT64_MIN > INT64_MIN + 100
+  //        This is true, so should return error
+  auto r = buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 10);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  EXPECT_EQ(r.error().message, "Transfer amount would cause balance underflow");
 }
 
 TEST_F(AccountBufferTest, VerifySpendingPower_CustomTokenGenesis_Overflow_Error) {
-    // Test for overflow check when custom token genesis account tries to transfer with amount > INT64_MAX
-    // This is a theoretical check since amount should never actually be larger than INT64_MAX in practice,
-    // but we still add the check as defensive programming
-    const uint64_t CUSTOM_TOKEN = 1000;
-    
-    buf.reset();
-    
-    // Create custom token genesis account
-    AccountBuffer::Account a;
-    a.id = CUSTOM_TOKEN;
-    a.wallet.mBalances[CUSTOM_TOKEN] = 1000;
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
-    ASSERT_TRUE(buf.add(a).isOk());
+  // Test for overflow check when custom token genesis account tries to transfer with amount > INT64_MAX
+  // This is a theoretical check since amount should never actually be larger than INT64_MAX in practice,
+  // but we still add the check as defensive programming
+  const uint64_t CUSTOM_TOKEN = 1000;
 
-    // This test would theoretically pass an amount > INT64_MAX, but since the parameter
-    // is int64_t, it's not possible to actually pass a value > INT64_MAX.
-    // Instead, we test the underflow one above and document that the overflow check
-    // would catch if amount could somehow be > INT64_MAX.
-    // We can verify the check exists by looking at code coverage.
+  buf.reset();
+
+  // Create custom token genesis account
+  AccountBuffer::Account a;
+  a.id = CUSTOM_TOKEN;
+  a.wallet.mBalances[CUSTOM_TOKEN] = 1000;
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
+  ASSERT_TRUE(buf.add(a).isOk());
+
+  // This test would theoretically pass an amount > INT64_MAX, but since the parameter
+  // is int64_t, it's not possible to actually pass a value > INT64_MAX.
+  // Instead, we test the underflow one above and document that the overflow check
+  // would catch if amount could somehow be > INT64_MAX.
+  // We can verify the check exists by looking at code coverage.
 }
 
 // --- verifyBalance ---
 
 TEST_F(AccountBufferTest, VerifyBalance_ExactMatch_Success) {
-    // Setup account with some balances
-    AccountBuffer::Account a;
-    a.id = 1;
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000; // Buffer has 1000
-    a.wallet.mBalances[100] = 500; // Custom token
-    ASSERT_TRUE(buf.add(a).isOk());
+  // Setup account with some balances
+  AccountBuffer::Account a;
+  a.id = 1;
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000; // Buffer has 1000
+  a.wallet.mBalances[100] = 500;                        // Custom token
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Expected balances: genesis 900, custom 500
-    // With amount=50, fee=50 -> buffer should have 900+50+50=1000 genesis ✓
-    std::map<uint64_t, int64_t> expectedBalances;
-    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
-    expectedBalances[100] = 500;
+  // Expected balances: genesis 900, custom 500
+  // With amount=50, fee=50 -> buffer should have 900+50+50=1000 genesis ✓
+  std::map<uint64_t, int64_t> expectedBalances;
+  expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+  expectedBalances[100] = 500;
 
-    auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
-    EXPECT_TRUE(r.isOk());
+  auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
+  EXPECT_TRUE(r.isOk());
 }
 
 TEST_F(AccountBufferTest, VerifyBalance_ZeroAmountAndFee_Success) {
-    AccountBuffer::Account a;
-    a.id = 1;
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000;
-    a.wallet.mBalances[100] = 500;
-    ASSERT_TRUE(buf.add(a).isOk());
+  AccountBuffer::Account a;
+  a.id = 1;
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000;
+  a.wallet.mBalances[100] = 500;
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // With amount=0, fee=0 -> buffer should exactly match expected
-    std::map<uint64_t, int64_t> expectedBalances;
-    expectedBalances[AccountBuffer::ID_GENESIS] = 1000;
-    expectedBalances[100] = 500;
+  // With amount=0, fee=0 -> buffer should exactly match expected
+  std::map<uint64_t, int64_t> expectedBalances;
+  expectedBalances[AccountBuffer::ID_GENESIS] = 1000;
+  expectedBalances[100] = 500;
 
-    auto r = buf.verifyBalance(1, 0, 0, expectedBalances);
-    EXPECT_TRUE(r.isOk());
+  auto r = buf.verifyBalance(1, 0, 0, expectedBalances);
+  EXPECT_TRUE(r.isOk());
 }
 
 TEST_F(AccountBufferTest, VerifyBalance_CustomTokenMismatch_Error) {
-    AccountBuffer::Account a;
-    a.id = 1;
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000;
-    a.wallet.mBalances[100] = 500; // Buffer has 500
-    ASSERT_TRUE(buf.add(a).isOk());
+  AccountBuffer::Account a;
+  a.id = 1;
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000;
+  a.wallet.mBalances[100] = 500; // Buffer has 500
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Expected has 600 instead of 500 - should fail
-    std::map<uint64_t, int64_t> expectedBalances;
-    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
-    expectedBalances[100] = 600;
+  // Expected has 600 instead of 500 - should fail
+  std::map<uint64_t, int64_t> expectedBalances;
+  expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+  expectedBalances[100] = 600;
 
-    auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
 }
 
 TEST_F(AccountBufferTest, VerifyBalance_GenesisTokenMismatch_Error) {
-    AccountBuffer::Account a;
-    a.id = 1;
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000;
-    a.wallet.mBalances[100] = 500;
-    ASSERT_TRUE(buf.add(a).isOk());
+  AccountBuffer::Account a;
+  a.id = 1;
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000;
+  a.wallet.mBalances[100] = 500;
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Expected genesis 950, amount=50, fee=50 -> buffer should have 1050, but has 1000
-    std::map<uint64_t, int64_t> expectedBalances;
-    expectedBalances[AccountBuffer::ID_GENESIS] = 950;
-    expectedBalances[100] = 500;
+  // Expected genesis 950, amount=50, fee=50 -> buffer should have 1050, but has 1000
+  std::map<uint64_t, int64_t> expectedBalances;
+  expectedBalances[AccountBuffer::ID_GENESIS] = 950;
+  expectedBalances[100] = 500;
 
-    auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
-    EXPECT_TRUE(r.error().message.find("Genesis token balance mismatch") !=
-                std::string::npos);
+  auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  EXPECT_TRUE(r.error().message.find("Genesis token balance mismatch") != std::string::npos);
 }
 
 TEST_F(AccountBufferTest, VerifyBalance_AccountNotFound_Error) {
-    std::map<uint64_t, int64_t> expectedBalances;
-    expectedBalances[AccountBuffer::ID_GENESIS] = 1000;
+  std::map<uint64_t, int64_t> expectedBalances;
+  expectedBalances[AccountBuffer::ID_GENESIS] = 1000;
 
-    auto r = buf.verifyBalance(999, 50, 50, expectedBalances);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_ACCOUNT);
-    EXPECT_EQ(r.error().message, "Account not found: 999");
+  auto r = buf.verifyBalance(999, 50, 50, expectedBalances);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_ACCOUNT);
+  EXPECT_EQ(r.error().message, "Account not found: 999");
 }
 
 TEST_F(AccountBufferTest, VerifyBalance_OutOfRangeAmount_Error) {
-    auto a = makeAccount(1, 1000);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 1000);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    std::map<uint64_t, int64_t> expectedBalances;
-    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+  std::map<uint64_t, int64_t> expectedBalances;
+  expectedBalances[AccountBuffer::ID_GENESIS] = 900;
 
-    auto r = buf.verifyBalance(1, static_cast<uint64_t>(-50), 50, expectedBalances);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
-    EXPECT_EQ(r.error().message, "Amount exceeds int64_t range");
+  auto r = buf.verifyBalance(1, static_cast<uint64_t>(-50), 50, expectedBalances);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
+  EXPECT_EQ(r.error().message, "Amount exceeds int64_t range");
 }
 
 TEST_F(AccountBufferTest, VerifyBalance_OutOfRangeFee_Error) {
-    auto a = makeAccount(1, 1000);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 1000);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    std::map<uint64_t, int64_t> expectedBalances;
-    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+  std::map<uint64_t, int64_t> expectedBalances;
+  expectedBalances[AccountBuffer::ID_GENESIS] = 900;
 
-    auto r = buf.verifyBalance(1, 50, static_cast<uint64_t>(-50), expectedBalances);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
-    EXPECT_EQ(r.error().message, "Fee exceeds int64_t range");
+  auto r = buf.verifyBalance(1, 50, static_cast<uint64_t>(-50), expectedBalances);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
+  EXPECT_EQ(r.error().message, "Fee exceeds int64_t range");
 }
 
 TEST_F(AccountBufferTest, VerifyBalance_Overflow_AmountPlusFee_Error) {
-    auto a = makeAccount(1, 1000);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 1000);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    std::map<uint64_t, int64_t> expectedBalances;
-    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+  std::map<uint64_t, int64_t> expectedBalances;
+  expectedBalances[AccountBuffer::ID_GENESIS] = 900;
 
-    // Amount + fee would overflow
-    auto r = buf.verifyBalance(1, INT64_MAX, 1, expectedBalances);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
-    EXPECT_EQ(r.error().message, "Amount and fee overflow");
+  // Amount + fee would overflow
+  auto r = buf.verifyBalance(1, INT64_MAX, 1, expectedBalances);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  EXPECT_EQ(r.error().message, "Amount and fee overflow");
 }
 
 TEST_F(AccountBufferTest, VerifyBalance_Overflow_ExpectedPlusDelta_Error) {
-    auto a = makeAccount(1, 1000);
-    ASSERT_TRUE(buf.add(a).isOk());
+  auto a = makeAccount(1, 1000);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    std::map<uint64_t, int64_t> expectedBalances;
-    expectedBalances[AccountBuffer::ID_GENESIS] = INT64_MAX - 50; // Very large expected balance
+  std::map<uint64_t, int64_t> expectedBalances;
+  expectedBalances[AccountBuffer::ID_GENESIS] = INT64_MAX - 50; // Very large expected balance
 
-    // Expected + (amount + fee) would overflow
-    auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
-    EXPECT_EQ(r.error().message, "Genesis token balance overflow when adding amount and fee");
+  // Expected + (amount + fee) would overflow
+  auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  EXPECT_EQ(r.error().message, "Genesis token balance overflow when adding amount and fee");
 }
 
 TEST_F(AccountBufferTest, VerifyBalance_MissingCustomTokenInBuffer_Error) {
-    // Buffer doesn't have custom token 100
-    auto a = makeAccount(1, 1000);
-    ASSERT_TRUE(buf.add(a).isOk());
+  // Buffer doesn't have custom token 100
+  auto a = makeAccount(1, 1000);
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Expected has custom token 100
-    std::map<uint64_t, int64_t> expectedBalances;
-    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
-    expectedBalances[100] = 500;
+  // Expected has custom token 100
+  std::map<uint64_t, int64_t> expectedBalances;
+  expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+  expectedBalances[100] = 500;
 
-    auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
 }
 
 TEST_F(AccountBufferTest, VerifyBalance_MissingCustomTokenInExpected_Error) {
-    // Buffer has custom token 100
-    AccountBuffer::Account a;
-    a.id = 1;
-    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000;
-    a.wallet.mBalances[100] = 500;
-    ASSERT_TRUE(buf.add(a).isOk());
+  // Buffer has custom token 100
+  AccountBuffer::Account a;
+  a.id = 1;
+  a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000;
+  a.wallet.mBalances[100] = 500;
+  ASSERT_TRUE(buf.add(a).isOk());
 
-    // Expected doesn't have custom token 100
-    std::map<uint64_t, int64_t> expectedBalances;
-    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+  // Expected doesn't have custom token 100
+  std::map<uint64_t, int64_t> expectedBalances;
+  expectedBalances[AccountBuffer::ID_GENESIS] = 900;
 
-    auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+  auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
+  ASSERT_TRUE(r.isError());
+  EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
 }
 
 // --- overlay (undo journal) ---
 
 TEST_F(AccountBufferTest, Overlay_RollbackRestoresAccountsAndRoot) {
-    addFeeAccount();
-    const uint64_t a = AccountBuffer::ID_FIRST_USER;
-    const uint64_t b = a + 1;
-    const uint64_t c = a + 2;
-    ASSERT_TRUE(buf.add(makeAccount(a, 100)).isOk());
-    ASSERT_TRUE(buf.add(makeAccount(b, 5)).isOk());
-    const std::string rootBefore = buf.calculateStateRoot();
+  addFeeAccount();
+  const uint64_t a = AccountBuffer::ID_FIRST_USER;
+  const uint64_t b = a + 1;
+  const uint64_t c = a + 2;
+  ASSERT_TRUE(buf.add(makeAccount(a, 100)).isOk());
+  ASSERT_TRUE(buf.add(makeAccount(b, 5)).isOk());
+  const std::string rootBefore = buf.calculateStateRoot();
 
-    buf.beginOverlay();
-    ASSERT_TRUE(buf.transferBalance(a, b, AccountBuffer::ID_GENESIS, 40, 1).isOk());
-    ASSERT_TRUE(buf.add(makeAccount(c, 0)).isOk());
-    buf.remove(b);
-    EXPECT_NE(buf.calculateStateRoot(), rootBefore);
-    buf.rollbackOverlay();
+  buf.beginOverlay();
+  ASSERT_TRUE(buf.transferBalance(a, b, AccountBuffer::ID_GENESIS, 40, 1).isOk());
+  ASSERT_TRUE(buf.add(makeAccount(c, 0)).isOk());
+  buf.remove(b);
+  EXPECT_NE(buf.calculateStateRoot(), rootBefore);
+  buf.rollbackOverlay();
 
-    EXPECT_EQ(buf.overlayDepth(), 0u);
-    EXPECT_EQ(buf.calculateStateRoot(), rootBefore);
-    EXPECT_EQ(buf.getBalance(a, AccountBuffer::ID_GENESIS), 100);
-    EXPECT_EQ(buf.getBalance(b, AccountBuffer::ID_GENESIS), 5);
-    EXPECT_EQ(buf.getBalance(AccountBuffer::ID_FEE, AccountBuffer::ID_GENESIS), 0);
-    EXPECT_FALSE(buf.hasAccount(c));
+  EXPECT_EQ(buf.overlayDepth(), 0u);
+  EXPECT_EQ(buf.calculateStateRoot(), rootBefore);
+  EXPECT_EQ(buf.getBalance(a, AccountBuffer::ID_GENESIS), 100);
+  EXPECT_EQ(buf.getBalance(b, AccountBuffer::ID_GENESIS), 5);
+  EXPECT_EQ(buf.getBalance(AccountBuffer::ID_FEE, AccountBuffer::ID_GENESIS), 0);
+  EXPECT_FALSE(buf.hasAccount(c));
 }
 
 TEST_F(AccountBufferTest, Overlay_NestedCommitThenOuterRollback) {
-    ASSERT_TRUE(buf.add(makeAccount(1, 100)).isOk());
-    const std::string rootBefore = buf.calculateStateRoot();
+  ASSERT_TRUE(buf.add(makeAccount(1, 100)).isOk());
+  const std::string rootBefore = buf.calculateStateRoot();
 
-    buf.beginOverlay();
-    ASSERT_TRUE(buf.depositBalance(1, AccountBuffer::ID_GENESIS, 10).isOk());
-    buf.beginOverlay();
-    ASSERT_TRUE(buf.depositBalance(1, AccountBuffer::ID_GENESIS, 5).isOk());
-    ASSERT_TRUE(buf.add(makeAccount(7, 1)).isOk());
-    buf.commitOverlay();
-    EXPECT_EQ(buf.getBalance(1, AccountBuffer::ID_GENESIS), 115);
-    buf.rollbackOverlay();
+  buf.beginOverlay();
+  ASSERT_TRUE(buf.depositBalance(1, AccountBuffer::ID_GENESIS, 10).isOk());
+  buf.beginOverlay();
+  ASSERT_TRUE(buf.depositBalance(1, AccountBuffer::ID_GENESIS, 5).isOk());
+  ASSERT_TRUE(buf.add(makeAccount(7, 1)).isOk());
+  buf.commitOverlay();
+  EXPECT_EQ(buf.getBalance(1, AccountBuffer::ID_GENESIS), 115);
+  buf.rollbackOverlay();
 
-    EXPECT_EQ(buf.getBalance(1, AccountBuffer::ID_GENESIS), 100);
-    EXPECT_FALSE(buf.hasAccount(7));
-    EXPECT_EQ(buf.calculateStateRoot(), rootBefore);
+  EXPECT_EQ(buf.getBalance(1, AccountBuffer::ID_GENESIS), 100);
+  EXPECT_FALSE(buf.hasAccount(7));
+  EXPECT_EQ(buf.calculateStateRoot(), rootBefore);
 }
 
 TEST_F(AccountBufferTest, IdempotencyKeys_FollowOverlaysAndClear) {
-    const AccountBuffer::IdempotencyKey kept{1, 10};
-    const AccountBuffer::IdempotencyKey dropped{1, 11};
-    buf.addIdempotencyKey(kept);
-    EXPECT_TRUE(buf.hasIdempotencyKey(kept));
+  const AccountBuffer::IdempotencyKey kept{1, 10};
+  const AccountBuffer::IdempotencyKey dropped{1, 11};
+  buf.addIdempotencyKey(kept);
+  EXPECT_TRUE(buf.hasIdempotencyKey(kept));
 
-    buf.beginOverlay();
-    buf.addIdempotencyKey(dropped);
-    EXPECT_TRUE(buf.hasIdempotencyKey(dropped));
-    buf.rollbackOverlay();
-    EXPECT_FALSE(buf.hasIdempotencyKey(dropped)) << "a rolled-back tx leaves no key";
-    EXPECT_TRUE(buf.hasIdempotencyKey(kept));
+  buf.beginOverlay();
+  buf.addIdempotencyKey(dropped);
+  EXPECT_TRUE(buf.hasIdempotencyKey(dropped));
+  buf.rollbackOverlay();
+  EXPECT_FALSE(buf.hasIdempotencyKey(dropped)) << "a rolled-back tx leaves no key";
+  EXPECT_TRUE(buf.hasIdempotencyKey(kept));
 
-    buf.beginOverlay();
-    buf.addIdempotencyKey(dropped);
-    buf.commitOverlay();
-    EXPECT_TRUE(buf.hasIdempotencyKey(dropped));
+  buf.beginOverlay();
+  buf.addIdempotencyKey(dropped);
+  buf.commitOverlay();
+  EXPECT_TRUE(buf.hasIdempotencyKey(dropped));
 
-    buf.clear();
-    EXPECT_FALSE(buf.hasIdempotencyKey(kept)) << "a new draft starts empty";
+  buf.clear();
+  EXPECT_FALSE(buf.hasIdempotencyKey(kept)) << "a new draft starts empty";
 }
 
 TEST_F(AccountBufferTest, Overlay_CommitKeepsChanges) {
-    ASSERT_TRUE(buf.add(makeAccount(1, 100)).isOk());
-    buf.beginOverlay();
-    ASSERT_TRUE(buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, 30).isOk());
-    const std::string rootAfter = buf.calculateStateRoot();
-    buf.commitOverlay();
-    EXPECT_EQ(buf.getBalance(1, AccountBuffer::ID_GENESIS), 70);
-    EXPECT_EQ(buf.calculateStateRoot(), rootAfter);
+  ASSERT_TRUE(buf.add(makeAccount(1, 100)).isOk());
+  buf.beginOverlay();
+  ASSERT_TRUE(buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, 30).isOk());
+  const std::string rootAfter = buf.calculateStateRoot();
+  buf.commitOverlay();
+  EXPECT_EQ(buf.getBalance(1, AccountBuffer::ID_GENESIS), 70);
+  EXPECT_EQ(buf.calculateStateRoot(), rootAfter);
 }
 
 // projects/account-recovery: a due recovery replaces a user account's keys, never a system
@@ -975,57 +972,57 @@ TEST_F(AccountBufferTest, Overlay_CommitKeepsChanges) {
 // Every account may have a way back of its own — the system accounts (reserve, registrar, fee,
 // recycle) included — except genesis, whose way back is the genesis recovery set in the authority.
 TEST(AccountBufferRecoveryTest, DueRecoveryAppliesToEveryAccountButGenesis) {
-    auto withPendingRecovery = [](uint64_t id) {
-        AccountBuffer::Account a;
-        a.id = id;
-        a.wallet.publicKeys = {"old-" + std::to_string(id)};
-        a.wallet.minSignatures = 1;
-        a.wallet.keyType = Crypto::TK_ML_DSA_65;
-        a.wallet.recovery.publicKeys = {"recovery-" + std::to_string(id)};
-        a.wallet.recovery.minSignatures = 1;
-        a.wallet.recovery.pending = true;
-        a.wallet.recovery.nextPublicKeys = {"next-" + std::to_string(id)};
-        a.wallet.recovery.nextMinSignatures = 1;
-        a.wallet.recovery.applyEpoch = 3;
-        return a;
-    };
-    AccountBuffer bank;
-    ASSERT_TRUE(bank.add(withPendingRecovery(AccountBuffer::ID_GENESIS)).isOk());
-    ASSERT_TRUE(bank.add(withPendingRecovery(AccountBuffer::ID_FEE)).isOk());
-    ASSERT_TRUE(bank.add(withPendingRecovery(AccountBuffer::ID_FIRST_USER)).isOk());
+  auto withPendingRecovery = [](uint64_t id) {
+    AccountBuffer::Account a;
+    a.id = id;
+    a.wallet.publicKeys = {"old-" + std::to_string(id)};
+    a.wallet.minSignatures = 1;
+    a.wallet.keyType = Crypto::TK_ML_DSA_65;
+    a.wallet.recovery.publicKeys = {"recovery-" + std::to_string(id)};
+    a.wallet.recovery.minSignatures = 1;
+    a.wallet.recovery.pending = true;
+    a.wallet.recovery.nextPublicKeys = {"next-" + std::to_string(id)};
+    a.wallet.recovery.nextMinSignatures = 1;
+    a.wallet.recovery.applyEpoch = 3;
+    return a;
+  };
+  AccountBuffer bank;
+  ASSERT_TRUE(bank.add(withPendingRecovery(AccountBuffer::ID_GENESIS)).isOk());
+  ASSERT_TRUE(bank.add(withPendingRecovery(AccountBuffer::ID_FEE)).isOk());
+  ASSERT_TRUE(bank.add(withPendingRecovery(AccountBuffer::ID_FIRST_USER)).isOk());
 
-    const std::vector<uint64_t> applied = bank.applyDueRecoveries(3);
+  const std::vector<uint64_t> applied = bank.applyDueRecoveries(3);
 
-    EXPECT_EQ(applied, (std::vector<uint64_t>{AccountBuffer::ID_FEE, AccountBuffer::ID_FIRST_USER}));
-    EXPECT_EQ(bank.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys,
-              std::vector<std::string>{"old-0"}) << "the admin set was replaced by an account recovery";
-    EXPECT_EQ(bank.getAccount(AccountBuffer::ID_FEE).value().wallet.publicKeys,
-              std::vector<std::string>{"next-" + std::to_string(AccountBuffer::ID_FEE)})
-        << "a system account's own recovery applies like any account's";
-    EXPECT_EQ(bank.getAccount(AccountBuffer::ID_FIRST_USER).value().wallet.publicKeys,
-              std::vector<std::string>{"next-" + std::to_string(AccountBuffer::ID_FIRST_USER)});
+  EXPECT_EQ(applied, (std::vector<uint64_t>{AccountBuffer::ID_FEE, AccountBuffer::ID_FIRST_USER}));
+  EXPECT_EQ(bank.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys, std::vector<std::string>{"old-0"})
+      << "the admin set was replaced by an account recovery";
+  EXPECT_EQ(bank.getAccount(AccountBuffer::ID_FEE).value().wallet.publicKeys,
+            std::vector<std::string>{"next-" + std::to_string(AccountBuffer::ID_FEE)})
+      << "a system account's own recovery applies like any account's";
+  EXPECT_EQ(bank.getAccount(AccountBuffer::ID_FIRST_USER).value().wallet.publicKeys,
+            std::vector<std::string>{"next-" + std::to_string(AccountBuffer::ID_FIRST_USER)});
 }
 
 // beacon-authority B031: the state root commits to each account's attachment (its hash in the
 // leaf), so two states that differ only in an account's profile have different roots — and the
 // same attachment gives the same root, whatever else an account went through.
 TEST(AccountStateRootTest, CommitsToTheAttachment) {
-    auto rootWith = [](const std::string &attachment) {
-        AccountBuffer bank;
-        AccountBuffer::Account account;
-        account.id = AccountBuffer::ID_FIRST_USER;
-        account.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
-        account.blockId = 7;
-        account.attachmentHash = AccountBuffer::attachmentHashOf(attachment);
-        EXPECT_TRUE(bank.add(account).isOk());
-        return bank.calculateStateRoot();
-    };
-    AccountAttachment profile;
-    profile.profiles[AccountBuffer::ID_FIRST_USER].data = "hello";
-    AccountAttachment edited = profile;
-    edited.profiles[AccountBuffer::ID_FIRST_USER].data = "hellp";
-    EXPECT_EQ(rootWith(profile.ltsToString()), rootWith(profile.ltsToString()));
-    EXPECT_NE(rootWith(profile.ltsToString()), rootWith(edited.ltsToString())) << "one byte of a profile";
-    EXPECT_NE(rootWith(profile.ltsToString()), rootWith(AccountAttachment::emptySerialized()));
-    EXPECT_EQ(AccountBuffer::attachmentHashOf("x").size(), 32u);
+  auto rootWith = [](const std::string& attachment) {
+    AccountBuffer bank;
+    AccountBuffer::Account account;
+    account.id = AccountBuffer::ID_FIRST_USER;
+    account.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
+    account.blockId = 7;
+    account.attachmentHash = AccountBuffer::attachmentHashOf(attachment);
+    EXPECT_TRUE(bank.add(account).isOk());
+    return bank.calculateStateRoot();
+  };
+  AccountAttachment profile;
+  profile.profiles[AccountBuffer::ID_FIRST_USER].data = "hello";
+  AccountAttachment edited = profile;
+  edited.profiles[AccountBuffer::ID_FIRST_USER].data = "hellp";
+  EXPECT_EQ(rootWith(profile.ltsToString()), rootWith(profile.ltsToString()));
+  EXPECT_NE(rootWith(profile.ltsToString()), rootWith(edited.ltsToString())) << "one byte of a profile";
+  EXPECT_NE(rootWith(profile.ltsToString()), rootWith(AccountAttachment::emptySerialized()));
+  EXPECT_EQ(AccountBuffer::attachmentHashOf("x").size(), 32u);
 }

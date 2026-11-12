@@ -25,8 +25,7 @@ class InFlightLimit {
 public:
   enum class Class { Duty, Normal };
 
-  explicit InFlightLimit(size_t limit, size_t reserved = 0,
-                         size_t maxWaiting = std::numeric_limits<size_t>::max())
+  explicit InFlightLimit(size_t limit, size_t reserved = 0, size_t maxWaiting = std::numeric_limits<size_t>::max())
       : limit_(limit), reserved_(reserved < limit ? reserved : 0), maxWaiting_(maxWaiting) {}
 
   struct Waiter {
@@ -36,12 +35,12 @@ public:
 
   /** Start `waiter` now if `peer` has room for its class, else queue it; false (dropped) when a
    *  normal one finds `maxWaiting` ahead of it. */
-  bool run(const std::string &peer, Waiter waiter, Class cls = Class::Normal);
+  bool run(const std::string& peer, Waiter waiter, Class cls = Class::Normal);
   /** A started request to `peer` ended: start the next live waiter that has room. */
-  void release(const std::string &peer);
+  void release(const std::string& peer);
 
-  size_t inFlight(const std::string &peer) const;
-  size_t waiting(const std::string &peer) const;
+  size_t inFlight(const std::string& peer) const;
+  size_t waiting(const std::string& peer) const;
 
 private:
   struct Slot {
@@ -55,7 +54,7 @@ private:
     return inFlight < (cls == Class::Duty ? limit_ : limit_ - reserved_);
   }
   /** Start live waiters while there is room: duties first. */
-  void startWaiting(const std::string &peer);
+  void startWaiting(const std::string& peer);
 
   size_t limit_;
   size_t reserved_;

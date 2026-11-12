@@ -33,7 +33,7 @@ public:
     std::function<void()> onMade;
   };
 
-  explicit ScriptedServer(Script &script) : script_(script), index_(++script.made) {}
+  explicit ScriptedServer(Script& script) : script_(script), index_(++script.made) {}
 
 protected:
   std::string getSignatureFileName() const override { return ".test"; }
@@ -54,7 +54,7 @@ protected:
   }
 
 private:
-  Script &script_;
+  Script& script_;
   const int index_;
 };
 
@@ -66,7 +66,7 @@ protected:
     std::filesystem::remove_all(dir_, ec);
   }
   /** The role loop over scripted servers, until `stop`. */
-  Service::Roe<void> runScripted(ScriptedServer::Script &script, const std::atomic<bool> &stop) {
+  Service::Roe<void> runScripted(ScriptedServer::Script& script, const std::atomic<bool>& stop) {
     RoleRunner::Options options;
     options.workDir = dir_.string();
     options.logFile = "none";
@@ -148,8 +148,7 @@ TEST_F(RoleRunnerTest, ARelayRoleOnAHostTakesItsAddressAndStopsPromptly) {
   pp::test::TestAmpHost host;
   host.start(hub, pp::adp::IpEndpoint::V4(10, 5, 0, 1, 1000));
   std::filesystem::create_directories(dir_);
-  const std::string nobody =
-      "/ip4/10.5.0.9/udp/9/adp/1.0.0/p2p/" + pp::test::freshAmpIdentity().local_peer_id;
+  const std::string nobody = "/ip4/10.5.0.9/udp/9/adp/1.0.0/p2p/" + pp::test::freshAmpIdentity().local_peer_id;
   std::ofstream(dir_ / "config.json") << R"({"port": 18519, "beacon": ")" << nobody << R"("})";
 
   RoleRunner::Options options;

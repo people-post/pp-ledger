@@ -6,7 +6,7 @@
 
 namespace pp::chain_tx {
 
-bool isMinerDue(const Client::MinerState &miner, uint64_t slot, const BlockChainConfig &config) {
+bool isMinerDue(const Client::MinerState& miner, uint64_t slot, const BlockChainConfig& config) {
   return miner.registered && config.minerDueAfterSlots > 0 && slot >= miner.lastProducedSlot &&
          slot - miner.lastProducedSlot >= config.minerDueAfterSlots;
 }
@@ -14,8 +14,8 @@ bool isMinerDue(const Client::MinerState &miner, uint64_t slot, const BlockChain
 namespace {
 
 /** One skipped slot led by `leaderId`: a miss if it was due; deregister at the limit. */
-Roe<void> chargeSkippedSlot(AccountBuffer &bank, uint64_t leaderId, uint64_t slot, uint64_t blockEpoch,
-                            const BlockChainConfig &config, bool strict, std::vector<uint64_t> *charged) {
+Roe<void> chargeSkippedSlot(AccountBuffer& bank, uint64_t leaderId, uint64_t slot, uint64_t blockEpoch,
+                            const BlockChainConfig& config, bool strict, std::vector<uint64_t>* charged) {
   auto account = bank.getAccount(leaderId);
   if (!account) {
     return strict ? Roe<void>(TxError(chain_err::E_ACCOUNT_NOT_FOUND,
@@ -43,9 +43,9 @@ Roe<void> chargeSkippedSlot(AccountBuffer &bank, uint64_t leaderId, uint64_t slo
 
 } // namespace
 
-Roe<void> applyMinerLiveness(AccountBuffer &bank, const consensus::SlotCommittee &consensus,
-                             const BlockChainConfig &config, uint64_t prevSlot, const Ledger::Block &block,
-                             bool strict, bool chargeSkipped, std::vector<uint64_t> *charged) {
+Roe<void> applyMinerLiveness(AccountBuffer& bank, const consensus::SlotCommittee& consensus,
+                             const BlockChainConfig& config, uint64_t prevSlot, const Ledger::Block& block, bool strict,
+                             bool chargeSkipped, std::vector<uint64_t>* charged) {
   // 1. Skipped slots of this block's epoch: its committee and seed elect their leaders.
   const uint64_t slotsPerEpoch = consensus.getConfig().slotsPerEpoch;
   const uint64_t epochFirstSlot = slotsPerEpoch > 0 ? block.epoch * slotsPerEpoch : block.slot;
@@ -53,7 +53,7 @@ Roe<void> applyMinerLiveness(AccountBuffer &bank, const consensus::SlotCommittee
     for (uint64_t slot = std::max(prevSlot + 1, epochFirstSlot); slot < block.slot; ++slot) {
       auto leader = consensus.getSlotLeader(slot);
       if (!leader) {
-        continue;  // no committee for the slot: nobody was elected
+        continue; // no committee for the slot: nobody was elected
       }
       if (auto ok = chargeSkippedSlot(bank, leader.value(), slot, block.epoch, config, strict, charged); !ok) {
         return ok;
@@ -70,7 +70,7 @@ Roe<void> applyMinerLiveness(AccountBuffer &bank, const consensus::SlotCommittee
   }
   Client::MinerState miner = producer.value().wallet.miner;
   if (!miner.registered || (miner.lastProducedSlot == block.slot && miner.missedDue == 0)) {
-    return {};  // only a registered miner's clock matters (registration starts it afresh)
+    return {}; // only a registered miner's clock matters (registration starts it afresh)
   }
   miner.lastProducedSlot = block.slot;
   miner.missedDue = 0;

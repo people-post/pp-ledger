@@ -2,9 +2,9 @@
 
 namespace pp::network {
 
-bool InFlightLimit::run(const std::string &peer, Waiter waiter, const Class cls) {
-  Slot &slot = slots_[peer];
-  auto &queue = cls == Class::Duty ? slot.duties : slot.normal;
+bool InFlightLimit::run(const std::string& peer, Waiter waiter, const Class cls) {
+  Slot& slot = slots_[peer];
+  auto& queue = cls == Class::Duty ? slot.duties : slot.normal;
   // Behind waiters of its own class (order), and a normal one behind waiting duties too.
   const bool ahead = !queue.empty() || (cls == Class::Normal && !slot.duties.empty());
   if (!ahead && hasRoom(slot.inFlight, cls)) {
@@ -22,7 +22,7 @@ bool InFlightLimit::run(const std::string &peer, Waiter waiter, const Class cls)
   return true;
 }
 
-void InFlightLimit::release(const std::string &peer) {
+void InFlightLimit::release(const std::string& peer) {
   auto it = slots_.find(peer);
   if (it == slots_.end()) {
     return;
@@ -33,14 +33,14 @@ void InFlightLimit::release(const std::string &peer) {
   startWaiting(peer);
 }
 
-void InFlightLimit::startWaiting(const std::string &peer) {
+void InFlightLimit::startWaiting(const std::string& peer) {
   for (;;) {
     auto it = slots_.find(peer); // a started request may release (and erase the slot) at once
     if (it == slots_.end()) {
       return;
     }
-    Slot &slot = it->second;
-    std::deque<Waiter> *queue = nullptr;
+    Slot& slot = it->second;
+    std::deque<Waiter>* queue = nullptr;
     if (!slot.duties.empty() && hasRoom(slot.inFlight, Class::Duty)) {
       queue = &slot.duties;
     } else if (slot.duties.empty() && !slot.normal.empty() && hasRoom(slot.inFlight, Class::Normal)) {
@@ -63,12 +63,12 @@ void InFlightLimit::startWaiting(const std::string &peer) {
   }
 }
 
-size_t InFlightLimit::inFlight(const std::string &peer) const {
+size_t InFlightLimit::inFlight(const std::string& peer) const {
   auto it = slots_.find(peer);
   return it == slots_.end() ? 0 : it->second.inFlight;
 }
 
-size_t InFlightLimit::waiting(const std::string &peer) const {
+size_t InFlightLimit::waiting(const std::string& peer) const {
   auto it = slots_.find(peer);
   return it == slots_.end() ? 0 : it->second.duties.size() + it->second.normal.size();
 }

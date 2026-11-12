@@ -44,15 +44,15 @@
 
 using pp::common::Array;
 using pp::common::ArrayPtr;
-using pp::common::Null;
-using pp::common::Object;
-using pp::common::ObjectPtr;
-using pp::common::Value;
 using pp::common::asArray;
 using pp::common::asNonNegInt;
 using pp::common::asObject;
 using pp::common::asString;
 using pp::common::isNullValue;
+using pp::common::Null;
+using pp::common::Object;
+using pp::common::ObjectPtr;
+using pp::common::Value;
 using pp::common::io::metaToJsonString;
 using pp::common::io::valueFromJsonString;
 using pp::common::io::valueToJsonString;
@@ -67,18 +67,17 @@ static uint64_t randomAccountId() {
   std::random_device rd;
   std::mt19937_64 gen(rd());
   // Cap at INT64_MAX so auto-generated ids always encode as JSON numbers.
-  std::uniform_int_distribution<uint64_t> dist(
-      ID_FIRST_USER, static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
+  std::uniform_int_distribution<uint64_t> dist(ID_FIRST_USER,
+                                               static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
   return dist(gen);
 }
 
-static void setValidationWindow(uint64_t& idempotentId, int64_t& validationTsMin,
-                                int64_t& validationTsMax) {
+static void setValidationWindow(uint64_t& idempotentId, int64_t& validationTsMin, int64_t& validationTsMax) {
   const int64_t now = static_cast<int64_t>(
-      std::chrono::duration_cast<std::chrono::seconds>(
-          std::chrono::system_clock::now().time_since_epoch()).count());
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
   idempotentId = static_cast<uint64_t>(now) ^ (randomAccountId() & 0xFFFFULL);
-  if (idempotentId == 0) idempotentId = 1;
+  if (idempotentId == 0)
+    idempotentId = 1;
   validationTsMin = now - 60;
   validationTsMax = now + 3600;
 }
@@ -86,18 +85,18 @@ static void setValidationWindow(uint64_t& idempotentId, int64_t& validationTsMin
 // ── MCP: session state ──────────────────────────────────────────────────────
 
 struct McpSession {
-  std::mutex              mutex;
+  std::mutex mutex;
   std::condition_variable cv;
   std::queue<std::string> pending; // pre-formatted SSE strings
-  const size_t            maxPendingEvents;
-  bool                    closed{false};
+  const size_t maxPendingEvents;
+  bool closed{false};
 
-  explicit McpSession(size_t maxPendingEventsIn)
-      : maxPendingEvents(maxPendingEventsIn) {}
+  explicit McpSession(size_t maxPendingEventsIn) : maxPendingEvents(maxPendingEventsIn) {}
 
   bool enqueue(std::string event) {
     std::lock_guard<std::mutex> lk(mutex);
-    if (closed) return false;
+    if (closed)
+      return false;
     if (pending.size() >= maxPendingEvents) {
       // Drop the oldest event to keep bounded memory for slow clients.
       pending.pop();
@@ -128,8 +127,7 @@ static std::string makeSseEvent(const std::string& type, const std::string& data
   return "event: " + type + "\ndata: " + data + "\n\n";
 }
 
-
-static std::string dumpJson(const Value &v, int indent = -1) {
+static std::string dumpJson(const Value& v, int indent = -1) {
   auto r = valueToJsonString(v, indent);
   if (!r.isOk()) {
     return std::string("{\"error\":\"") + r.error().message + "\"}";
@@ -137,50 +135,51 @@ static std::string dumpJson(const Value &v, int indent = -1) {
   return r.value();
 }
 
-static std::string dumpJson(const Object &o, int indent = -1) {
+static std::string dumpJson(const Object& o, int indent = -1) {
   return dumpJson(Value(std::make_shared<Object>(o)), indent);
 }
 
-static Value parseJsonOrEmpty(const std::string &s, std::string *err = nullptr) {
+static Value parseJsonOrEmpty(const std::string& s, std::string* err = nullptr) {
   auto r = valueFromJsonString(s);
   if (!r.isOk()) {
-    if (err) *err = r.error().message;
+    if (err)
+      *err = r.error().message;
     return Null{};
   }
   return std::move(r.value());
 }
 
-static uint64_t valueToUint64(const Value &v, uint64_t defaultVal) {
-  if (auto n = asNonNegInt(v)) return *n;
+static uint64_t valueToUint64(const Value& v, uint64_t defaultVal) {
+  if (auto n = asNonNegInt(v))
+    return *n;
   return defaultVal;
 }
 
-static uint64_t objectUint64(const Object &o, const std::string &key, uint64_t defaultVal) {
+static uint64_t objectUint64(const Object& o, const std::string& key, uint64_t defaultVal) {
   auto slot = o.fields().tryGet(key);
-  if (!slot) return defaultVal;
+  if (!slot)
+    return defaultVal;
   return valueToUint64(slot->get(), defaultVal);
 }
 
-static std::string objectString(const Object &o, const std::string &key,
-                                const std::string &defaultVal = {}) {
+static std::string objectString(const Object& o, const std::string& key, const std::string& defaultVal = {}) {
   auto s = o.getString(key);
   return s ? *s : defaultVal;
 }
 
-static bool parseRequestObject(const std::string &bodyText, Object &out,
-                               std::string &errOut) {
+static bool parseRequestObject(const std::string& bodyText, Object& out, std::string& errOut) {
   Value bodyVal = parseJsonOrEmpty(bodyText, &errOut);
-  Object *bodyPtr = asObject(bodyVal);
+  Object* bodyPtr = asObject(bodyVal);
   if (!bodyPtr) {
-    if (errOut.empty()) errOut = "Invalid JSON in request body";
+    if (errOut.empty())
+      errOut = "Invalid JSON in request body";
     return false;
   }
   out = *bodyPtr;
   return true;
 }
 
-
-static Object makeRpcResult(const Value &id, const Object &result) {
+static Object makeRpcResult(const Value& id, const Object& result) {
   Object o;
   o.set("jsonrpc", std::string("2.0"));
   o.set("id", id);
@@ -188,7 +187,7 @@ static Object makeRpcResult(const Value &id, const Object &result) {
   return o;
 }
 
-static Object makeRpcError(const Value &id, int code, const std::string &message) {
+static Object makeRpcError(const Value& id, int code, const std::string& message) {
   Object err;
   err.set("code", static_cast<int64_t>(code));
   err.set("message", message);
@@ -225,7 +224,7 @@ static void registerMcpResource(McpResource resource) {
   g_mcpResources.push_back(std::move(resource));
 }
 
-static Object mcpOk(const std::string &text) {
+static Object mcpOk(const std::string& text) {
   Object contentItem;
   contentItem.set("type", std::string("text"));
   contentItem.set("text", text);
@@ -235,7 +234,7 @@ static Object mcpOk(const std::string &text) {
   return o;
 }
 
-static Object mcpErr(const std::string &text) {
+static Object mcpErr(const std::string& text) {
   Object contentItem;
   contentItem.set("type", std::string("text"));
   contentItem.set("text", text);
@@ -255,8 +254,7 @@ static Object emptySchema() {
 
 // ── MCP: JSON-RPC dispatcher ────────────────────────────────────────────────
 
-static std::optional<Object> handleMcpRpc(const Object &req,
-                                         pp::Client &beaconClient, pp::Client &minerClient) {
+static std::optional<Object> handleMcpRpc(const Object& req, pp::Client& beaconClient, pp::Client& minerClient) {
   auto jsonrpc = req.getString("jsonrpc");
   if (!jsonrpc || *jsonrpc != "2.0" || !req.contains("method"))
     return makeRpcError(Null{}, -32600, "Invalid Request");
@@ -266,14 +264,16 @@ static std::optional<Object> handleMcpRpc(const Object &req,
   Value id = Null{};
   if (!isNotification) {
     auto slot = req.fields().tryGet("id");
-    if (slot) id = slot->get();
+    if (slot)
+      id = slot->get();
   }
   Object params;
-  if (const Object *p = req.getObject("params")) {
+  if (const Object* p = req.getObject("params")) {
     params = *p;
   }
 
-  if (isNotification) return std::nullopt;
+  if (isNotification)
+    return std::nullopt;
 
   if (method == "initialize") {
     Object caps;
@@ -293,7 +293,7 @@ static std::optional<Object> handleMcpRpc(const Object &req,
   }
   if (method == "tools/list") {
     std::vector<Value> tools;
-    for (const auto &t : g_mcpTools) {
+    for (const auto& t : g_mcpTools) {
       Object tool;
       tool.set("name", t.name);
       tool.set("description", t.description);
@@ -307,10 +307,10 @@ static std::optional<Object> handleMcpRpc(const Object &req,
   if (method == "tools/call") {
     const std::string name = objectString(params, "name");
     Object args;
-    if (const Object *a = params.getObject("arguments")) {
+    if (const Object* a = params.getObject("arguments")) {
       args = *a;
     }
-    for (const auto &t : g_mcpTools) {
+    for (const auto& t : g_mcpTools) {
       if (t.name == name)
         return makeRpcResult(id, t.handler(args, beaconClient, minerClient));
     }
@@ -318,7 +318,7 @@ static std::optional<Object> handleMcpRpc(const Object &req,
   }
   if (method == "resources/list") {
     std::vector<Value> resources;
-    for (const auto &r : g_mcpResources) {
+    for (const auto& r : g_mcpResources) {
       Object resource;
       resource.set("uri", r.uri);
       resource.set("name", r.name);
@@ -332,7 +332,7 @@ static std::optional<Object> handleMcpRpc(const Object &req,
   }
   if (method == "resources/read") {
     const std::string uri = objectString(params, "uri");
-    for (const auto &r : g_mcpResources) {
+    for (const auto& r : g_mcpResources) {
       if (r.uri == uri) {
         Object result = r.handler(beaconClient, minerClient);
         if (result.contains("error")) {
@@ -362,25 +362,36 @@ static std::string htmlEscape(const std::string& s) {
   out.reserve(s.size());
   for (unsigned char c : s) {
     switch (c) {
-      case '&': out += "&amp;"; break;
-      case '<': out += "&lt;"; break;
-      case '>': out += "&gt;"; break;
-      case '"': out += "&quot;"; break;
-      default: out += c; break;
+      case '&':
+        out += "&amp;";
+        break;
+      case '<':
+        out += "&lt;";
+        break;
+      case '>':
+        out += "&gt;";
+        break;
+      case '"':
+        out += "&quot;";
+        break;
+      default:
+        out += c;
+        break;
     }
   }
   return out;
 }
 
-static std::string makeErrorHtml(int status, const std::string& path,
-                                 const std::string& title, const std::string& message) {
+static std::string makeErrorHtml(int status, const std::string& path, const std::string& title,
+                                 const std::string& message) {
   std::string pathEsc = htmlEscape(path);
   return R"(<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>)" + std::to_string(status) + " " + htmlEscape(title) + R"(</title>
+  <title>)" +
+         std::to_string(status) + " " + htmlEscape(title) + R"(</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -413,10 +424,14 @@ static std::string makeErrorHtml(int status, const std::string& path,
 </head>
 <body>
   <div class="card">
-    <div class="status">)" + std::to_string(status) + R"(</div>
-    <h1>)" + htmlEscape(title) + R"(</h1>
-    <p>)" + htmlEscape(message) + R"(</p>
-    <div class="path">)" + (pathEsc.empty() ? "/" : pathEsc) + R"(</div>
+    <div class="status">)" +
+         std::to_string(status) + R"(</div>
+    <h1>)" +
+         htmlEscape(title) + R"(</h1>
+    <p>)" +
+         htmlEscape(message) + R"(</p>
+    <div class="path">)" +
+         (pathEsc.empty() ? "/" : pathEsc) + R"(</div>
     <p class="hint">Try <a href="/api/beacon/state">/api/beacon/state</a> or <a href="/api/miner/status">/api/miner/status</a> for the API.</p>
   </div>
 </body>
@@ -425,15 +440,13 @@ static std::string makeErrorHtml(int status, const std::string& path,
 
 // ── API route handlers ───────────────────────────────────────────────────────
 
-static void handleBeaconState(const httplib::Request&, httplib::Response& res,
-                              pp::Client& beaconClient) {
+static void handleBeaconState(const httplib::Request&, httplib::Response& res, pp::Client& beaconClient) {
   auto r = beaconClient.fetchBeaconState();
   if (!r) {
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
-                  "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()), "application/json");
 }
 
 /** A node's HEALTH as JSON: 200 when it answered (ready or not, see `ready`), 502 when it did not. */
@@ -456,8 +469,7 @@ struct MetricsNode {
  * Prometheus text for every node, asked over the Client RPC (nodes have no HTTP). Asked in
  * parallel so a node that does not answer costs one timeout, not one per node.
  */
-static void handleMetrics(const httplib::Request&, httplib::Response& res,
-                          const std::vector<MetricsNode>& nodes) {
+static void handleMetrics(const httplib::Request&, httplib::Response& res, const std::vector<MetricsNode>& nodes) {
   std::vector<std::future<std::optional<pp::Client::NodeHealth>>> answers;
   for (const auto& node : nodes) {
     answers.push_back(std::async(std::launch::async, [client = node.client]() {
@@ -472,15 +484,13 @@ static void handleMetrics(const httplib::Request&, httplib::Response& res,
   res.set_content(pp::renderHealthMetrics(targets), "text/plain; version=0.0.4");
 }
 
-static void handleBeaconCalibration(const httplib::Request&, httplib::Response& res,
-                                   pp::Client& beaconClient) {
+static void handleBeaconCalibration(const httplib::Request&, httplib::Response& res, pp::Client& beaconClient) {
   auto r = beaconClient.fetchCalibration();
   if (!r) {
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
-                  "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()), "application/json");
 }
 
 /**
@@ -494,65 +504,57 @@ static std::shared_ptr<Object> publicMinerJson(const pp::Client::MinerInfo& mine
   return obj;
 }
 
-static void handleBeaconMiners(const httplib::Request&, httplib::Response& res,
-                               pp::Client& beaconClient) {
+static void handleBeaconMiners(const httplib::Request&, httplib::Response& res, pp::Client& beaconClient) {
   auto r = beaconClient.fetchMinerList();
   if (!r) {
     setJsonError(res, 502, r.error().message);
     return;
   }
   std::vector<Value> elems;
-  for (const auto &m : r.value()) {
+  for (const auto& m : r.value()) {
     elems.push_back(publicMinerJson(m));
   }
   res.set_content(dumpJson(Object::array(std::move(elems))), "application/json");
 }
 
-static void handleMinerStatus(const httplib::Request&, httplib::Response& res,
-                             pp::Client& minerClient) {
+static void handleMinerStatus(const httplib::Request&, httplib::Response& res, pp::Client& minerClient) {
   auto r = minerClient.fetchMinerStatus();
   if (!r) {
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
-                  "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()), "application/json");
 }
 
-static void handleBlockGet(const httplib::Request& req, httplib::Response& res,
-                          pp::Client& beaconClient) {
+static void handleBlockGet(const httplib::Request& req, httplib::Response& res, pp::Client& beaconClient) {
   uint64_t blockId = std::stoull(req.matches[1].str());
   auto r = beaconClient.fetchBlock(blockId);
   if (!r) {
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
-                  "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()), "application/json");
 }
 
-static void handleAccountGet(const httplib::Request& req, httplib::Response& res,
-                            pp::Client& beaconClient) {
+static void handleAccountGet(const httplib::Request& req, httplib::Response& res, pp::Client& beaconClient) {
   uint64_t accountId = std::stoull(req.matches[1].str());
   auto r = beaconClient.fetchUserAccount(accountId);
   if (!r) {
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
-                  "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()), "application/json");
 }
 
-static void handleAccountCreate(const httplib::Request& req, httplib::Response& res,
-                                pp::Client& minerClient) {
+static void handleAccountCreate(const httplib::Request& req, httplib::Response& res, pp::Client& minerClient) {
   std::string parseErr;
   Value bodyVal = parseJsonOrEmpty(req.body, &parseErr);
-  Object *bodyPtr = asObject(bodyVal);
+  Object* bodyPtr = asObject(bodyVal);
   if (!bodyPtr) {
     setJsonError(res, 400, parseErr.empty() ? "Invalid JSON in request body" : parseErr);
     return;
   }
-  const Object &body = *bodyPtr;
+  const Object& body = *bodyPtr;
   if (!body.contains("from") || !body.contains("amount") || !body.contains("key")) {
     setJsonError(res, 400, "from, amount, and key are required");
     return;
@@ -560,7 +562,8 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
   uint64_t fromWalletId = objectUint64(body, "from", 0);
   uint64_t amount = objectUint64(body, "amount", 0);
   uint64_t toWalletId = objectUint64(body, "to", 0);
-  if (toWalletId == 0) toWalletId = randomAccountId();
+  if (toWalletId == 0)
+    toWalletId = randomAccountId();
   uint64_t fee = objectUint64(body, "fee", 0);
   std::string newPubkeyHex = objectString(body, "newPubkey");
   std::string metaDesc = objectString(body, "meta");
@@ -624,8 +627,7 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
     setJsonError(res, 502, networkId.error().message);
     return;
   }
-  auto sigResult =
-      pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId.value()));
+  auto sigResult = pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId.value()));
   if (!sigResult) {
     setJsonError(res, 500, std::string("Sign failed: ") + sigResult.error().message);
     return;
@@ -648,8 +650,7 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
   res.set_content(dumpJson(resp), "application/json");
 }
 
-static void handleTxByWallet(const httplib::Request& req, httplib::Response& res,
-                            pp::Client& beaconClient) {
+static void handleTxByWallet(const httplib::Request& req, httplib::Response& res, pp::Client& beaconClient) {
   pp::Client::TxGetByWalletRequest wr;
   if (req.has_param("walletId")) {
     try {
@@ -672,12 +673,10 @@ static void handleTxByWallet(const httplib::Request& req, httplib::Response& res
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
-                  "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()), "application/json");
 }
 
-static void handleTxByIndex(const httplib::Request& req, httplib::Response& res,
-                            pp::Client& beaconClient) {
+static void handleTxByIndex(const httplib::Request& req, httplib::Response& res, pp::Client& beaconClient) {
   if (!req.has_param("txIndex")) {
     setJsonError(res, 400, "txIndex is required");
     return;
@@ -696,20 +695,20 @@ static void handleTxByIndex(const httplib::Request& req, httplib::Response& res,
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
-                  "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()), "application/json");
 }
 
 static bool isHexStringStrict(const std::string& input) {
-  if (input.empty() || (input.size() % 2) != 0) return false;
+  if (input.empty() || (input.size() % 2) != 0)
+    return false;
   for (unsigned char ch : input) {
-    if (!std::isxdigit(static_cast<unsigned char>(ch))) return false;
+    if (!std::isxdigit(static_cast<unsigned char>(ch)))
+      return false;
   }
   return true;
 }
 
-static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
-                          pp::Client& /*minerClient*/) {
+static void handleTxBuild(const httplib::Request& req, httplib::Response& res, pp::Client& /*minerClient*/) {
   Object body;
   std::string parseErr;
   if (!parseRequestObject(req.body, body, parseErr)) {
@@ -717,17 +716,14 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
     return;
   }
 
-  const uint16_t type =
-      static_cast<uint16_t>(objectUint64(body, "type", pp::Ledger::T_DEFAULT));
+  const uint16_t type = static_cast<uint16_t>(objectUint64(body, "type", pp::Ledger::T_DEFAULT));
 
   uint64_t fromWalletId = 0;
   uint64_t toWalletId = 0;
   uint64_t walletId = 0;
   uint64_t tokenId = 0;
   uint64_t amount = 0;
-  if (type == pp::Ledger::T_USER_UPDATE ||
-      type == pp::Ledger::T_RENEWAL ||
-      type == pp::Ledger::T_END_USER) {
+  if (type == pp::Ledger::T_USER_UPDATE || type == pp::Ledger::T_RENEWAL || type == pp::Ledger::T_END_USER) {
     if (!body.contains("walletId")) {
       setJsonError(res, 400, "walletId is required for this transaction type");
       return;
@@ -766,8 +762,7 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
   int64_t validationTsMin = 0;
   int64_t validationTsMax = 0;
   const bool callerGaveIdempotentId = body.contains("idempotentId");
-  const bool callerGaveWindow =
-      body.contains("validationTsMin") || body.contains("validationTsMax");
+  const bool callerGaveWindow = body.contains("validationTsMin") || body.contains("validationTsMax");
 
   if (callerGaveIdempotentId) {
     idempotentId = objectUint64(body, "idempotentId", 0);
@@ -785,61 +780,81 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
     // Caller picked a custom validation window but left idempotentId out:
     // still need a non-zero id, or Full-mode replay protection is skipped
     // entirely for this transaction (chain_tx::validateIdempotencyRules).
-    idempotentId = static_cast<uint64_t>(std::chrono::duration_cast<
-        std::chrono::nanoseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count()) ^
-        (randomAccountId() & 0xFFFFFFFFULL);
-    if (idempotentId == 0) idempotentId = 1;
+    idempotentId = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                             std::chrono::system_clock::now().time_since_epoch())
+                                             .count()) ^
+                   (randomAccountId() & 0xFFFFFFFFULL);
+    if (idempotentId == 0)
+      idempotentId = 1;
   }
 
   auto packTyped = [&](uint16_t t) -> std::string {
-    auto fillCommon = [&](auto &x) {
+    auto fillCommon = [&](auto& x) {
       x.fee = common.fee;
       x.meta = common.meta;
     };
-    auto fillIdempotency = [&](auto &x) {
+    auto fillIdempotency = [&](auto& x) {
       x.idempotentId = idempotentId;
       x.validationTsMin = validationTsMin;
       x.validationTsMax = validationTsMax;
     };
     switch (t) {
-    case pp::Ledger::T_GENESIS: {
-      pp::Ledger::TxGenesis x; fillCommon(x); return pp::utl::binaryPack(x);
-    }
-    case pp::Ledger::T_NEW_USER: {
-      auto fill = [&](auto &x) {
+      case pp::Ledger::T_GENESIS: {
+        pp::Ledger::TxGenesis x;
+        fillCommon(x);
+        return pp::utl::binaryPack(x);
+      }
+      case pp::Ledger::T_NEW_USER: {
+        auto fill = [&](auto& x) {
+          fillCommon(x);
+          fillIdempotency(x);
+          x.fromWalletId = fromWalletId;
+          x.toWalletId = toWalletId;
+          x.amount = amount;
+        };
+        pp::Ledger::TxNewUser x;
+        fill(x);
+        return pp::utl::binaryPack(x);
+      }
+      case pp::Ledger::T_CONFIG: {
+        pp::Ledger::TxConfig x;
         fillCommon(x);
         fillIdempotency(x);
-        x.fromWalletId = fromWalletId;
-        x.toWalletId = toWalletId;
-        x.amount = amount;
-      };
-      pp::Ledger::TxNewUser x; fill(x); return pp::utl::binaryPack(x);
-    }
-    case pp::Ledger::T_CONFIG: {
-      pp::Ledger::TxConfig x; fillCommon(x); fillIdempotency(x); return pp::utl::binaryPack(x);
-    }
-    case pp::Ledger::T_USER_UPDATE: {
-      pp::Ledger::TxUserUpdate x; fillCommon(x); fillIdempotency(x); x.walletId = walletId; return pp::utl::binaryPack(x);
-    }
-    case pp::Ledger::T_RENEWAL: {
-      pp::Ledger::TxRenewal x; fillCommon(x); x.walletId = walletId; return pp::utl::binaryPack(x);
-    }
-    case pp::Ledger::T_END_USER: {
-      pp::Ledger::TxEndUser x; fillCommon(x); x.walletId = walletId; return pp::utl::binaryPack(x);
-    }
-    case pp::Ledger::T_DEFAULT:
-    default: {
-      auto fill = [&](auto &x) {
+        return pp::utl::binaryPack(x);
+      }
+      case pp::Ledger::T_USER_UPDATE: {
+        pp::Ledger::TxUserUpdate x;
         fillCommon(x);
         fillIdempotency(x);
-        x.tokenId = tokenId;
-        x.fromWalletId = fromWalletId;
-        x.toWalletId = toWalletId;
-        x.amount = amount;
-      };
-      pp::Ledger::TxDefault x; fill(x); return pp::utl::binaryPack(x);
-    }
+        x.walletId = walletId;
+        return pp::utl::binaryPack(x);
+      }
+      case pp::Ledger::T_RENEWAL: {
+        pp::Ledger::TxRenewal x;
+        fillCommon(x);
+        x.walletId = walletId;
+        return pp::utl::binaryPack(x);
+      }
+      case pp::Ledger::T_END_USER: {
+        pp::Ledger::TxEndUser x;
+        fillCommon(x);
+        x.walletId = walletId;
+        return pp::utl::binaryPack(x);
+      }
+      case pp::Ledger::T_DEFAULT:
+      default: {
+        auto fill = [&](auto& x) {
+          fillCommon(x);
+          fillIdempotency(x);
+          x.tokenId = tokenId;
+          x.fromWalletId = fromWalletId;
+          x.toWalletId = toWalletId;
+          x.amount = amount;
+        };
+        pp::Ledger::TxDefault x;
+        fill(x);
+        return pp::utl::binaryPack(x);
+      }
     }
   };
 
@@ -850,8 +865,7 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
   res.set_content(dumpJson(resp), "application/json");
 }
 
-static void handleTxSubmit(const httplib::Request& req, httplib::Response& res,
-                           pp::Client& minerClient) {
+static void handleTxSubmit(const httplib::Request& req, httplib::Response& res, pp::Client& minerClient) {
   Object body;
   std::string parseErr;
   if (!parseRequestObject(req.body, body, parseErr)) {
@@ -867,7 +881,7 @@ static void handleTxSubmit(const httplib::Request& req, httplib::Response& res,
     setJsonError(res, 400, "transactionHex is required and must be a string");
     return;
   }
-  const Array *sigsArr = body.getArray("signaturesHex");
+  const Array* sigsArr = body.getArray("signaturesHex");
   if (!sigsArr) {
     setJsonError(res, 400, "signaturesHex is required and must be an array");
     return;
@@ -902,9 +916,9 @@ static void handleTxSubmit(const httplib::Request& req, httplib::Response& res,
     std::string sigHex = *sigHexOpt;
     constexpr size_t kSigHexLen = pp::utl::kMlDsaSignatureBytes * 2;
     if (!isHexStringStrict(sigHex) || sigHex.size() != kSigHexLen) {
-      setJsonError(res, 400, "each signature hex must be exactly " +
-                   std::to_string(kSigHexLen) +
-                   " hex chars (ML-DSA-65), without 0x prefix");
+      setJsonError(res, 400,
+                   "each signature hex must be exactly " + std::to_string(kSigHexLen) +
+                       " hex chars (ML-DSA-65), without 0x prefix");
       return;
     }
     std::string sig = pp::utl::hexDecode(sigHex);
@@ -925,9 +939,8 @@ static void handleTxSubmit(const httplib::Request& req, httplib::Response& res,
 
 // ── MCP route handlers ──────────────────────────────────────────────────────
 
-static void handleMcpSse(const httplib::Request& req, httplib::Response& res,
-                         const std::string& httpHost, uint16_t httpPort,
-                         std::map<std::string, std::shared_ptr<McpSession>>& mcpSessions,
+static void handleMcpSse(const httplib::Request& req, httplib::Response& res, const std::string& httpHost,
+                         uint16_t httpPort, std::map<std::string, std::shared_ptr<McpSession>>& mcpSessions,
                          std::mutex& mcpSessionsMutex) {
   (void)req;
   std::string sessionId = generateSessionId();
@@ -942,46 +955,45 @@ static void handleMcpSse(const httplib::Request& req, httplib::Response& res,
     mcpSessions[sessionId] = session;
   }
 
-  std::string endpointUrl = "http://" + httpHost + ":" + std::to_string(httpPort) +
-                            "/mcp/messages?sessionId=" + sessionId;
+  std::string endpointUrl =
+      "http://" + httpHost + ":" + std::to_string(httpPort) + "/mcp/messages?sessionId=" + sessionId;
   session->enqueue(makeSseEvent("endpoint", endpointUrl));
 
   res.set_header("Cache-Control", "no-cache");
   res.set_header("Connection", "keep-alive");
   res.set_header("X-Accel-Buffering", "no");
   res.set_chunked_content_provider(
-    "text/event-stream",
-    [session](size_t /*offset*/, httplib::DataSink& sink) -> bool {
-      std::string event;
-      {
-        std::unique_lock<std::mutex> lk(session->mutex);
-        session->cv.wait_for(lk, std::chrono::seconds(15), [&session] {
-          return !session->pending.empty() || session->closed;
-        });
-        if (session->closed && session->pending.empty()) return false;
-        if (!session->pending.empty()) {
-          event = std::move(session->pending.front());
-          session->pending.pop();
+      "text/event-stream",
+      [session](size_t /*offset*/, httplib::DataSink& sink) -> bool {
+        std::string event;
+        {
+          std::unique_lock<std::mutex> lk(session->mutex);
+          session->cv.wait_for(lk, std::chrono::seconds(15),
+                               [&session] { return !session->pending.empty() || session->closed; });
+          if (session->closed && session->pending.empty())
+            return false;
+          if (!session->pending.empty()) {
+            event = std::move(session->pending.front());
+            session->pending.pop();
+          }
         }
-      }
-      if (!event.empty()) return sink.write(event.c_str(), event.size());
-      static const std::string ping = ": ping\n\n";
-      return sink.write(ping.c_str(), ping.size());
-    },
-    [&mcpSessionsMutex, &mcpSessions, sessionId](bool /*success*/) {
-      std::lock_guard<std::mutex> lk(mcpSessionsMutex);
-      auto it = mcpSessions.find(sessionId);
-      if (it != mcpSessions.end()) {
-        it->second->close();
-        mcpSessions.erase(it);
-      }
-    }
-  );
+        if (!event.empty())
+          return sink.write(event.c_str(), event.size());
+        static const std::string ping = ": ping\n\n";
+        return sink.write(ping.c_str(), ping.size());
+      },
+      [&mcpSessionsMutex, &mcpSessions, sessionId](bool /*success*/) {
+        std::lock_guard<std::mutex> lk(mcpSessionsMutex);
+        auto it = mcpSessions.find(sessionId);
+        if (it != mcpSessions.end()) {
+          it->second->close();
+          mcpSessions.erase(it);
+        }
+      });
 }
 
-static void handleMcpMessages(const httplib::Request& req, httplib::Response& res,
-                              pp::Client& beaconClient, pp::Client& minerClient,
-                              std::map<std::string, std::shared_ptr<McpSession>>& mcpSessions,
+static void handleMcpMessages(const httplib::Request& req, httplib::Response& res, pp::Client& beaconClient,
+                              pp::Client& minerClient, std::map<std::string, std::shared_ptr<McpSession>>& mcpSessions,
                               std::mutex& mcpSessionsMutex) {
   std::string sessionId = req.get_param_value("sessionId");
   std::shared_ptr<McpSession> session;
@@ -1004,7 +1016,8 @@ static void handleMcpMessages(const httplib::Request& req, httplib::Response& re
 
   bool enqueueFailed = false;
   auto handle = [&](const Object& rpc) {
-    if (enqueueFailed) return;
+    if (enqueueFailed)
+      return;
     auto response = handleMcpRpc(rpc, beaconClient, minerClient);
     if (response) {
       if (!session->enqueue(makeSseEvent("message", dumpJson(*response)))) {
@@ -1013,16 +1026,16 @@ static void handleMcpMessages(const httplib::Request& req, httplib::Response& re
     }
   };
 
-  if (const Array *arr = asArray(bodyVal)) {
+  if (const Array* arr = asArray(bodyVal)) {
     for (const auto& item : arr->elements) {
-      const Object *rpc = asObject(item);
+      const Object* rpc = asObject(item);
       if (!rpc) {
         setJsonError(res, 400, "MCP batch items must be JSON objects");
         return;
       }
       handle(*rpc);
     }
-  } else if (const Object *obj = asObject(bodyVal)) {
+  } else if (const Object* obj = asObject(bodyVal)) {
     handle(*obj);
   } else {
     setJsonError(res, 400, parseErr.empty() ? "Invalid JSON in request body" : parseErr);
@@ -1041,7 +1054,9 @@ static void handleMcpMessages(const httplib::Request& req, httplib::Response& re
 namespace {
 /** Set by SIGINT / SIGTERM (docker, systemd); a watcher thread stops the server (not signal-safe). */
 std::atomic<bool> g_httpStopRequested{false};
-void httpSignalHandler(int) { g_httpStopRequested = true; }
+void httpSignalHandler(int) {
+  g_httpStopRequested = true;
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -1056,19 +1071,15 @@ int main(int argc, char** argv) {
   std::string logLevel = "info";
   std::vector<std::string> metricsTargets;
   app.add_option("--port", httpPort, "HTTP server port")->default_val(8080)->envname("PP_HTTP_PORT");
-  app.add_option("--bind", httpHost,
-                "HTTP bind address (default 127.0.0.1; use 0.0.0.0 to expose)")
+  app.add_option("--bind", httpHost, "HTTP bind address (default 127.0.0.1; use 0.0.0.0 to expose)")
       ->default_val("127.0.0.1")
       ->envname("PP_HTTP_BIND");
-  app.add_option("--cors-origin", corsOrigin,
-                "Value for Access-Control-Allow-Origin (default: CORS disabled)")
+  app.add_option("--cors-origin", corsOrigin, "Value for Access-Control-Allow-Origin (default: CORS disabled)")
       ->envname("PP_HTTP_CORS_ORIGIN");
-  app.add_option("--beacon", beaconMultiaddr,
-                 "Beacon ADP multiaddr (/ip4|dns4/.../udp/.../adp/2/p2p/...)")
+  app.add_option("--beacon", beaconMultiaddr, "Beacon ADP multiaddr (/ip4|dns4/.../udp/.../adp/2/p2p/...)")
       ->required()
       ->envname("PP_HTTP_BEACON");
-  app.add_option("--miner", minerMultiaddr,
-                 "Miner ADP multiaddr (/ip4|dns4/.../udp/.../adp/2/p2p/...)")
+  app.add_option("--miner", minerMultiaddr, "Miner ADP multiaddr (/ip4|dns4/.../udp/.../adp/2/p2p/...)")
       ->required()
       ->envname("PP_HTTP_MINER");
   app.add_option("--metrics-target", metricsTargets,
@@ -1087,8 +1098,8 @@ int main(int argc, char** argv) {
                                                                : pp::logging::Level::INFO);
   }
 
-  if (beaconMultiaddr.empty() || beaconMultiaddr.front() != '/' ||
-      minerMultiaddr.empty() || minerMultiaddr.front() != '/') {
+  if (beaconMultiaddr.empty() || beaconMultiaddr.front() != '/' || minerMultiaddr.empty() ||
+      minerMultiaddr.front() != '/') {
     std::cerr << "Error: --beacon and --miner must be ADP multiaddrs "
                  "(/ip4|dns4/.../udp/.../adp/2/p2p/...).\n";
     return 1;
@@ -1096,8 +1107,7 @@ int main(int argc, char** argv) {
 
   auto ephemeralKeys = pp::utl::mlDsaGenerate();
   if (!ephemeralKeys) {
-    std::cerr << "Error: failed to generate ephemeral AMP identity: "
-              << ephemeralKeys.error().message << "\n";
+    std::cerr << "Error: failed to generate ephemeral AMP identity: " << ephemeralKeys.error().message << "\n";
     return 1;
   }
   auto ampCfg = pp::network::LedgerAmpConfigFromPrivateKey(ephemeralKeys->privateKey, 0);
@@ -1132,8 +1142,8 @@ int main(int argc, char** argv) {
     const auto eq = target.find('=');
     const std::string name = eq == std::string::npos ? std::string{} : target.substr(0, eq);
     const std::string multiaddr = eq == std::string::npos ? std::string{} : target.substr(eq + 1);
-    const bool taken = std::any_of(metricsNodes.begin(), metricsNodes.end(),
-                                   [&](const MetricsNode& n) { return n.name == name; });
+    const bool taken =
+        std::any_of(metricsNodes.begin(), metricsNodes.end(), [&](const MetricsNode& n) { return n.name == name; });
     if (name.empty() || taken || multiaddr.empty() || multiaddr.front() != '/') {
       std::cerr << "Error: --metrics-target must be NAME=MULTIADDR with a new name: " << target << "\n";
       return 1;
@@ -1166,8 +1176,8 @@ int main(int argc, char** argv) {
   httplib::Server svr(httpCfg);
   auto httpLog = pp::logging::getLogger("HttpServer");
   svr.set_logger([&httpLog](const httplib::Request& req, const httplib::Response& res) {
-    httpLog.info << req.method << " " << req.path << " " << res.status
-                 << " (" << (req.remote_addr.empty() ? "-" : req.remote_addr) << ")";
+    httpLog.info << req.method << " " << req.path << " " << res.status << " ("
+                 << (req.remote_addr.empty() ? "-" : req.remote_addr) << ")";
   });
   svr.set_error_logger([&httpLog](const httplib::Error& err, const httplib::Request* req) {
     std::string path = req ? req->path : "-";
@@ -1199,120 +1209,94 @@ int main(int argc, char** argv) {
     // A path no route answers; a route's own 404 (an account not found: JSON) stays as it wrote it.
     if (res.status == 404 && res.body.empty()) {
       res.set_content(
-        makeErrorHtml(404, req.path, "Page not found",
-          "The page you're looking for doesn't exist. This might be a typo, or the endpoint may have moved."),
-        "text/html");
+          makeErrorHtml(
+              404, req.path, "Page not found",
+              "The page you're looking for doesn't exist. This might be a typo, or the endpoint may have moved."),
+          "text/html");
       return httplib::Server::HandlerResponse::Handled;
     }
     return httplib::Server::HandlerResponse::Unhandled;
   });
 
   // API routes (MCP tools/resources registered alongside corresponding endpoints)
-  svr.Get("/api/beacon/state", [&](const httplib::Request& req, httplib::Response& res) {
-    handleBeaconState(req, res, beaconClient);
-  });
-  registerMcpTool({
-    "get_beacon_state",
-    "Get the current state of the pp-ledger beacon node (slot, epoch, checkpoint, stakeholders).",
-    emptySchema(),
-    [](const Object&, pp::Client& beacon, pp::Client&) {
-      auto r = beacon.fetchBeaconState();
-      return r ? mcpOk(metaToJsonString(r.value().ltsToMeta(), 2))
-               : mcpErr(r.error().message);
-    }
-  });
-  registerMcpResource({
-    "beacon://state",
-    "Beacon State",
-    "Current state of the pp-ledger beacon node.",
-    "application/json",
-    [](pp::Client& beacon, pp::Client&) {
-      auto r = beacon.fetchBeaconState();
-      if (!r) {
-        Object err;
-        err.set("error", r.error().message);
-        return err;
-      }
-      Object content;
-      content.set("uri", std::string("beacon://state"));
-      content.set("mimeType", std::string("application/json"));
-      content.set("text", metaToJsonString(r.value().ltsToMeta(), 2));
-      Object out;
-      out.set("contents", Object::array({Value(std::make_shared<Object>(content))}));
-      return out;
-    }
-  });
+  svr.Get("/api/beacon/state",
+          [&](const httplib::Request& req, httplib::Response& res) { handleBeaconState(req, res, beaconClient); });
+  registerMcpTool({"get_beacon_state",
+                   "Get the current state of the pp-ledger beacon node (slot, epoch, checkpoint, stakeholders).",
+                   emptySchema(), [](const Object&, pp::Client& beacon, pp::Client&) {
+                     auto r = beacon.fetchBeaconState();
+                     return r ? mcpOk(metaToJsonString(r.value().ltsToMeta(), 2)) : mcpErr(r.error().message);
+                   }});
+  registerMcpResource({"beacon://state", "Beacon State", "Current state of the pp-ledger beacon node.",
+                       "application/json", [](pp::Client& beacon, pp::Client&) {
+                         auto r = beacon.fetchBeaconState();
+                         if (!r) {
+                           Object err;
+                           err.set("error", r.error().message);
+                           return err;
+                         }
+                         Object content;
+                         content.set("uri", std::string("beacon://state"));
+                         content.set("mimeType", std::string("application/json"));
+                         content.set("text", metaToJsonString(r.value().ltsToMeta(), 2));
+                         Object out;
+                         out.set("contents", Object::array({Value(std::make_shared<Object>(content))}));
+                         return out;
+                       }});
 
-  svr.Get("/api/beacon/health", [&](const httplib::Request& req, httplib::Response& res) {
-    handleNodeHealth(req, res, beaconClient);
-  });
-  svr.Get("/api/miner/health", [&](const httplib::Request& req, httplib::Response& res) {
-    handleNodeHealth(req, res, minerClient);
-  });
-  svr.Get("/metrics", [&](const httplib::Request& req, httplib::Response& res) {
-    handleMetrics(req, res, metricsNodes);
-  });
+  svr.Get("/api/beacon/health",
+          [&](const httplib::Request& req, httplib::Response& res) { handleNodeHealth(req, res, beaconClient); });
+  svr.Get("/api/miner/health",
+          [&](const httplib::Request& req, httplib::Response& res) { handleNodeHealth(req, res, minerClient); });
+  svr.Get("/metrics",
+          [&](const httplib::Request& req, httplib::Response& res) { handleMetrics(req, res, metricsNodes); });
 
   svr.Get("/api/beacon/calibration", [&](const httplib::Request& req, httplib::Response& res) {
     handleBeaconCalibration(req, res, beaconClient);
   });
 
-  svr.Get("/api/beacon/miners", [&](const httplib::Request& req, httplib::Response& res) {
-    handleBeaconMiners(req, res, beaconClient);
-  });
-  registerMcpTool({
-    "list_miners",
-    "List the ids of miners currently registered with the beacon node (no network addresses).",
-    emptySchema(),
-    [](const Object&, pp::Client& beacon, pp::Client&) {
-      auto r = beacon.fetchMinerList();
-      if (!r) return mcpErr(r.error().message);
-      std::vector<Value> elems;
-      for (const auto& m : r.value()) {
-        elems.push_back(publicMinerJson(m));
-      }
-      return mcpOk(dumpJson(Object::array(std::move(elems)), 2));
-    }
-  });
+  svr.Get("/api/beacon/miners",
+          [&](const httplib::Request& req, httplib::Response& res) { handleBeaconMiners(req, res, beaconClient); });
+  registerMcpTool({"list_miners",
+                   "List the ids of miners currently registered with the beacon node (no network addresses).",
+                   emptySchema(), [](const Object&, pp::Client& beacon, pp::Client&) {
+                     auto r = beacon.fetchMinerList();
+                     if (!r)
+                       return mcpErr(r.error().message);
+                     std::vector<Value> elems;
+                     for (const auto& m : r.value()) {
+                       elems.push_back(publicMinerJson(m));
+                     }
+                     return mcpOk(dumpJson(Object::array(std::move(elems)), 2));
+                   }});
 
-  svr.Get("/api/miner/status", [&](const httplib::Request& req, httplib::Response& res) {
-    handleMinerStatus(req, res, minerClient);
-  });
-  registerMcpTool({
-    "get_miner_status",
-    "Get the current status of the connected miner (stake, slot leadership, pending transactions).",
-    emptySchema(),
-    [](const Object&, pp::Client&, pp::Client& miner) {
-      auto r = miner.fetchMinerStatus();
-      return r ? mcpOk(metaToJsonString(r.value().ltsToMeta(), 2))
-               : mcpErr(r.error().message);
-    }
-  });
-  registerMcpResource({
-    "miner://status",
-    "Miner Status",
-    "Current status of the connected miner.",
-    "application/json",
-    [](pp::Client&, pp::Client& miner) {
-      auto r = miner.fetchMinerStatus();
-      if (!r) {
-        Object err;
-        err.set("error", r.error().message);
-        return err;
-      }
-      Object content;
-      content.set("uri", std::string("miner://status"));
-      content.set("mimeType", std::string("application/json"));
-      content.set("text", metaToJsonString(r.value().ltsToMeta(), 2));
-      Object out;
-      out.set("contents", Object::array({Value(std::make_shared<Object>(content))}));
-      return out;
-    }
-  });
+  svr.Get("/api/miner/status",
+          [&](const httplib::Request& req, httplib::Response& res) { handleMinerStatus(req, res, minerClient); });
+  registerMcpTool({"get_miner_status",
+                   "Get the current status of the connected miner (stake, slot leadership, pending transactions).",
+                   emptySchema(), [](const Object&, pp::Client&, pp::Client& miner) {
+                     auto r = miner.fetchMinerStatus();
+                     return r ? mcpOk(metaToJsonString(r.value().ltsToMeta(), 2)) : mcpErr(r.error().message);
+                   }});
+  registerMcpResource({"miner://status", "Miner Status", "Current status of the connected miner.", "application/json",
+                       [](pp::Client&, pp::Client& miner) {
+                         auto r = miner.fetchMinerStatus();
+                         if (!r) {
+                           Object err;
+                           err.set("error", r.error().message);
+                           return err;
+                         }
+                         Object content;
+                         content.set("uri", std::string("miner://status"));
+                         content.set("mimeType", std::string("application/json"));
+                         content.set("text", metaToJsonString(r.value().ltsToMeta(), 2));
+                         Object out;
+                         out.set("contents", Object::array({Value(std::make_shared<Object>(content))}));
+                         return out;
+                       }});
 
-  svr.Get(R"(/api/block/(\d+))", [&](const httplib::Request& req, httplib::Response& res) {
-    handleBlockGet(req, res, beaconClient);
-  });
+  svr.Get(R"(/api/block/(\d+))",
+          [&](const httplib::Request& req, httplib::Response& res) { handleBlockGet(req, res, beaconClient); });
   {
     Object blockSchema;
     blockSchema.set("type", std::string("object"));
@@ -1323,38 +1307,29 @@ int main(int argc, char** argv) {
     props.set("block_id", blockIdProp);
     blockSchema.set("properties", props);
     blockSchema.set("required", Object::array({Value(std::string("block_id"))}));
-    registerMcpTool({
-      "get_block",
-      "Fetch a block from the pp-ledger blockchain by its block ID.",
-      std::move(blockSchema),
-      [](const Object& args, pp::Client& beacon, pp::Client&) {
-        if (!args.contains("block_id")) return mcpErr("block_id is required");
-        auto r = beacon.fetchBlock(objectUint64(args, "block_id", 0));
-        return r ? mcpOk(metaToJsonString(r.value().ltsToMeta(), 2))
-                 : mcpErr(r.error().message);
-      }
-    });
+    registerMcpTool({"get_block", "Fetch a block from the pp-ledger blockchain by its block ID.",
+                     std::move(blockSchema), [](const Object& args, pp::Client& beacon, pp::Client&) {
+                       if (!args.contains("block_id"))
+                         return mcpErr("block_id is required");
+                       auto r = beacon.fetchBlock(objectUint64(args, "block_id", 0));
+                       return r ? mcpOk(metaToJsonString(r.value().ltsToMeta(), 2)) : mcpErr(r.error().message);
+                     }});
   }
 
-  svr.Get(R"(/api/account/(\d+))", [&](const httplib::Request& req, httplib::Response& res) {
-    handleAccountGet(req, res, beaconClient);
-  });
+  svr.Get(R"(/api/account/(\d+))",
+          [&](const httplib::Request& req, httplib::Response& res) { handleAccountGet(req, res, beaconClient); });
   svr.Post("/api/account/create", [&](const httplib::Request& req, httplib::Response& res) {
     // Submissions go up the tree to the beacon's pool (relay or beacon, never a miner).
     handleAccountCreate(req, res, beaconClient);
   });
-  svr.Get("/api/tx/by-wallet", [&](const httplib::Request& req, httplib::Response& res) {
-    handleTxByWallet(req, res, beaconClient);
-  });
-  svr.Get("/api/tx/by-index", [&](const httplib::Request& req, httplib::Response& res) {
-    handleTxByIndex(req, res, beaconClient);
-  });
-  svr.Post("/api/tx/build", [&](const httplib::Request& req, httplib::Response& res) {
-    handleTxBuild(req, res, beaconClient);
-  });
-  svr.Post("/api/tx/submit", [&](const httplib::Request& req, httplib::Response& res) {
-    handleTxSubmit(req, res, beaconClient);
-  });
+  svr.Get("/api/tx/by-wallet",
+          [&](const httplib::Request& req, httplib::Response& res) { handleTxByWallet(req, res, beaconClient); });
+  svr.Get("/api/tx/by-index",
+          [&](const httplib::Request& req, httplib::Response& res) { handleTxByIndex(req, res, beaconClient); });
+  svr.Post("/api/tx/build",
+           [&](const httplib::Request& req, httplib::Response& res) { handleTxBuild(req, res, beaconClient); });
+  svr.Post("/api/tx/submit",
+           [&](const httplib::Request& req, httplib::Response& res) { handleTxSubmit(req, res, beaconClient); });
 
   // MCP routes
   svr.Get("/mcp/sse", [&](const httplib::Request& req, httplib::Response& res) {
@@ -1369,9 +1344,12 @@ int main(int argc, char** argv) {
   httpLog.info << "HTTP API listening on " << httpHost << ":" << httpPort;
   httpLog.info << "Beacon: " << beaconMultiaddr;
   httpLog.info << "Miner:  " << minerMultiaddr;
-  httpLog.info << "Routes: GET /metrics, /api/beacon/health, /api/miner/health, /api/beacon/state, /api/beacon/calibration, /api/beacon/miners, /api/miner/status, /api/block/<id>, /api/account/<id>";
-  httpLog.info << "        POST /api/account/create (JSON: from, amount, key; optional: to, fee, newPubkey, meta, minSignatures)";
-  httpLog.info << "        GET /api/tx/by-wallet?walletId=&beforeBlockId=, GET /api/tx/by-index?txIndex=, POST /api/tx/build (JSON), POST /api/tx/submit (JSON)";
+  httpLog.info << "Routes: GET /metrics, /api/beacon/health, /api/miner/health, /api/beacon/state, "
+                  "/api/beacon/calibration, /api/beacon/miners, /api/miner/status, /api/block/<id>, /api/account/<id>";
+  httpLog.info << "        POST /api/account/create (JSON: from, amount, key; optional: to, fee, newPubkey, meta, "
+                  "minSignatures)";
+  httpLog.info << "        GET /api/tx/by-wallet?walletId=&beforeBlockId=, GET /api/tx/by-index?txIndex=, POST "
+                  "/api/tx/build (JSON), POST /api/tx/submit (JSON)";
   httpLog.info << "Chain:  GET /api/chain/status, /api/chain/blocks?from=&limit=, /api/chain/accounts/<id>";
   httpLog.info << "MCP:    GET /mcp/sse (SSE endpoint), POST /mcp/messages?sessionId=<id>";
   std::signal(SIGINT, httpSignalHandler);

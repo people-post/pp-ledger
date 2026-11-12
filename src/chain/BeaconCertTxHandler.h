@@ -13,37 +13,33 @@ namespace pp {
 class BeaconCertTxHandler final : public ITxHandler {
 public:
   /** Draft tag: one certificate per block (AccountBuffer::addDraftTag). */
-  static constexpr const char *kDraftTag = "beacon-cert";
+  static constexpr const char* kDraftTag = "beacon-cert";
 
-  chain_tx::Roe<uint64_t>
-  getSignerAccountId(const Ledger::TypedTx &tx, uint64_t slotLeaderId) const override;
+  chain_tx::Roe<uint64_t> getSignerAccountId(const Ledger::TypedTx& tx, uint64_t slotLeaderId) const override;
 
-  chain_tx::Roe<bool>
-  matchesWalletForIndex(const Ledger::TypedTx &tx, uint64_t walletId) const override;
+  chain_tx::Roe<bool> matchesWalletForIndex(const Ledger::TypedTx& tx, uint64_t walletId) const override;
 
-  chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
-  getIdempotencyKey(const Ledger::TypedTx &tx) const override;
+  chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>> getIdempotencyKey(
+      const Ledger::TypedTx& tx) const override;
 
-  chain_tx::Roe<void>
-  applyBuffer(const Ledger::TypedTx &tx, AccountBuffer &bank,
-              const BufferApplyContext &c) const override;
+  chain_tx::Roe<void> applyBuffer(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                  const BufferApplyContext& c) const override;
 
-  chain_tx::Roe<void>
-  applyBlock(const Ledger::TypedTx &tx, AccountBuffer &bank,
-             const BlockApplyContext &c) const override;
+  chain_tx::Roe<void> applyBlock(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                 const BlockApplyContext& c) const override;
 
   /** The certificate a T_BEACON_CERT carries (fee must be 0). */
-  static chain_tx::Roe<BeaconCertificate> decodeCertificate(const Ledger::TxBeaconCert &tx);
+  static chain_tx::Roe<BeaconCertificate> decodeCertificate(const Ledger::TxBeaconCert& tx);
   /**
    * `block` commits a certificate with a cutover: the first block of a new beacon after an outage
    * (bp3). Records that do not decode count as none (validation refuses them elsewhere).
    */
-  static bool commitsCutover(const Ledger::Block &block);
+  static bool commitsCutover(const Ledger::Block& block);
 
 private:
   /** Checks shared by draft and block apply; returns the certificate to put in force. */
-  chain_tx::Roe<BeaconCertificate> check(const Ledger::TxBeaconCert &tx, const TxContext &ctx,
-                                         AccountBuffer &bank, uint64_t blockId, uint64_t slot,
+  chain_tx::Roe<BeaconCertificate> check(const Ledger::TxBeaconCert& tx, const TxContext& ctx, AccountBuffer& bank,
+                                         uint64_t blockId, uint64_t slot,
                                          chain_block::BlockAdmissionMode admissionMode) const;
 };
 

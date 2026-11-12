@@ -49,10 +49,11 @@ public:
 
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
-    Error(const chain_tx::TxError &e) : RoeErrorBase(e.code, e.message) {}
+    Error(const chain_tx::TxError& e) : RoeErrorBase(e.code, e.message) {}
   };
 
-  template <typename T> using Roe = ResultOrError<T, Error>;
+  template <typename T>
+  using Roe = ResultOrError<T, Error>;
 
   // Error code groups
   constexpr static int32_t E_STATE_INIT = chain_err::E_STATE_INIT;
@@ -67,8 +68,7 @@ public:
   constexpr static int32_t E_BLOCK_VALIDATION = chain_err::E_BLOCK_VALIDATION;
   constexpr static int32_t E_BLOCK_GENESIS = chain_err::E_BLOCK_GENESIS;
 
-  constexpr static int32_t E_CONSENSUS_SLOT_LEADER =
-      chain_err::E_CONSENSUS_SLOT_LEADER;
+  constexpr static int32_t E_CONSENSUS_SLOT_LEADER = chain_err::E_CONSENSUS_SLOT_LEADER;
   constexpr static int32_t E_CONSENSUS_TIMING = chain_err::E_CONSENSUS_TIMING;
   constexpr static int32_t E_CONSENSUS_QUERY = chain_err::E_CONSENSUS_QUERY;
 
@@ -85,16 +85,13 @@ public:
   constexpr static int32_t E_TX_TYPE = chain_err::E_TX_TYPE;
   constexpr static int32_t E_TX_TRANSFER = chain_err::E_TX_TRANSFER;
   constexpr static int32_t E_TX_IDEMPOTENCY = chain_err::E_TX_IDEMPOTENCY;
-  constexpr static int32_t E_TX_VALIDATION_TIMESPAN =
-      chain_err::E_TX_VALIDATION_TIMESPAN;
-  constexpr static int32_t E_TX_TIME_OUTSIDE_WINDOW =
-      chain_err::E_TX_TIME_OUTSIDE_WINDOW;
+  constexpr static int32_t E_TX_VALIDATION_TIMESPAN = chain_err::E_TX_VALIDATION_TIMESPAN;
+  constexpr static int32_t E_TX_TIME_OUTSIDE_WINDOW = chain_err::E_TX_TIME_OUTSIDE_WINDOW;
 
   constexpr static int32_t E_LEDGER_WRITE = chain_err::E_LEDGER_WRITE;
   constexpr static int32_t E_LEDGER_READ = chain_err::E_LEDGER_READ;
 
-  constexpr static int32_t E_INTERNAL_DESERIALIZE =
-      chain_err::E_INTERNAL_DESERIALIZE;
+  constexpr static int32_t E_INTERNAL_DESERIALIZE = chain_err::E_INTERNAL_DESERIALIZE;
   constexpr static int32_t E_INTERNAL_BUFFER = chain_err::E_INTERNAL_BUFFER;
   constexpr static int32_t E_INTERNAL = chain_err::E_INTERNAL;
 
@@ -119,21 +116,18 @@ public:
    */
   Roe<void> sealReadiness(uint64_t slot) const;
 
-
   uint64_t getNextBlockId() const;
   Checkpoint getCheckpoint() const;
   uint64_t getCurrentSlot() const;
   uint64_t getCurrentEpoch() const;
   uint64_t getTotalStake() const;
   Roe<uint64_t> getSlotLeader(uint64_t slot) const;
-  uint64_t getEpochFromSlot(uint64_t slot) const {
-    return txContext_.consensus.getEpochFromSlot(slot);
-  }
+  uint64_t getEpochFromSlot(uint64_t slot) const { return txContext_.consensus.getEpochFromSlot(slot); }
   std::vector<consensus::Stakeholder> getStakeholders() const;
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
   /** `signatures` over `message` satisfy account `accountId`'s keys and minSignatures. */
-  Roe<void> verifyAccountSignatures(uint64_t accountId, const std::string &message,
-                                    const std::vector<std::string> &signatures) const;
+  Roe<void> verifyAccountSignatures(uint64_t accountId, const std::string& message,
+                                    const std::vector<std::string>& signatures) const;
   int64_t getConsensusTimestamp() const;
   int64_t getConsensusTimestampMs() const;
   /** End of `slot` (seconds) — the earliest timestamp a block for it may carry. */
@@ -150,9 +144,9 @@ public:
    * idempotency, amounts, funds, the type's rules). What depends on the rest of a block (pending
    * spends, ids pending in it) is the leader's to check.
    */
-  Roe<void> checkAdmission(const Ledger::Record &record, int64_t nowSec, bool verifySignatures) const;
+  Roe<void> checkAdmission(const Ledger::Record& record, int64_t nowSec, bool verifySignatures) const;
   /** (payer, idempotent id) of a record that has one (RecordHandler::getIdempotencyKey). */
-  std::optional<std::pair<uint64_t, uint64_t>> idempotencyKeyOf(const Ledger::Record &record) const;
+  std::optional<std::pair<uint64_t, uint64_t>> idempotencyKeyOf(const Ledger::Record& record) const;
   /** Max transactions per block (0 = no limit), renewals included (B035). */
   uint64_t getMaxTransactionsPerBlock() const;
   /** Max bytes per block (0 = no limit; B034). */
@@ -194,7 +188,7 @@ public:
    * force, for this chain, a higher generation than the one in force, with a new key. Returns the
    * certificate. (On chain the record must also be exactly the next generation.)
    */
-  Roe<BeaconCertificate> verifyBeaconCertificateRecord(const Ledger::Record &record) const;
+  Roe<BeaconCertificate> verifyBeaconCertificateRecord(const Ledger::Record& record) const;
 
   /** What offerCertificate did with a certificate (beacon-authority ba5c). */
   enum class CertificateOffer {
@@ -210,10 +204,10 @@ public:
    * (authorityTrail()). Dropped once a block commits its generation (or a later one), or when an
    * admin rotation leaves it unsigned. In memory only: the caller persists it.
    */
-  Roe<CertificateOffer> offerCertificate(const Ledger::Record &record);
+  Roe<CertificateOffer> offerCertificate(const Ledger::Record& record);
   /** The certificate held out of band, above the generation in force; none if none is. */
-  const std::optional<Ledger::Record> &seenCertificateRecord() const { return seenCertRecord_; }
-  const std::optional<BeaconCertificate> &seenCertificate() const { return seenCert_; }
+  const std::optional<Ledger::Record>& seenCertificateRecord() const { return seenCertRecord_; }
+  const std::optional<BeaconCertificate>& seenCertificate() const { return seenCert_; }
   /**
    * The rewind the held certificate orders (beacon-authority bp1, B023): this chain holds blocks
    * above its cutover — signed by a superseded generation past it — so they must go. None when it
@@ -225,13 +219,13 @@ public:
    * chain holds, when the cutover lies before it — to the block it would drop last. None when those
    * blocks cannot be read.
    */
-  std::optional<uint64_t> rewindDepthSeconds(const Client::RewindReport &order) const;
+  std::optional<uint64_t> rewindDepthSeconds(const Client::RewindReport& order) const;
   /**
    * Whether `order` would drop a final block (projects/finality FN003): its cutover lies below the
    * finalized height. A node does that only with its operator's approval. None when the blocks
    * cannot be read (treated as crossing).
    */
-  std::optional<bool> rewindCrossesFinality(const Client::RewindReport &order) const;
+  std::optional<bool> rewindCrossesFinality(const Client::RewindReport& order) const;
 
   /** The finality bound in force at the tip, in seconds (FN001); 0 before a config is loaded. */
   uint64_t getFinalitySeconds() const;
@@ -239,9 +233,9 @@ public:
    * The `finalAt` block `block` must carry (FN007), under the config in force now (its epoch
    * entered, its records applied): the later of the block below's and its slot start plus the bound.
    */
-  int64_t expectedFinalAt(const Ledger::Block &block) const;
+  int64_t expectedFinalAt(const Ledger::Block& block) const;
   /** `block` carries the finalAt expectedFinalAt says (only a lower bound when the block below is not held). */
-  Roe<void> checkFinalAt(const Ledger::Block &block) const;
+  Roe<void> checkFinalAt(const Ledger::Block& block) const;
   /**
    * The highest block whose `finalAt` has passed by this node's clock (FN002, FN007): it and every
    * block below it are final. None when no block held is final yet; an error when a block cannot be
@@ -273,7 +267,7 @@ public:
    * equivocation evidence held, not of a generation no certificate here names (offer the
    * upstream's certificate first). A cheap pre-check — the sync verifies the tip itself.
    */
-  bool mayFollowTip(const Client::SignedTip &tip) const;
+  bool mayFollowTip(const Client::SignedTip& tip) const;
   /**
    * Where to reach the beacon (bp2b): the held certificate's `dialHints`, then those of the one in
    * force; deduplicated, newest first.
@@ -299,16 +293,16 @@ public:
    * (authorityTrail()): the node commits and produces nothing past it. Dropped when a certificate
    * of a later generation is seen or committed (resume). In memory only: the caller persists it.
    */
-  Roe<EquivocationOffer> offerEquivocation(const Client::Equivocation &evidence);
+  Roe<EquivocationOffer> offerEquivocation(const Client::Equivocation& evidence);
   /** The evidence held; none unless this node is halted on it. */
-  const std::optional<Client::Equivocation> &equivocation() const { return equivocation_; }
+  const std::optional<Client::Equivocation>& equivocation() const { return equivocation_; }
 
   /**
    * The beacon's commit rule while it holds a certificate out of band (ba5c): a block above its
    * cutover must commit a beacon certificate. The generation in force may sign nothing above the
    * cutover, and the certificate commits no later than the block after it.
    */
-  Roe<void> checkSeenCutover(const Ledger::Block &block) const;
+  Roe<void> checkSeenCutover(const Ledger::Block& block) const;
 
   /**
    * The beacon authority from the committed tip on (beacon-authority ba5): observe blocks not
@@ -327,10 +321,10 @@ public:
    * A beacon signed tip of this chain, signed by the generation in force here — or, given the
    * blocks after the committed tip that it covers (`pending`), the generation in force after them.
    */
-  Roe<void> verifySignedTip(const Client::SignedTip &tip, const std::vector<const Ledger::Block *> &pending = {}) const;
+  Roe<void> verifySignedTip(const Client::SignedTip& tip, const std::vector<const Ledger::Block*>& pending = {}) const;
 
   // ----------------- methods -------------------------------------
-  std::string calculateHash(const Ledger::Block &block) const;
+  std::string calculateHash(const Ledger::Block& block) const;
 
   /**
    * Apply `block.records` once to the tip bank, fill header commitments
@@ -339,7 +333,7 @@ public:
    * Must not be called again until that `addBlock` (or the tip is reset).
    * On failure (here or in the matching commit) tip state is rolled back.
    */
-  Roe<void> sealBlock(Ledger::ChainNode &block);
+  Roe<void> sealBlock(Ledger::ChainNode& block);
   /** Drop an uncommitted seal (e.g. broadcast failed) and restore the tip. */
   void abandonSeal();
 
@@ -348,25 +342,18 @@ public:
    * Does not fill epoch / stake / seed / txRoot — `sealBlock` →
    * `assembleBlockHeader` does that. See BLOCK_PIPELINE.md.
    */
-  Ledger::ChainNode linkNextBlock(const Ledger::ChainNode &previous,
-                                  uint64_t slot, uint64_t slotLeader,
-                                  int64_t timestamp,
-                                  std::vector<Ledger::Record> records) const;
+  Ledger::ChainNode linkNextBlock(const Ledger::ChainNode& previous, uint64_t slot, uint64_t slotLeader,
+                                  int64_t timestamp, std::vector<Ledger::Record> records) const;
 
-  Roe<std::vector<Ledger::Record>>
-  collectRenewals(uint64_t slot) const;
+  Roe<std::vector<Ledger::Record>> collectRenewals(uint64_t slot) const;
 
   Roe<Ledger::ChainNode> readBlock(uint64_t blockId) const;
   Roe<Ledger::ChainNode> readLastBlock() const;
 
-  Roe<uint64_t>
-  calculateMinimumFeeForTransaction(const BlockChainConfig &config,
-                                    const Ledger::TypedTx &tx) const;
+  Roe<uint64_t> calculateMinimumFeeForTransaction(const BlockChainConfig& config, const Ledger::TypedTx& tx) const;
 
-  Roe<std::vector<Ledger::Record>>
-  findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
-  Roe<Ledger::Record>
-  findTransactionByIndex(uint64_t txIndex) const;
+  Roe<std::vector<Ledger::Record>> findTransactionsByWalletId(uint64_t walletId, uint64_t& ioBlockId) const;
+  Roe<Ledger::Record> findTransactionByIndex(uint64_t txIndex) const;
   /**
    * Who produced blocks [from, to) (block 0 not counted), the fees in them, and the misses charged
    * to due miners (WIRE_SCHEMA § Producer statistics); at most Client::kMaxProducerStatsBlocks.
@@ -380,16 +367,13 @@ public:
    */
   Roe<Client::AccountProof> accountProof(uint64_t accountId) const;
   /** `domain`'s binding (or absence) in the tip block's state root, with its path (projects/domains). */
-  Roe<Client::DomainProof> domainProof(const std::string &domain) const;
+  Roe<Client::DomainProof> domainProof(const std::string& domain) const;
   /** Who `domain` is bound to in the committed state, if anyone. */
-  std::optional<AccountBuffer::DomainEntry> findDomain(const std::string &domain) const;
+  std::optional<AccountBuffer::DomainEntry> findDomain(const std::string& domain) const;
 
-  Roe<void>
-  addBufferTransaction(AccountBuffer &bank,
-                       const Ledger::Record &record,
-                       uint64_t slotLeaderId) const;
+  Roe<void> addBufferTransaction(AccountBuffer& bank, const Ledger::Record& record, uint64_t slotLeaderId) const;
 
-  void initConsensus(const consensus::SlotCommittee::Config &config);
+  void initConsensus(const consensus::SlotCommittee::Config& config);
 
   /**
    * Test/sim injectors forwarded to SlotCommittee (see docs/architecture/TESTING.md).
@@ -408,19 +392,17 @@ public:
    * previous epoch is complete on this chain, so any cached seed (possibly
    * derived early by the wall-clock refresh) is re-derived.
    */
-  Roe<void> ensureBlockEpochSeed(const Ledger::ChainNode &block);
-  const std::string &getEpochSeed() const {
-    return txContext_.consensus.getEpochSeed();
-  }
+  Roe<void> ensureBlockEpochSeed(const Ledger::ChainNode& block);
+  const std::string& getEpochSeed() const { return txContext_.consensus.getEpochSeed(); }
 
-  Roe<void> initLedger(const Ledger::InitConfig &config);
-  Roe<void> mountLedger(const std::string &workDir);
+  Roe<void> initLedger(const Ledger::InitConfig& config);
+  Roe<void> mountLedger(const std::string& workDir);
   /** When added blocks become durable (Ledger::CommitPolicy); the beacon commits every block. */
-  void setLedgerCommitPolicy(const Ledger::CommitPolicy &policy) { txContext_.ledger.setCommitPolicy(policy); }
+  void setLedgerCommitPolicy(const Ledger::CommitPolicy& policy) { txContext_.ledger.setCommitPolicy(policy); }
   Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
   /** Ledger::getBlockReadCount of this chain's ledger. */
   uint64_t getLedgerBlockReadCount() const { return txContext_.ledger.getBlockReadCount(); }
-  Roe<void> addBlock(const Ledger::ChainNode &block);
+  Roe<void> addBlock(const Ledger::ChainNode& block);
   /**
    * Live mode (wall-clock epoch): install the epoch's recorded committee, or a provisional one
    * (committeeFor) for leader election that is never recorded.
@@ -432,14 +414,14 @@ public:
    * only) and its committee (committeeFor). `block` is the block being admitted, if any: it bounds
    * the blocks held before it and, when it opens its epoch, may supply the committee.
    */
-  Roe<void> refreshStakeholders(uint64_t blockSlot, const Ledger::Block *block = nullptr);
+  Roe<void> refreshStakeholders(uint64_t blockSlot, const Ledger::Block* block = nullptr);
   /**
    * Committee of `epoch`: the state after the last block of epochs <= epoch - 2, fixed before the
    * beacon's reveal for `epoch` is known. The stake snapshot of epoch - 1 if recorded; else, when no
    * block of epoch - 1 is held before `opening` (the tip when null), the current candidates; else
    * `opening`'s committee (a checkpoint joiner's first Full epoch); else an error.
    */
-  Roe<std::vector<consensus::Stakeholder>> committeeFor(uint64_t epoch, const Ledger::Block *opening) const;
+  Roe<std::vector<consensus::Stakeholder>> committeeFor(uint64_t epoch, const Ledger::Block* opening) const;
 
   /** The newest stored block seed of an epoch ≤ `maxEpoch` below `endBlockId`: {epoch, seed}. */
   Roe<std::pair<uint64_t, std::string>> readLatestEpochSeed(uint64_t maxEpoch, uint64_t endBlockId) const;
@@ -448,7 +430,7 @@ public:
    * Seed of `epoch` from the seed of `epoch - 1` and the beacon's reveal for `epoch` (WIRE_SCHEMA §
    * Epoch seed). No block material: the leaders of `epoch - 1` cannot steer it.
    */
-  std::string deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed) const;
+  std::string deriveNextEpochSeed(uint64_t epoch, const std::string& prevSeed) const;
 
 protected:
   /** Block `index` of `epoch` may become the next checkpoint (chain_block::checkpointEligible). */
@@ -456,7 +438,7 @@ protected:
 
 private:
   /** Set `gm`'s config state, authority and admin set to those in force for a block of `epoch`. */
-  void setStateInForce(GenesisAccountMeta &gm, uint64_t epoch) const;
+  void setStateInForce(GenesisAccountMeta& gm, uint64_t epoch) const;
   /** Maximum blocks to scan in findTransactionsByWalletId to avoid long runs.
    */
   constexpr static const uint64_t MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX = 32;
@@ -467,26 +449,19 @@ private:
   /** Account metadata for renewal: user accounts get genesis balance adjusted
    * to post-renewal (current - fee) since verifyBalance expects that. Uses
    * TxContext account-meta extractors (from RecordHandler). */
-  Roe<std::string>
-  getUpdatedAccountMetadataForRenewal(const Ledger::Block &block,
-                                      const AccountBuffer::Account &account,
-                                      uint64_t minFee) const;
+  Roe<std::string> getUpdatedAccountMetadataForRenewal(const Ledger::Block& block,
+                                                       const AccountBuffer::Account& account, uint64_t minFee) const;
 
-  Roe<void>
-  verifySignaturesAgainstAccount(const std::string &message,
-                                 const std::vector<std::string> &signatures,
-                                 const AccountBuffer::Account &account) const;
-
+  Roe<void> verifySignaturesAgainstAccount(const std::string& message, const std::vector<std::string>& signatures,
+                                           const AccountBuffer::Account& account) const;
 
   /** Calculate the maximum blockId for account renewals at a given block and slot. */
   Roe<uint64_t> calculateMaxBlockIdForRenewal(uint64_t atBlockId, uint64_t atSlot) const;
 
-  Roe<uint64_t> calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
-                                                  uint64_t accountId) const;
+  Roe<uint64_t> calculateMinimumFeeForAccountMeta(const AccountBuffer& bank, uint64_t accountId) const;
 
   /** Create a renewal or end-user transaction for a given account. */
-  Roe<Ledger::Record>
-  createRenewalTx(uint64_t accountId, uint64_t slot) const;
+  Roe<Ledger::Record> createRenewalTx(uint64_t accountId, uint64_t slot) const;
 
   /** Tip state outside the bank that block admission may change. */
   struct TipSnapshot {
@@ -507,18 +482,18 @@ private:
   void commitTipUpdate();
   void rollbackTipUpdate(TipSnapshot snapshot);
 
-  Roe<void> applyNextBlock(const Ledger::ChainNode &block);
+  Roe<void> applyNextBlock(const Ledger::ChainNode& block);
   /**
    * Before a block's records: stake snapshot and epoch seed for its epoch. A node that starts at a
    * checkpoint first installs config, consensus, authority and the genesis account from the
    * checkpoint block's genesis renewal (beacon-authority ba5b). Under CheckpointReplay the epoch
    * seed is the block's own (trusted catch-up); under Full it is derived.
    */
-  Roe<void> prepareBlockEpoch(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode);
+  Roe<void> prepareBlockEpoch(const Ledger::ChainNode& block, chain_block::BlockAdmissionMode mode);
   /** Warm-up: record `epoch`'s committee from its opening block (dropping what this and later epochs had). */
   void recordEpochCommittee(uint64_t epoch, std::vector<consensus::Stakeholder> committee);
   /** committeeFor, counting only the blocks below `endBlockId`. */
-  Roe<std::vector<consensus::Stakeholder>> committeeFor(uint64_t epoch, const Ledger::Block *opening,
+  Roe<std::vector<consensus::Stakeholder>> committeeFor(uint64_t epoch, const Ledger::Block* opening,
                                                         uint64_t endBlockId) const;
   /**
    * True when a block of `epoch` or later, other than genesis or an import block, is held below
@@ -526,7 +501,7 @@ private:
    */
   bool heldSince(uint64_t epoch, uint64_t endBlockId) const;
   /** A node starting at checkpoint `block`: install what its genesis renewal carries. */
-  Roe<void> installCheckpointState(const Ledger::ChainNode &block);
+  Roe<void> installCheckpointState(const Ledger::ChainNode& block);
   /**
    * Before a block of `epoch` is checked: put a pending config update in force
    * once its epoch has come, and on an epoch's first block record genesis's
@@ -542,51 +517,43 @@ private:
   std::vector<consensus::Stakeholder> electionCandidates() const;
   /** Block-level miner liveness after the records (chain_tx::applyMinerLiveness). */
   /** Account recoveries due by the block's epoch, applied at an epoch's first block (projects/account-recovery). */
-  void applyDueAccountRecoveries(const Ledger::ChainNode &block);
-  Roe<void> applyMinerLiveness(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode);
-  Roe<void> sealOnTip(Ledger::ChainNode &block);
+  void applyDueAccountRecoveries(const Ledger::ChainNode& block);
+  Roe<void> applyMinerLiveness(const Ledger::ChainNode& block, chain_block::BlockAdmissionMode mode);
+  Roe<void> sealOnTip(Ledger::ChainNode& block);
 
-  Roe<void> processBlock(const Ledger::ChainNode &block,
-                         chain_block::BlockAdmissionMode mode);
-  Roe<void> processGenesisBlock(const Ledger::ChainNode &block);
+  Roe<void> processBlock(const Ledger::ChainNode& block, chain_block::BlockAdmissionMode mode);
+  Roe<void> processGenesisBlock(const Ledger::ChainNode& block);
   /** True for a block in an importing genesis's span (B032): after block 0, until the last import. */
-  bool isImportBlock(const Ledger::ChainNode &block) const;
+  bool isImportBlock(const Ledger::ChainNode& block) const;
   /** An import block: its own rules (no slot, leader or body policy), its imports, its state root. */
-  Roe<void> processImportBlock(const Ledger::ChainNode &block);
+  Roe<void> processImportBlock(const Ledger::ChainNode& block);
   /** After an import block applied: once every account is in, the old leaves must hash to the
    *  predecessor's state root; then the span ends. */
   Roe<void> finishImportBlock();
   /** Full admission: the block carries its slot leader account's signatures over its hash. */
-  Roe<void> checkProducerSigned(const Ledger::ChainNode &block) const;
-  Roe<void> processNormalBlock(const Ledger::ChainNode &block,
-                               chain_block::BlockAdmissionMode mode);
+  Roe<void> checkProducerSigned(const Ledger::ChainNode& block) const;
+  Roe<void> processNormalBlock(const Ledger::ChainNode& block, chain_block::BlockAdmissionMode mode);
   /**
    * Assemble stage: fill epoch / stakeSnapshotHash / epochSeed / txRoot.
    * Does not apply txs or set stateRoot/hash (those happen after Check/Apply).
    */
-  Roe<void> assembleBlockHeader(Ledger::ChainNode &block);
+  Roe<void> assembleBlockHeader(Ledger::ChainNode& block);
   /** Persist a block whose effects were already applied by sealBlock. */
-  Roe<void> commitSealedBlock(const Ledger::ChainNode &block);
-  Roe<void> commitSealedOnTip(const Ledger::ChainNode &block);
-  void maybeRotateCheckpoint(const Ledger::ChainNode &block);
+  Roe<void> commitSealedBlock(const Ledger::ChainNode& block);
+  Roe<void> commitSealedOnTip(const Ledger::ChainNode& block);
+  void maybeRotateCheckpoint(const Ledger::ChainNode& block);
 
-  Roe<void> processGenesisTxRecord(
-      const Ledger::Record &record);
-  Roe<void>
-  processNormalTxRecord(const Ledger::Record &record,
-                        uint64_t blockId, uint64_t blockSlot,
-                        uint64_t slotLeaderId,
-                        chain_block::BlockAdmissionMode admissionMode);
+  Roe<void> processGenesisTxRecord(const Ledger::Record& record);
+  Roe<void> processNormalTxRecord(const Ledger::Record& record, uint64_t blockId, uint64_t blockSlot,
+                                  uint64_t slotLeaderId, chain_block::BlockAdmissionMode admissionMode);
   /**
    * The record's signatures against its signer's keys. `working`: the state the record applies to
    * when it is not the committed bank (a leader's draft, where earlier records may have changed
    * keys); accounts it does not hold are read from the committed bank.
    */
-  Roe<void>
-  validateTxSignatures(const Ledger::Record &record,
-                       uint64_t slotLeaderId,
-                       chain_block::BlockAdmissionMode admissionMode,
-                       const AccountBuffer *working = nullptr) const;
+  Roe<void> validateTxSignatures(const Ledger::Record& record, uint64_t slotLeaderId,
+                                 chain_block::BlockAdmissionMode admissionMode,
+                                 const AccountBuffer* working = nullptr) const;
 
   TxContext txContext_{};
 
@@ -604,7 +571,7 @@ private:
   std::vector<Client::AuthorityStep> authoritySteps_;
   uint64_t authorityStepsFrom_{0};
   /** Index a committed block's authority-changing records. */
-  void noteAuthoritySteps(const Ledger::ChainNode &block);
+  void noteAuthoritySteps(const Ledger::ChainNode& block);
   /**
    * The last block processed here, by its hash, and its finalAt (FN007): the block below the next one
    * without a ledger read, so a replay stays linear. Matched by the next block's previousHash, so it
@@ -612,8 +579,8 @@ private:
    */
   std::optional<std::pair<std::string, int64_t>> lastFinalAt_;
   /** The finalAt of the block below `block`: none when it is not held. */
-  std::optional<int64_t> finalAtBelow(const Ledger::Block &block) const;
-  void noteFinalAt(const Ledger::Block &block);
+  std::optional<int64_t> finalAtBelow(const Ledger::Block& block) const;
+  void noteFinalAt(const Ledger::Block& block);
   /** Highest certificate seen out of band and not committed yet (ba5c), with its record. */
   std::optional<BeaconCertificate> seenCert_;
   std::optional<Ledger::Record> seenCertRecord_;
@@ -645,8 +612,8 @@ private:
   static constexpr uint64_t kStakeSnapshotsKept = 4;
 };
 
-std::ostream &operator<<(std::ostream &os, const CheckpointConfig &config);
-std::ostream &operator<<(std::ostream &os, const BlockChainConfig &config);
+std::ostream& operator<<(std::ostream& os, const CheckpointConfig& config);
+std::ostream& operator<<(std::ostream& os, const BlockChainConfig& config);
 
 } // namespace pp
 

@@ -26,11 +26,11 @@ public:
   Relay();
   ~Relay() override = default;
 
-  Roe<void> init(const InitConfig &config);
+  Roe<void> init(const InitConfig& config);
 };
 
 // Ostream operators for easy logging
-std::ostream &operator<<(std::ostream &os, const Relay::InitConfig &config);
+std::ostream& operator<<(std::ostream& os, const Relay::InitConfig& config);
 
 } // namespace pp
 

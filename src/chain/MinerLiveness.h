@@ -18,7 +18,7 @@ namespace pp::chain_tx {
  * last block (or registration) is `minerDueAfterSlots` slots old is due: in a slot it leads it
  * must produce, an empty block if need be. Never due when the setting is 0.
  */
-bool isMinerDue(const Client::MinerState &miner, uint64_t slot, const BlockChainConfig &config);
+bool isMinerDue(const Client::MinerState& miner, uint64_t slot, const BlockChainConfig& config);
 
 /**
  * Block-level miner bookkeeping, after the block's records apply (so a renewal in the block
@@ -33,9 +33,9 @@ bool isMinerDue(const Client::MinerState &miner, uint64_t slot, const BlockChain
  * (late-join replay) are skipped when `strict` is false. `charged`, when given, gets each miss's
  * leader (in slot order).
  */
-Roe<void> applyMinerLiveness(AccountBuffer &bank, const consensus::SlotCommittee &consensus,
-                             const BlockChainConfig &config, uint64_t prevSlot, const Ledger::Block &block,
-                             bool strict, bool chargeSkipped = true, std::vector<uint64_t> *charged = nullptr);
+Roe<void> applyMinerLiveness(AccountBuffer& bank, const consensus::SlotCommittee& consensus,
+                             const BlockChainConfig& config, uint64_t prevSlot, const Ledger::Block& block, bool strict,
+                             bool chargeSkipped = true, std::vector<uint64_t>* charged = nullptr);
 
 } // namespace pp::chain_tx
 

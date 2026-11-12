@@ -10,8 +10,8 @@
 
 namespace pp {
 
-chain_tx::Roe<uint64_t> ImportTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
-                                                           uint64_t /*slotLeaderId*/) const {
+chain_tx::Roe<uint64_t> ImportTxHandler::getSignerAccountId(const Ledger::TypedTx& tx,
+                                                            uint64_t /*slotLeaderId*/) const {
   // Never consulted: an import is unsigned (Chain::validateTxSignatures).
   auto pRoe = chain_tx::expectTx<Ledger::TxImport>(tx, "getSignerAccountId", "TxImport");
   if (!pRoe) {
@@ -20,7 +20,7 @@ chain_tx::Roe<uint64_t> ImportTxHandler::getSignerAccountId(const Ledger::TypedT
   return pRoe.value()->walletId;
 }
 
-chain_tx::Roe<bool> ImportTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx, uint64_t walletId) const {
+chain_tx::Roe<bool> ImportTxHandler::matchesWalletForIndex(const Ledger::TypedTx& tx, uint64_t walletId) const {
   auto pRoe = chain_tx::expectTx<Ledger::TxImport>(tx, "matchesWalletForIndex", "TxImport");
   if (!pRoe) {
     return pRoe.error();
@@ -28,12 +28,12 @@ chain_tx::Roe<bool> ImportTxHandler::matchesWalletForIndex(const Ledger::TypedTx
   return pRoe.value()->walletId == walletId;
 }
 
-chain_tx::Roe<void> ImportTxHandler::applyBuffer(const Ledger::TypedTx & /*tx*/, AccountBuffer & /*bank*/,
-                                                 const BufferApplyContext & /*c*/) const {
+chain_tx::Roe<void> ImportTxHandler::applyBuffer(const Ledger::TypedTx& /*tx*/, AccountBuffer& /*bank*/,
+                                                 const BufferApplyContext& /*c*/) const {
   return chain_tx::TxError(chain_err::E_TX_VALIDATION, "An import is written by the importing genesis, never pooled");
 }
 
-chain_tx::Roe<StateSnapshot::Account> ImportTxHandler::decodeAccount(const Ledger::TxImport &tx) {
+chain_tx::Roe<StateSnapshot::Account> ImportTxHandler::decodeAccount(const Ledger::TxImport& tx) {
   if (tx.fee != 0) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "An import has fee 0");
   }
@@ -47,7 +47,7 @@ chain_tx::Roe<StateSnapshot::Account> ImportTxHandler::decodeAccount(const Ledge
   return account.value();
 }
 
-Ledger::Record ImportTxHandler::makeRecord(const StateSnapshot::Account &account) {
+Ledger::Record ImportTxHandler::makeRecord(const StateSnapshot::Account& account) {
   Ledger::TxImport tx;
   tx.walletId = account.id;
   tx.meta = utl::binaryPack(account);
@@ -57,9 +57,9 @@ Ledger::Record ImportTxHandler::makeRecord(const StateSnapshot::Account &account
   return record;
 }
 
-chain_tx::Roe<AccountBuffer::Account> ImportTxHandler::entering(const StateSnapshot::Account &old,
-                                                                const ImportProgress &progress,
-                                                                const BlockChainConfig &config, uint64_t blockId) {
+chain_tx::Roe<AccountBuffer::Account> ImportTxHandler::entering(const StateSnapshot::Account& old,
+                                                                const ImportProgress& progress,
+                                                                const BlockChainConfig& config, uint64_t blockId) {
   AccountBuffer::Account account;
   account.id = old.id;
   account.wallet = old.wallet;
@@ -71,7 +71,7 @@ chain_tx::Roe<AccountBuffer::Account> ImportTxHandler::entering(const StateSnaps
   account.wallet.miner.autoDeregisteredEpoch = Client::MinerState::kNever;
   if (AccountIds::isSystemAccount(old.id)) {
     const auto keys = std::find_if(progress.systemKeys.begin(), progress.systemKeys.end(),
-                                   [&](const SystemAccountKeys &k) { return k.id == old.id; });
+                                   [&](const SystemAccountKeys& k) { return k.id == old.id; });
     if (keys == progress.systemKeys.end()) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "No keys for imported system account " + std::to_string(old.id));
@@ -94,13 +94,13 @@ chain_tx::Roe<AccountBuffer::Account> ImportTxHandler::entering(const StateSnaps
   return account;
 }
 
-chain_tx::Roe<void> ImportTxHandler::applyBlock(const Ledger::TypedTx &tx, AccountBuffer &bank,
-                                                const BlockApplyContext &c) const {
+chain_tx::Roe<void> ImportTxHandler::applyBlock(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                                const BlockApplyContext& c) const {
   auto pRoe = chain_tx::expectTx<Ledger::TxImport>(tx, "applyBlock", "TxImport");
   if (!pRoe) {
     return pRoe.error();
   }
-  auto &progress = c.ctx.importProgress;
+  auto& progress = c.ctx.importProgress;
   if (!progress.has_value() || c.blockId == 0 || c.slotLeaderId != 0) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "An import outside an importing genesis's span");
   }
@@ -108,7 +108,7 @@ chain_tx::Roe<void> ImportTxHandler::applyBlock(const Ledger::TypedTx &tx, Accou
   if (!old) {
     return old.error();
   }
-  const auto &account = old.value();
+  const auto& account = old.value();
   if (progress->complete()) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "More imports than the genesis announced");
   }
@@ -136,8 +136,8 @@ chain_tx::Roe<void> ImportTxHandler::applyBlock(const Ledger::TypedTx &tx, Accou
     genesis.wallet.mBalances = account.wallet.mBalances;
     bank.remove(AccountBuffer::ID_GENESIS);
     if (auto added = bank.add(genesis); !added) {
-      return chain_tx::TxError(chain_err::E_INTERNAL_BUFFER, "Failed to import the genesis account: " +
-                                                                 added.error().message);
+      return chain_tx::TxError(chain_err::E_INTERNAL_BUFFER,
+                               "Failed to import the genesis account: " + added.error().message);
     }
   } else {
     if (!c.ctx.optChainConfig.has_value()) {
@@ -151,9 +151,8 @@ chain_tx::Roe<void> ImportTxHandler::applyBlock(const Ledger::TypedTx &tx, Accou
       return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Account " + std::to_string(account.id) + " imported twice");
     }
     if (auto added = bank.add(entered.value()); !added) {
-      return chain_tx::TxError(chain_err::E_INTERNAL_BUFFER, "Failed to import account " +
-                                                                 std::to_string(account.id) + ": " +
-                                                                 added.error().message);
+      return chain_tx::TxError(chain_err::E_INTERNAL_BUFFER,
+                               "Failed to import account " + std::to_string(account.id) + ": " + added.error().message);
     }
   }
   ++progress->imported;
@@ -161,9 +160,9 @@ chain_tx::Roe<void> ImportTxHandler::applyBlock(const Ledger::TypedTx &tx, Accou
   return {};
 }
 
-std::optional<std::string> ImportTxHandler::getUserAccountMetaForTx(const Ledger::TypedTx &tx,
-                                                                   uint64_t accountId) const {
-  const auto *p = std::get_if<Ledger::TxImport>(&tx);
+std::optional<std::string> ImportTxHandler::getUserAccountMetaForTx(const Ledger::TypedTx& tx,
+                                                                    uint64_t accountId) const {
+  const auto* p = std::get_if<Ledger::TxImport>(&tx);
   if (!p || accountId == AccountBuffer::ID_GENESIS || p->walletId != accountId) {
     return std::nullopt;
   }

@@ -11,24 +11,21 @@
 
 namespace pp {
 
-chain_tx::Roe<size_t>
-RenewalTxHandler::getBillableCustomMetaSizeForFee(const BlockChainConfig &config,
-                                                  const Ledger::TypedTx &tx) const {
-  auto pRoe = chain_tx::expectTx<Ledger::TxRenewal>(
-      tx, "getBillableCustomMetaSizeForFee", "TxRenewal");
+chain_tx::Roe<size_t> RenewalTxHandler::getBillableCustomMetaSizeForFee(const BlockChainConfig& config,
+                                                                        const Ledger::TypedTx& tx) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxRenewal>(tx, "getBillableCustomMetaSizeForFee", "TxRenewal");
   if (!pRoe) {
     return pRoe.error();
   }
-  const auto *p = pRoe.value();
+  const auto* p = pRoe.value();
   if (p->walletId == AccountBuffer::ID_GENESIS) {
     if (p->meta.size() <= config.freeCustomMetaSize) {
       return 0;
     }
     GenesisAccountMeta gm;
     if (!gm.ltsFromString(p->meta)) {
-      return chain_tx::TxError(
-          chain_err::E_INTERNAL_DESERIALIZE,
-          "Failed to deserialize genesis metadata for fee calculation");
+      return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE,
+                               "Failed to deserialize genesis metadata for fee calculation");
     }
     return gm.genesis.meta.size();
   }
@@ -36,7 +33,7 @@ RenewalTxHandler::getBillableCustomMetaSizeForFee(const BlockChainConfig &config
 }
 
 /** Map miner-signed user renewal payload to user-update upsert semantics. */
-Ledger::TxUserUpdate renewalToUserUpsert(const Ledger::TxRenewal &tx) {
+Ledger::TxUserUpdate renewalToUserUpsert(const Ledger::TxRenewal& tx) {
   Ledger::TxUserUpdate userTx;
   userTx.walletId = tx.walletId;
   userTx.fee = tx.fee;
@@ -47,109 +44,86 @@ Ledger::TxUserUpdate renewalToUserUpsert(const Ledger::TxRenewal &tx) {
   return userTx;
 }
 
-chain_tx::Roe<uint64_t>
-RenewalTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
-                                     uint64_t slotLeaderId) const {
-  auto pRoe = chain_tx::expectTx<Ledger::TxRenewal>(tx, "getSignerAccountId",
-                                                    "TxRenewal");
+chain_tx::Roe<uint64_t> RenewalTxHandler::getSignerAccountId(const Ledger::TypedTx& tx, uint64_t slotLeaderId) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxRenewal>(tx, "getSignerAccountId", "TxRenewal");
   if (!pRoe) {
     return pRoe.error();
   }
   return slotLeaderId != 0 ? slotLeaderId : pRoe.value()->walletId;
 }
 
-chain_tx::Roe<bool>
-RenewalTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
-                                        uint64_t walletId) const {
-  auto pRoe = chain_tx::expectTx<Ledger::TxRenewal>(tx, "matchesWalletForIndex",
-                                                    "TxRenewal");
+chain_tx::Roe<bool> RenewalTxHandler::matchesWalletForIndex(const Ledger::TypedTx& tx, uint64_t walletId) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxRenewal>(tx, "matchesWalletForIndex", "TxRenewal");
   if (!pRoe) {
     return pRoe.error();
   }
   return pRoe.value()->walletId == walletId;
 }
 
-chain_tx::Roe<std::optional<uint64_t>>
-RenewalTxHandler::getRenewalAccountIdIfAny(const Ledger::TypedTx &tx) const {
-  auto pRoe = chain_tx::expectTx<Ledger::TxRenewal>(
-      tx, "getRenewalAccountIdIfAny", "TxRenewal");
+chain_tx::Roe<std::optional<uint64_t>> RenewalTxHandler::getRenewalAccountIdIfAny(const Ledger::TypedTx& tx) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxRenewal>(tx, "getRenewalAccountIdIfAny", "TxRenewal");
   if (!pRoe) {
     return pRoe.error();
   }
   return std::optional<uint64_t>(pRoe.value()->walletId);
 }
 
-chain_tx::Roe<void> RenewalTxHandler::applyBuffer(const Ledger::TypedTx &tx,
-                                                  AccountBuffer &bank,
-                                                  const BufferApplyContext &c) const {
-  auto pRoe =
-      chain_tx::expectTx<Ledger::TxRenewal>(tx, "applyBuffer", "TxRenewal");
+chain_tx::Roe<void> RenewalTxHandler::applyBuffer(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                                  const BufferApplyContext& c) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxRenewal>(tx, "applyBuffer", "TxRenewal");
   if (!pRoe) {
     return pRoe.error();
   }
-  const auto *p = pRoe.value();
+  const auto* p = pRoe.value();
   if (p->walletId == AccountBuffer::ID_GENESIS) {
-    if (auto seeded = chain_tx::seedCommittedAccount(
-            bank, c.ctx.bank, AccountBuffer::ID_GENESIS);
-        !seeded) {
+    if (auto seeded = chain_tx::seedCommittedAccount(bank, c.ctx.bank, AccountBuffer::ID_GENESIS); !seeded) {
       return seeded;
     }
-    if (auto seeded =
-            chain_tx::seedFeeAccountIfNeeded(bank, c.ctx.bank, p->fee);
-        !seeded) {
+    if (auto seeded = chain_tx::seedFeeAccountIfNeeded(bank, c.ctx.bank, p->fee); !seeded) {
       return seeded;
     }
-    return applyRenewal(*p, c.ctx, bank, c.blockId, c.effectiveSlot, true,
-                        chain_block::BlockAdmissionMode::Full);
+    return applyRenewal(*p, c.ctx, bank, c.blockId, c.effectiveSlot, true, chain_block::BlockAdmissionMode::Full);
   }
   const auto userUpsert = renewalToUserUpsert(*p);
   // Renewals are chain-generated with idempotentId == 0.
-  return applyUserUpdateBufferCommon(userUpsert, bank, c,
-                                     AccountIds::isSystemAccount(p->walletId) ? UpsertKind::SystemRenewal
-                                                                              : UpsertKind::Renewal);
+  return applyUserUpdateBufferCommon(
+      userUpsert, bank, c, AccountIds::isSystemAccount(p->walletId) ? UpsertKind::SystemRenewal : UpsertKind::Renewal);
 }
 
-chain_tx::Roe<void> RenewalTxHandler::applyBlock(const Ledger::TypedTx &tx,
-                                                 AccountBuffer &bank,
-                                                 const BlockApplyContext &c) const {
-  auto pRoe =
-      chain_tx::expectTx<Ledger::TxRenewal>(tx, "applyBlock", "TxRenewal");
+chain_tx::Roe<void> RenewalTxHandler::applyBlock(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                                 const BlockApplyContext& c) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxRenewal>(tx, "applyBlock", "TxRenewal");
   if (!pRoe) {
     return pRoe.error();
   }
-  const auto *p = pRoe.value();
+  const auto* p = pRoe.value();
   if (p->walletId == AccountBuffer::ID_GENESIS) {
     return applyRenewal(*p, c.ctx, bank, c.blockId, c.blockSlot, false, c.admissionMode);
   }
   const auto userUpsert = renewalToUserUpsert(*p);
-  return applyUserUpdateBlockCommon(userUpsert, bank, c,
-                                    AccountIds::isSystemAccount(p->walletId) ? UpsertKind::SystemRenewal
-                                                                             : UpsertKind::Renewal);
+  return applyUserUpdateBlockCommon(
+      userUpsert, bank, c, AccountIds::isSystemAccount(p->walletId) ? UpsertKind::SystemRenewal : UpsertKind::Renewal);
 }
 
-chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
-    const Ledger::TxRenewal &tx, [[maybe_unused]] const TxContext &ctx,
-    AccountBuffer &bank, uint64_t blockId, uint64_t slot, [[maybe_unused]] bool isBufferMode,
-    chain_block::BlockAdmissionMode admissionMode) const {
+chain_tx::Roe<void> RenewalTxHandler::applyRenewal(const Ledger::TxRenewal& tx, [[maybe_unused]] const TxContext& ctx,
+                                                   AccountBuffer& bank, uint64_t blockId, uint64_t slot,
+                                                   [[maybe_unused]] bool isBufferMode,
+                                                   chain_block::BlockAdmissionMode admissionMode) const {
   if (tx.walletId != AccountBuffer::ID_GENESIS) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "Genesis renewal must use genesis wallet (ID_GENESIS -> ID_GENESIS)");
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Genesis renewal must use genesis wallet (ID_GENESIS -> ID_GENESIS)");
   }
 
   GenesisAccountMeta gm;
   if (!gm.ltsFromString(tx.meta)) {
-    return chain_tx::TxError(
-        chain_err::E_INTERNAL_DESERIALIZE,
-        "Failed to deserialize genesis renewal meta: " +
-            std::to_string(tx.meta.size()) + " bytes");
+    return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE, "Failed to deserialize genesis renewal meta: " +
+                                                                    std::to_string(tx.meta.size()) + " bytes");
   }
   if (gm.hasImport) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Only an importing genesis carries an import");
   }
 
-  if (auto shape = chain_tx::validateGenesisWalletShape(gm.genesis.wallet);
-      !shape) {
+  if (auto shape = chain_tx::validateGenesisWalletShape(gm.genesis.wallet); !shape) {
     return shape;
   }
 
@@ -157,8 +131,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
   // block, with the update still pending (if any).
   if (chain_block::admissionTxStrict(admissionMode) && ctx.optChainConfig.has_value()) {
     GenesisAccountMeta expected = gm;
-    expected.setConfigStateAt(ctx.optChainConfig.value(), ctx.pendingChainConfig,
-                              ctx.consensus.getEpochFromSlot(slot));
+    expected.setConfigStateAt(ctx.optChainConfig.value(), ctx.pendingChainConfig, ctx.consensus.getEpochFromSlot(slot));
     if (!gm.sameConfigState(expected)) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "Genesis renewal must carry the config in force and any pending update");
@@ -168,8 +141,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
   auto genesisAccountResult = bank.getAccount(AccountBuffer::ID_GENESIS);
   if (!genesisAccountResult) {
     if (chain_block::admissionTxStrict(admissionMode)) {
-      return chain_tx::TxError(chain_err::E_ACCOUNT_NOT_FOUND,
-                               "Genesis account not found for renewal");
+      return chain_tx::TxError(chain_err::E_ACCOUNT_NOT_FOUND, "Genesis account not found for renewal");
     }
     return {};
   }
@@ -189,10 +161,10 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
     // epoch start. (Only T_CONFIG, signed by the admin set, and the genesis recovery set change genesis;
     // the balances are checked below.)
     if (auto changed = chain_tx::renewalChangedWalletField(gm.genesis.wallet, held)) {
-      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                               *changed == "keys"
-                                   ? std::string("Genesis renewal must carry the admin set in force (keys and threshold)")
-                                   : "Genesis renewal cannot change the " + *changed + " of genesis");
+      return chain_tx::TxError(
+          chain_err::E_TX_VALIDATION,
+          *changed == "keys" ? std::string("Genesis renewal must carry the admin set in force (keys and threshold)")
+                             : "Genesis renewal cannot change the " + *changed + " of genesis");
     }
     if (AccountBuffer::attachmentHashOf(gm.genesis.meta) != genesisAccountResult.value().attachmentHash) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis renewal cannot change the meta of genesis");
@@ -205,21 +177,16 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis renewal must be fee-free");
   }
 
-
-  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, tx.fee,
-                          gm.genesis.wallet.mBalances)) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "Genesis account balance mismatch in renewal");
+  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, tx.fee, gm.genesis.wallet.mBalances)) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis account balance mismatch in renewal");
   }
 
   return chain_tx::replaceGenesisAccount(bank, blockId, gm.genesis.wallet, gm.genesis.meta);
 }
 
-std::optional<std::string>
-RenewalTxHandler::getUserAccountMetaForTx(const Ledger::TypedTx &tx,
-                                          uint64_t accountId) const {
-  const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
+std::optional<std::string> RenewalTxHandler::getUserAccountMetaForTx(const Ledger::TypedTx& tx,
+                                                                     uint64_t accountId) const {
+  const auto* p = std::get_if<Ledger::TxRenewal>(&tx);
   if (!p) {
     return std::nullopt;
   }
@@ -229,10 +196,9 @@ RenewalTxHandler::getUserAccountMetaForTx(const Ledger::TypedTx &tx,
   return p->meta;
 }
 
-std::optional<std::string>
-RenewalTxHandler::getGenesisAccountMetaForTx(const Ledger::TypedTx &tx,
-                                             const Ledger::Block & /*block*/) const {
-  const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
+std::optional<std::string> RenewalTxHandler::getGenesisAccountMetaForTx(const Ledger::TypedTx& tx,
+                                                                        const Ledger::Block& /*block*/) const {
+  const auto* p = std::get_if<Ledger::TxRenewal>(&tx);
   if (!p) {
     return std::nullopt;
   }

@@ -28,14 +28,15 @@ public:
     using RoeErrorBase::RoeErrorBase;
   };
 
-  template <typename T> using Roe = ResultOrError<T, Error>;
+  template <typename T>
+  using Roe = ResultOrError<T, Error>;
 
   /**
    * Configuration for FileStore initialization
    */
   struct InitConfig {
     std::string filepath;
-    size_t maxSize{ 0 }; // Max file size (bytes)
+    size_t maxSize{0}; // Max file size (bytes)
   };
 
   /**
@@ -53,7 +54,7 @@ public:
    * @param config Configuration for the file store
    * @return Roe<void> on success or error
    */
-  Roe<void> init(const InitConfig &config);
+  Roe<void> init(const InitConfig& config);
 
   /**
    * Mount an existing file store
@@ -61,15 +62,15 @@ public:
    * @param maxSize Maximum file size
    * @return Roe<void> on success or error
    */
-  Roe<void> mount(const std::string &filepath, size_t maxSize);
+  Roe<void> mount(const std::string& filepath, size_t maxSize);
 
   // Delete copy constructor and assignment
-  FileStore(const FileStore &) = delete;
-  FileStore &operator=(const FileStore &) = delete;
+  FileStore(const FileStore&) = delete;
+  FileStore& operator=(const FileStore&) = delete;
 
   // Block store interface
   Roe<std::string> readBlock(uint64_t index) const;
-  Roe<uint64_t> appendBlock(const std::string &block);
+  Roe<uint64_t> appendBlock(const std::string& block);
   Roe<void> rewindTo(uint64_t index);
 
   /**
@@ -78,7 +79,7 @@ public:
    * @param size Size of the data in bytes
    * @return Roe<int64_t> with block index (0-based within this file), or error
    */
-  Roe<int64_t> write(const void *data, uint64_t size);
+  Roe<int64_t> write(const void* data, uint64_t size);
 
   /**
    * Read block data by index (0-based, within this file)
@@ -88,7 +89,7 @@ public:
    * @param maxSize Maximum size of the buffer
    * @return Roe<int64_t> with number of bytes read (block size), or error
    */
-  Roe<int64_t> readBlock(uint64_t index, void *data, size_t maxSize);
+  Roe<int64_t> readBlock(uint64_t index, void* data, size_t maxSize);
 
   /**
    * Get the size of a block by index (0-based, within this file)
@@ -132,7 +133,7 @@ public:
   /**
    * Get file path
    */
-  const std::string &getFilePath() const { return filepath_; }
+  const std::string& getFilePath() const { return filepath_; }
 
   /**
    * Check if file is open and ready for operations
@@ -150,24 +151,23 @@ private:
    * Contains magic number, version, and block count
    */
   struct FileHeader {
-    static constexpr uint32_t MAGIC =
-        0x504C4642; // "PLFB" (PP Ledger File Block)
+    static constexpr uint32_t MAGIC = 0x504C4642; // "PLFB" (PP Ledger File Block)
     static constexpr uint16_t CURRENT_VERSION = 1;
 
-    uint32_t magic{ MAGIC };      // Magic number to identify FileStore type
-    uint16_t version{ CURRENT_VERSION };    // File format version
-    uint16_t reserved{ 0 };       // Reserved for future use
-    uint64_t blockCount{ 0 };     // Number of blocks stored in this file
-    uint64_t headerSize{ sizeof(FileHeader) }; // Size of this header (for future extensibility)
+    uint32_t magic{MAGIC};                   // Magic number to identify FileStore type
+    uint16_t version{CURRENT_VERSION};       // File format version
+    uint16_t reserved{0};                    // Reserved for future use
+    uint64_t blockCount{0};                  // Number of blocks stored in this file
+    uint64_t headerSize{sizeof(FileHeader)}; // Size of this header (for future extensibility)
   };
 
   /**
    * Block entry in the index (offset and size)
    */
   struct BlockEntry {
-    int64_t offset;   // Offset to the size prefix in the file
-    uint64_t size;    // Size of the block data (excluding size prefix)
-    
+    int64_t offset; // Offset to the size prefix in the file
+    uint64_t size;  // Size of the block data (excluding size prefix)
+
     BlockEntry() : offset(0), size(0) {}
     BlockEntry(int64_t off, uint64_t sz) : offset(off), size(sz) {}
   };
@@ -239,18 +239,17 @@ private:
 
   // ------ Private members ------
   std::string filepath_;
-  size_t maxSize_{ 0 };
-  size_t currentSize_{ 0 };
+  size_t maxSize_{0};
+  size_t currentSize_{0};
   std::fstream file_;
   FileHeader header_;
-  bool headerValid_{ false };
-  
-  // Block tracking
-  uint64_t blockCount_{ 0 };           // Number of blocks written/loaded
-  uint64_t committedCount_{ 0 };       // Blocks the header commits (durable)
-  std::vector<BlockEntry> blockIndex_; // Index of block offsets and sizes
-  bool indexBuilt_{ false };           // Whether block index has been built
+  bool headerValid_{false};
 
+  // Block tracking
+  uint64_t blockCount_{0};             // Number of blocks written/loaded
+  uint64_t committedCount_{0};         // Blocks the header commits (durable)
+  std::vector<BlockEntry> blockIndex_; // Index of block offsets and sizes
+  bool indexBuilt_{false};             // Whether block index has been built
 };
 
 } // namespace pp

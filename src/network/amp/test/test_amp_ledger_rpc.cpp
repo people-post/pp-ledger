@@ -167,8 +167,8 @@ TEST_F(AmpLedgerRpcTest, ServerDropsChannelThatNeverSends) {
   ASSERT_TRUE(created.isOk());
   auto h = std::move(created.value());
   ASSERT_TRUE(h->Associate());
-  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; }, {}, {},
-                                     std::chrono::milliseconds(2000));
+  pp::network::AmpLedgerServer::Bind(
+      h->runtime_b->Links(), [](const std::string& body) { return body; }, {}, {}, std::chrono::milliseconds(2000));
 
   std::optional<uint32_t> channel;
   h->runtime_a->Links().OpenChannel("b", pp::ledger::rpc::kProtocolId,
@@ -192,7 +192,7 @@ TEST_F(AmpLedgerRpcTest, ServerDropsChannelThatNeverSends) {
   for (size_t i = 0; i < 20; ++i) {
     h->PumpBoth();
   }
-  EXPECT_EQ(state(), pp::amp::ChannelState::Open);  // within the read timeout
+  EXPECT_EQ(state(), pp::amp::ChannelState::Open); // within the read timeout
 
   h->clock->Advance(1500);
   for (size_t i = 0; i < 20 && state() == pp::amp::ChannelState::Open; ++i) {
@@ -223,8 +223,8 @@ TEST_F(AmpLedgerRpcTest, APeerHasAFewRequestsArrivingAtOnce) {
   ASSERT_TRUE(created.isOk());
   auto h = std::move(created.value());
   ASSERT_TRUE(h->Associate());
-  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; }, {}, {},
-                                     std::chrono::milliseconds(60000));
+  pp::network::AmpLedgerServer::Bind(
+      h->runtime_b->Links(), [](const std::string& body) { return body; }, {}, {}, std::chrono::milliseconds(60000));
   std::vector<uint32_t> channels;
   for (size_t i = 0; i <= pp::ledger::rpc::kMaxReceivingPerPeer; ++i) {
     h->runtime_a->Links().OpenChannel("b", pp::ledger::rpc::kProtocolId,
@@ -257,8 +257,8 @@ TEST_F(AmpLedgerRpcTest, APeerHasFewerLargeRequestsArrivingAtOnce) {
   ASSERT_TRUE(created.isOk());
   auto h = std::move(created.value());
   ASSERT_TRUE(h->Associate());
-  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; }, {}, {},
-                                     std::chrono::milliseconds(60000));
+  pp::network::AmpLedgerServer::Bind(
+      h->runtime_b->Links(), [](const std::string& body) { return body; }, {}, {}, std::chrono::milliseconds(60000));
   std::vector<uint32_t> channels;
   for (size_t i = 0; i <= pp::ledger::rpc::kMaxBulkReceivingPerPeer; ++i) {
     h->runtime_a->Links().OpenChannel("b", pp::ledger::rpc::kBulkProtocolId,
@@ -285,18 +285,19 @@ namespace {
 
 std::string RefusalName(const pp::network::AmpLedgerServer::Refusal why) {
   switch (why) {
-  case pp::network::AmpLedgerServer::Refusal::NotAllowed:
-    return "not allowed";
-  case pp::network::AmpLedgerServer::Refusal::PeerBusy:
-    return "peer busy";
-  case pp::network::AmpLedgerServer::Refusal::NodeBusy:
-    return "node busy";
+    case pp::network::AmpLedgerServer::Refusal::NotAllowed:
+      return "not allowed";
+    case pp::network::AmpLedgerServer::Refusal::PeerBusy:
+      return "peer busy";
+    case pp::network::AmpLedgerServer::Refusal::NodeBusy:
+      return "node busy";
   }
   return "";
 }
 
 /** Echo server with `options`; counts the requests it was handed. */
-void BindEcho(pp::amp::PeerLinkManager& links, pp::network::AmpLedgerServer::Options options, std::atomic<int>& handled) {
+void BindEcho(pp::amp::PeerLinkManager& links, pp::network::AmpLedgerServer::Options options,
+              std::atomic<int>& handled) {
   options.refusal = RefusalName;
   pp::network::AmpLedgerServer::BindAsync(
       links,
@@ -406,8 +407,8 @@ TEST_F(AmpLedgerRpcTest, PastTheWaitingLimitARequestIsBusyAtOnce) {
     r.type = type;
     return pp::utl::binaryPack(r);
   };
-  const size_t normal = pp::ledger::rpc::kMaxReceivingPerPeer - pp::ledger::rpc::kReservedForDuties +
-                        pp::ledger::rpc::kMaxWaitingPerPeer;
+  const size_t normal =
+      pp::ledger::rpc::kMaxReceivingPerPeer - pp::ledger::rpc::kReservedForDuties + pp::ledger::rpc::kMaxWaitingPerPeer;
   size_t answered = 0;
   for (size_t i = 0; i < normal; ++i) {
     transport.roundTripAsync(request(pp::Client::T_REQ_ACCOUNT_GET), std::chrono::seconds(30),
@@ -448,8 +449,8 @@ TEST_F(AmpLedgerRpcTest, AStrangersLargeRequestIsRefusedWhenItsChannelOpens) {
   BindEcho(h->runtime_b->Links(), std::move(options), handled);
   pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
 
-  auto refused = transport.roundTrip(std::string(pp::ledger::rpc::kMaxSmallRequestBytes + 1, 'm'),
-                                     std::chrono::seconds(30));
+  auto refused =
+      transport.roundTrip(std::string(pp::ledger::rpc::kMaxSmallRequestBytes + 1, 'm'), std::chrono::seconds(30));
   ASSERT_TRUE(refused.isOk()) << refused.error().message;
   EXPECT_EQ(refused.value(), "not allowed");
   EXPECT_EQ(asked, h->peer_id_a);
@@ -529,7 +530,6 @@ TEST_F(AmpLedgerRpcTest, ClientRequestRoundTrip) {
   EXPECT_EQ(unpacked->payload, request.payload);
 }
 
-
 TEST_F(AmpLedgerRpcTest, RoundTripFailsWhenDatagramsDropped) {
   auto created = RpcHarness::Create();
   ASSERT_TRUE(created.isOk());
@@ -546,7 +546,6 @@ TEST_F(AmpLedgerRpcTest, RoundTripFailsWhenDatagramsDropped) {
   auto response = transport.roundTrip("should-not-arrive", std::chrono::milliseconds(200));
   EXPECT_TRUE(response.isError()) << "expected timeout/failure under total loss";
 }
-
 
 TEST_F(AmpLedgerRpcTest, SuccessThenLossFailsSecondRoundTrip) {
   auto created = RpcHarness::Create();
@@ -892,10 +891,9 @@ TEST_F(AmpLedgerRpcTest, ThreadedAsyncRoundTripCompletesOnIoLane) {
   ASSERT_TRUE(transport.registerEndpoint("b", pair.b.listenMultiaddr()));
 
   std::promise<std::pair<std::string, bool>> done;
-  transport.roundTripAsync("async-payload", std::chrono::seconds(5),
-                           [&](pp::ILedgerTransport::Roe<std::string> r) {
-                             done.set_value({r ? r.value() : r.error().message, pair.a.onIoThread()});
-                           });
+  transport.roundTripAsync("async-payload", std::chrono::seconds(5), [&](pp::ILedgerTransport::Roe<std::string> r) {
+    done.set_value({r ? r.value() : r.error().message, pair.a.onIoThread()});
+  });
   auto f = done.get_future();
   ASSERT_EQ(f.wait_for(std::chrono::seconds(10)), std::future_status::ready);
   auto [body, onIoLane] = f.get();
@@ -1006,10 +1004,9 @@ TEST_F(AmpLedgerRpcTest, ThreadedAsyncRoundTripFromPumpThread) {
 
   std::promise<std::string> done;
   pair.a.post([&]() {
-    transport.roundTripAsync("from-pump", std::chrono::seconds(5),
-                             [&](pp::ILedgerTransport::Roe<std::string> r) {
-                               done.set_value(r ? r.value() : r.error().message);
-                             });
+    transport.roundTripAsync("from-pump", std::chrono::seconds(5), [&](pp::ILedgerTransport::Roe<std::string> r) {
+      done.set_value(r ? r.value() : r.error().message);
+    });
   });
   auto f = done.get_future();
   ASSERT_EQ(f.wait_for(std::chrono::seconds(10)), std::future_status::ready);
@@ -1066,15 +1063,15 @@ TEST_F(AmpLedgerRpcTest, ThreadedPostFromPumpAndCallerConcurrently) {
 // so the reply never arrived (BlockSync's parallel block fetches timed out).
 namespace {
 
-void ExpectEchoes(pp::AmpLedgerTransport &transport, const std::vector<size_t> &sizes) {
+void ExpectEchoes(pp::AmpLedgerTransport& transport, const std::vector<size_t>& sizes) {
   std::vector<std::promise<std::string>> results(sizes.size());
   for (size_t i = 0; i < sizes.size(); ++i) {
     const std::string payload(sizes[i], static_cast<char>('a' + i));
-    transport.roundTripAsync(payload, std::chrono::seconds(10),
-                             [&results, i, size = payload.size()](pp::ILedgerTransport::Roe<std::string> r) {
-                               results[i].set_value(r ? (r.value().size() == size ? "" : "size mismatch")
-                                                      : r.error().message);
-                             });
+    transport.roundTripAsync(
+        payload, std::chrono::seconds(10),
+        [&results, i, size = payload.size()](pp::ILedgerTransport::Roe<std::string> r) {
+          results[i].set_value(r ? (r.value().size() == size ? "" : "size mismatch") : r.error().message);
+        });
   }
   for (size_t i = 0; i < results.size(); ++i) {
     auto f = results[i].get_future();
@@ -1132,4 +1129,3 @@ TEST_F(AmpLedgerRpcTest, OsUdpConcurrentLargeRoundTrips) {
     ExpectEchoes(transport, {90 * 1024, 90 * 1024 + 1, 90 * 1024 + 2, 90 * 1024 + 3});
   }
 }
-

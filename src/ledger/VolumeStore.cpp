@@ -13,7 +13,9 @@ namespace pp {
 
 VolumeStore::VolumeStore() {}
 
-VolumeStore::~VolumeStore() { close(); }
+VolumeStore::~VolumeStore() {
+  close();
+}
 
 void VolumeStore::close() {
   if (auto committed = commit(); !committed) {
@@ -27,8 +29,7 @@ void VolumeStore::close() {
   config_ = {};
 }
 
-std::string
-VolumeStore::getVolumesIndexFilePath(const std::string &volumesDir) {
+std::string VolumeStore::getVolumesIndexFilePath(const std::string& volumesDir) {
   return volumesDir + "/" + VOLUMES_INDEX_FILENAME;
 }
 
@@ -36,7 +37,7 @@ std::string VolumeStore::getVolumePath(uint32_t volumeId) const {
   return config_.volumesDir + "/v" + formatId(volumeId);
 }
 
-VolumeStore::Roe<void> VolumeStore::init(const InitConfig &config) {
+VolumeStore::Roe<void> VolumeStore::init(const InitConfig& config) {
   auto sizeResult = validateMinFileSize(config.maxFileSize);
   if (!sizeResult.isOk()) {
     return sizeResult;
@@ -59,8 +60,7 @@ VolumeStore::Roe<void> VolumeStore::init(const InitConfig &config) {
   totalBlockCount_ = 0;
 
   if (std::filesystem::exists(indexFilePath_)) {
-    return Error("Volumes index already exists: " + indexFilePath_ +
-                 ". Use mount() to load existing volumes.");
+    return Error("Volumes index already exists: " + indexFilePath_ + ". Use mount() to load existing volumes.");
   }
 
   auto dirResult = ensureDirectory(config.volumesDir);
@@ -85,17 +85,14 @@ VolumeStore::Roe<void> VolumeStore::init(const InitConfig &config) {
     return Error("Failed to save volumes index after creating v000001");
   }
 
-  log().info << "VolumeStore initialized at " << config_.volumesDir
-             << " (maxFileCount: " << config_.maxFileCount
-             << ", maxFileSize: " << config_.maxFileSize
-             << ", maxVolumes: " << config_.maxVolumes << ")";
+  log().info << "VolumeStore initialized at " << config_.volumesDir << " (maxFileCount: " << config_.maxFileCount
+             << ", maxFileSize: " << config_.maxFileSize << ", maxVolumes: " << config_.maxVolumes << ")";
   return {};
 }
 
-VolumeStore::Roe<void> VolumeStore::mount(const MountConfig &config) {
+VolumeStore::Roe<void> VolumeStore::mount(const MountConfig& config) {
   if (!std::filesystem::exists(config.volumesDir)) {
-    return Error("Volumes directory does not exist: " + config.volumesDir +
-                 ". Use init() to create a new store.");
+    return Error("Volumes directory does not exist: " + config.volumesDir + ". Use init() to create a new store.");
   }
 
   config_.volumesDir = config.volumesDir;
@@ -133,9 +130,8 @@ VolumeStore::Roe<void> VolumeStore::mount(const MountConfig &config) {
 
   recalculateTotalBlockCount();
 
-  log().info << "VolumeStore mounted from " << config_.volumesDir << " with "
-             << volumeInfoMap_.size() << " volumes and " << totalBlockCount_
-             << " blocks";
+  log().info << "VolumeStore mounted from " << config_.volumesDir << " with " << volumeInfoMap_.size()
+             << " volumes and " << totalBlockCount_ << " blocks";
   return {};
 }
 
@@ -147,14 +143,15 @@ bool VolumeStore::canFit(uint64_t size) const {
     return config_.maxVolumes > 0;
   }
   auto it = volumeInfoMap_.find(currentVolumeId_);
-  if (it != volumeInfoMap_.end() && it->second.store &&
-      it->second.store->canFit(size)) {
+  if (it != volumeInfoMap_.end() && it->second.store && it->second.store->canFit(size)) {
     return true;
   }
   return volumeInfoMap_.size() < config_.maxVolumes;
 }
 
-uint64_t VolumeStore::getBlockCount() const { return totalBlockCount_; }
+uint64_t VolumeStore::getBlockCount() const {
+  return totalBlockCount_;
+}
 
 uint64_t VolumeStore::countSizeFromBlockId(uint64_t blockId) const {
   if (blockId >= totalBlockCount_) {
@@ -173,8 +170,7 @@ uint64_t VolumeStore::countSizeFromBlockId(uint64_t blockId) const {
 
   uint64_t total = it->second.store->countSizeFromBlockId(indexWithin);
 
-  auto orderIt =
-      std::find(volumeIdOrder_.begin(), volumeIdOrder_.end(), volumeId);
+  auto orderIt = std::find(volumeIdOrder_.begin(), volumeIdOrder_.end(), volumeId);
   if (orderIt != volumeIdOrder_.end()) {
     ++orderIt;
     for (; orderIt != volumeIdOrder_.end(); ++orderIt) {
@@ -201,8 +197,8 @@ VolumeStore::Roe<std::string> VolumeStore::readBlock(uint64_t index) const {
   return it->second.store->readBlock(indexWithin);
 }
 
-VolumeStore::Roe<uint64_t> VolumeStore::appendBlock(const std::string &block) {
-  FileDirStore *active = getActiveVolume(block.size());
+VolumeStore::Roe<uint64_t> VolumeStore::appendBlock(const std::string& block) {
+  FileDirStore* active = getActiveVolume(block.size());
   if (!active) {
     return Error("Failed to get active volume (store full?)");
   }
@@ -231,8 +227,8 @@ VolumeStore::Roe<void> VolumeStore::commit() {
 
 VolumeStore::Roe<void> VolumeStore::rewindTo(uint64_t index) {
   if (index > totalBlockCount_) {
-    return Error("Cannot rewind to index " + std::to_string(index) +
-                 " (max: " + std::to_string(totalBlockCount_) + ")");
+    return Error("Cannot rewind to index " + std::to_string(index) + " (max: " + std::to_string(totalBlockCount_) +
+                 ")");
   }
 
   if (index == totalBlockCount_) {
@@ -271,14 +267,12 @@ VolumeStore::Roe<void> VolumeStore::rewindTo(uint64_t index) {
       removed.emplace_back(vid, std::move(it->second.store));
       volumeInfoMap_.erase(it);
     }
-    volumeIdOrder_.erase(
-        std::remove(volumeIdOrder_.begin(), volumeIdOrder_.end(), vid),
-        volumeIdOrder_.end());
+    volumeIdOrder_.erase(std::remove(volumeIdOrder_.begin(), volumeIdOrder_.end(), vid), volumeIdOrder_.end());
   }
   if (!removed.empty() && !saveIndex()) {
     return Error("Failed to save volumes index before removing volumes");
   }
-  for (auto &[vid, store] : removed) {
+  for (auto& [vid, store] : removed) {
     if (store) {
       store->close();
     }
@@ -291,8 +285,7 @@ VolumeStore::Roe<void> VolumeStore::rewindTo(uint64_t index) {
     if (it != volumeInfoMap_.end() && it->second.store) {
       auto rewindResult = it->second.store->rewindTo(indexWithin);
       if (!rewindResult.isOk()) {
-        return Error("Failed to rewind volume: " +
-                     rewindResult.error().message);
+        return Error("Failed to rewind volume: " + rewindResult.error().message);
       }
     }
   }
@@ -303,10 +296,9 @@ VolumeStore::Roe<void> VolumeStore::rewindTo(uint64_t index) {
   return {};
 }
 
-FileDirStore *VolumeStore::getActiveVolume(uint64_t dataSize) {
+FileDirStore* VolumeStore::getActiveVolume(uint64_t dataSize) {
   auto it = volumeInfoMap_.find(currentVolumeId_);
-  if (it != volumeInfoMap_.end() && it->second.store &&
-      it->second.store->canFit(dataSize)) {
+  if (it != volumeInfoMap_.end() && it->second.store && it->second.store->canFit(dataSize)) {
     return it->second.store.get();
   }
 
@@ -319,7 +311,7 @@ FileDirStore *VolumeStore::getActiveVolume(uint64_t dataSize) {
   if (nextId == 0) {
     nextId = 1;
   }
-  FileDirStore *created = createVolume(nextId, totalBlockCount_);
+  FileDirStore* created = createVolume(nextId, totalBlockCount_);
   if (!created) {
     return nullptr;
   }
@@ -335,12 +327,10 @@ FileDirStore *VolumeStore::getActiveVolume(uint64_t dataSize) {
   return created;
 }
 
-FileDirStore *VolumeStore::createVolume(uint32_t volumeId,
-                                        uint64_t startBlockId) {
+FileDirStore* VolumeStore::createVolume(uint32_t volumeId, uint64_t startBlockId) {
   std::string path = getVolumePath(volumeId);
   auto store = std::make_unique<FileDirStore>();
-  store->redirectLogger(log().getFullName() + ".Vol" +
-                        std::to_string(volumeId));
+  store->redirectLogger(log().getFullName() + ".Vol" + std::to_string(volumeId));
 
   FileDirStore::InitConfig fdConfig;
   fdConfig.dirPath = path;
@@ -348,25 +338,22 @@ FileDirStore *VolumeStore::createVolume(uint32_t volumeId,
   fdConfig.maxFileSize = config_.maxFileSize;
   auto result = store->init(fdConfig);
   if (!result.isOk()) {
-    log().error << "Failed to create volume " << path << ": "
-                << result.error().message;
+    log().error << "Failed to create volume " << path << ": " << result.error().message;
     return nullptr;
   }
 
-  FileDirStore *raw = store.get();
+  FileDirStore* raw = store.get();
   VolumeInfo info;
   info.store = std::move(store);
   info.startBlockId = startBlockId;
   volumeInfoMap_[volumeId] = std::move(info);
   volumeIdOrder_.push_back(volumeId);
 
-  log().info << "Created volume " << path
-             << " (startBlockId: " << startBlockId << ")";
+  log().info << "Created volume " << path << " (startBlockId: " << startBlockId << ")";
   return raw;
 }
 
-std::pair<uint32_t, uint64_t>
-VolumeStore::findBlockVolume(uint64_t blockId) const {
+std::pair<uint32_t, uint64_t> VolumeStore::findBlockVolume(uint64_t blockId) const {
   for (uint32_t volumeId : volumeIdOrder_) {
     auto it = volumeInfoMap_.find(volumeId);
     if (it == volumeInfoMap_.end() || !it->second.store) {
@@ -439,7 +426,7 @@ bool VolumeStore::saveIndex() {
   return true;
 }
 
-bool VolumeStore::writeIndexHeader(std::ostream &os) {
+bool VolumeStore::writeIndexHeader(std::ostream& os) {
   IndexFileHeader header;
   header.maxFileCount = config_.maxFileCount;
   header.maxFileSize = config_.maxFileSize;
@@ -449,7 +436,7 @@ bool VolumeStore::writeIndexHeader(std::ostream &os) {
   return os.good();
 }
 
-bool VolumeStore::readIndexHeader(std::istream &is) {
+bool VolumeStore::readIndexHeader(std::istream& is) {
   IndexFileHeader header;
   InputArchive ar(is);
   ar & header;
@@ -479,12 +466,10 @@ VolumeStore::Roe<void> VolumeStore::openExistingVolumes() {
     }
     std::string path = getVolumePath(volumeId);
     auto store = std::make_unique<FileDirStore>();
-    store->redirectLogger(log().getFullName() + ".Vol" +
-                          std::to_string(volumeId));
+    store->redirectLogger(log().getFullName() + ".Vol" + std::to_string(volumeId));
     auto result = store->mount(path);
     if (!result.isOk()) {
-      return Error("Failed to mount volume " + path + ": " +
-                   result.error().message);
+      return Error("Failed to mount volume " + path + ": " + result.error().message);
     }
     it->second.store = std::move(store);
   }

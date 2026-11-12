@@ -15,18 +15,18 @@ class Client;
 
 class OpCommands {
 public:
-  explicit OpCommands(CLI::App &app);
+  explicit OpCommands(CLI::App& app);
 
   bool parsed() const;
   /** Whether the command reads the chain: submit, and a creator not given its signers and network. */
   bool needsNode() const;
   bool isSubmit() const;
   /** Run the parsed command; `client` is null when it needs no node. */
-  int run(pp::Client *client);
+  int run(pp::Client* client);
 
 private:
   struct Create {
-    CLI::App *cmd{nullptr};
+    CLI::App* cmd{nullptr};
     std::string output;
     int64_t validFor{86400};
     std::string notes;
@@ -37,15 +37,15 @@ private:
     uint64_t fee{0};
   };
 
-  void addCreateOptions(Create &create, bool withFee);
-  const Create *parsedCreate() const;
-  int runCreate(const Create &create, pp::Client *client);
+  void addCreateOptions(Create& create, bool withFee);
+  const Create* parsedCreate() const;
+  int runCreate(const Create& create, pp::Client* client);
 
-  CLI::App *op_{nullptr};
-  CLI::App *show_{nullptr};
-  CLI::App *sign_{nullptr};
-  CLI::App *merge_{nullptr};
-  CLI::App *submit_{nullptr};
+  CLI::App* op_{nullptr};
+  CLI::App* show_{nullptr};
+  CLI::App* sign_{nullptr};
+  CLI::App* merge_{nullptr};
+  CLI::App* submit_{nullptr};
   std::string file_;
   std::vector<std::string> files_;
   std::string key_;
@@ -83,5 +83,5 @@ private:
    * Signed by the account's recovery set (its keys and threshold read from the node by default): a
    * recovery, a withdrawal, a change of a set the account has (`hasRecoverySet`).
    */
-  bool signedByRecoverySet(const Create &create, bool hasRecoverySet) const;
+  bool signedByRecoverySet(const Create& create, bool hasRecoverySet) const;
 };

@@ -16,8 +16,9 @@ struct Checkpoint {
   uint64_t lastId{0};
   uint64_t currentId{0};
 
-  template <typename Archive> void serialize(Archive &ar) {
-    ar &lastId &currentId;
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & lastId & currentId;
   }
 };
 
@@ -25,8 +26,9 @@ struct CheckpointConfig {
   uint64_t minBlocks{0};
   uint64_t minAgeSeconds{0};
 
-  template <typename Archive> void serialize(Archive &ar) {
-    ar &minBlocks &minAgeSeconds;
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & minBlocks & minAgeSeconds;
   }
 };
 
@@ -88,13 +90,12 @@ struct BlockChainConfig {
    */
   uint64_t finalitySeconds{0};
 
-  template <typename Archive> void serialize(Archive &ar) {
-    ar &genesisTime &slotDuration &slotsPerEpoch &maxCustomMetaSize
-        &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize
-            &checkpoint &maxValidationTimespanSeconds &networkId
-                &heartbeatSlots &maxIssuancePerEpoch &newAccountFee &minerMinStake
-                    &minerRegistrationFee &minerDueAfterSlots &minerMaxMissedSlots
-                        &minerReregisterCooldownEpochs &maxBlockBytes &finalitySeconds;
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & genesisTime & slotDuration & slotsPerEpoch & maxCustomMetaSize & maxTransactionsPerBlock & minFeeCoefficients &
+        freeCustomMetaSize & checkpoint & maxValidationTimespanSeconds & networkId & heartbeatSlots &
+        maxIssuancePerEpoch & newAccountFee & minerMinStake & minerRegistrationFee & minerDueAfterSlots &
+        minerMaxMissedSlots & minerReregisterCooldownEpochs & maxBlockBytes & finalitySeconds;
   }
 };
 
@@ -103,8 +104,7 @@ struct BlockChainConfig {
  * Requires `currentSlot >= tipSlot` and lag of at least `heartbeatSlots`.
  * `heartbeatSlots == 0` disables. Used by miner production and validators.
  */
-inline bool shouldSealEmptyHeartbeat(uint64_t currentSlot, uint64_t tipSlot,
-                                     uint64_t heartbeatSlots) {
+inline bool shouldSealEmptyHeartbeat(uint64_t currentSlot, uint64_t tipSlot, uint64_t heartbeatSlots) {
   if (heartbeatSlots == 0) {
     return false;
   }
@@ -119,7 +119,10 @@ struct PendingChainConfig {
   uint64_t activationEpoch{0};
   BlockChainConfig config;
 
-  template <typename Archive> void serialize(Archive &ar) { ar &activationEpoch &config; }
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & activationEpoch & config;
+  }
 };
 
 /**
@@ -143,7 +146,10 @@ struct RecoverySet {
   uint8_t minSignatures{0};
   uint64_t delayEpochs{0};
 
-  template <typename Archive> void serialize(Archive &ar) { ar &publicKeys &minSignatures &delayEpochs; }
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & publicKeys & minSignatures & delayEpochs;
+  }
 };
 
 /**
@@ -189,14 +195,16 @@ struct BeaconCertificate {
   constexpr static const uint64_t kNoCutover = UINT64_MAX;
   bool hasCutover() const { return cutoverHeight != kNoCutover; }
 
-  template <typename Archive> void serialize(Archive &ar) {
-    ar &networkId &generation &publicKey &cutoverHeight &cutoverHash &dialHints &seedAnchor &seedAnchorEpoch &seedChainLength;
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & networkId & generation & publicKey & cutoverHeight & cutoverHash & dialHints & seedAnchor & seedAnchorEpoch &
+        seedChainLength;
   }
 
   /** Versioned form carried in a T_BEACON_CERT record's `meta`. */
   constexpr static const uint32_t VERSION = 3;
   std::string ltsToString() const;
-  bool ltsFromString(const std::string &str);
+  bool ltsFromString(const std::string& str);
 };
 
 /**
@@ -210,12 +218,15 @@ struct RecoveryAnnouncement {
   std::vector<std::string> adminPublicKeys;
   uint8_t adminMinSignatures{0};
 
-  template <typename Archive> void serialize(Archive &ar) { ar &networkId &adminPublicKeys &adminMinSignatures; }
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & networkId & adminPublicKeys & adminMinSignatures;
+  }
 
   /** Versioned form carried in a T_RECOVERY record's `meta`. */
   constexpr static const uint32_t VERSION = 1;
   std::string ltsToString() const;
-  bool ltsFromString(const std::string &str);
+  bool ltsFromString(const std::string& str);
 };
 
 /** A recovery announced on chain, waiting for its epoch; meanwhile the admin set is frozen. */
@@ -226,7 +237,10 @@ struct PendingRecovery {
   /** The first block of this epoch or later replaces the admin set, before its records. */
   uint64_t applyEpoch{0};
 
-  template <typename Archive> void serialize(Archive &ar) { ar &announcement &announcedAt &applyEpoch; }
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & announcement & announcedAt & applyEpoch;
+  }
 };
 
 /** Who holds authority over the chain: the recovery set, the current beacon certificate, and any
@@ -237,16 +251,17 @@ struct ChainAuthority {
   bool hasPendingRecovery{false};
   PendingRecovery pendingRecovery;
 
-  template <typename Archive> void serialize(Archive &ar) {
-    ar &recovery &beacon &hasPendingRecovery &pendingRecovery;
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & recovery & beacon & hasPendingRecovery & pendingRecovery;
   }
   /** The pending recovery, if any. */
   std::optional<PendingRecovery> pending() const {
     return hasPendingRecovery ? std::optional<PendingRecovery>(pendingRecovery) : std::nullopt;
   }
   /** Byte-wise equality of the serialized form. */
-  bool operator==(const ChainAuthority &other) const;
-  bool operator!=(const ChainAuthority &other) const { return !(*this == other); }
+  bool operator==(const ChainAuthority& other) const;
+  bool operator!=(const ChainAuthority& other) const { return !(*this == other); }
 };
 
 /**
@@ -261,11 +276,12 @@ struct ChainPredecessor {
   std::string stateRoot; ///< raw 32 bytes: block `height`'s header
   Ledger::Block header;
 
-  bool operator==(const ChainPredecessor &other) const {
+  bool operator==(const ChainPredecessor& other) const {
     return networkId == other.networkId && height == other.height && blockHash == other.blockHash &&
            stateRoot == other.stateRoot && header.headerToString() == other.header.headerToString();
   }
-  template <typename Archive> void serialize(Archive &ar) {
+  template <typename Archive>
+  void serialize(Archive& ar) {
     ar & networkId & height & blockHash & stateRoot & header;
   }
 };
@@ -276,7 +292,10 @@ struct SystemAccountKeys {
   std::vector<std::string> publicKeys;
   uint8_t minSignatures{1};
 
-  template <typename Archive> void serialize(Archive &ar) { ar & id & publicKeys & minSignatures; }
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & id & publicKeys & minSignatures;
+  }
 };
 
 /**
@@ -289,7 +308,10 @@ struct GenesisImport {
   uint64_t accountCount{0};
   std::vector<SystemAccountKeys> systemKeys;
 
-  template <typename Archive> void serialize(Archive &ar) { ar & predecessor & accountCount & systemKeys; }
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & predecessor & accountCount & systemKeys;
+  }
 };
 
 struct GenesisAccountMeta {
@@ -307,24 +329,25 @@ struct GenesisAccountMeta {
   bool hasImport{false};
   GenesisImport import;
 
-  template <typename Archive> void serialize(Archive &ar) {
-    ar &config &genesis &hasPending &pending &authority &hasImport &import;
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & config & genesis & hasPending & pending & authority & hasImport & import;
   }
 
   /** Set config + pending to the state in force for a block of `epoch` (a pending update whose
    *  epoch has come is in force). What a genesis renewal must carry. */
-  void setConfigStateAt(const BlockChainConfig &active, const std::optional<PendingChainConfig> &pendingUpdate,
+  void setConfigStateAt(const BlockChainConfig& active, const std::optional<PendingChainConfig>& pendingUpdate,
                         uint64_t epoch);
   /** True when config + pending equal those of `other` (byte-wise). */
-  bool sameConfigState(const GenesisAccountMeta &other) const;
+  bool sameConfigState(const GenesisAccountMeta& other) const;
 
   std::string ltsToString() const;
-  bool ltsFromString(const std::string &str);
+  bool ltsFromString(const std::string& str);
 };
 
-std::ostream &operator<<(std::ostream &os, const CheckpointConfig &config);
-std::ostream &operator<<(std::ostream &os, const BlockChainConfig &config);
-std::ostream &operator<<(std::ostream &os, const ChainAuthority &authority);
+std::ostream& operator<<(std::ostream& os, const CheckpointConfig& config);
+std::ostream& operator<<(std::ostream& os, const BlockChainConfig& config);
+std::ostream& operator<<(std::ostream& os, const ChainAuthority& authority);
 
 } // namespace pp
 

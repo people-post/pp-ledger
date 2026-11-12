@@ -23,8 +23,7 @@ pp::amp::MshIdentity IdentityFromPrivateKeyBytes(const std::string& private_key)
   }
   identity.ml_dsa_secret_key.assign(private_key.begin(), private_key.end());
   identity.ml_dsa_public_key.resize(utl::kMlDsaPublicKeyBytes);
-  if (mldsa_pk_from_sk(identity.ml_dsa_public_key.data(),
-                       reinterpret_cast<const uint8_t*>(private_key.data())) != 0) {
+  if (mldsa_pk_from_sk(identity.ml_dsa_public_key.data(), reinterpret_cast<const uint8_t*>(private_key.data())) != 0) {
     identity.ml_dsa_public_key.clear();
   }
   return identity;
@@ -38,8 +37,7 @@ pp::amp::PeerLinkConfig DefaultLedgerLinkConfig() {
   return config;
 }
 
-pp::Roe<LedgerAmpConfig> LedgerAmpConfigFromPrivateKey(const std::string& private_key_raw,
-                                                          uint16_t udp_port) {
+pp::Roe<LedgerAmpConfig> LedgerAmpConfigFromPrivateKey(const std::string& private_key_raw, uint16_t udp_port) {
   auto identity = IdentityFromPrivateKeyBytes(private_key_raw);
   if (identity.ml_dsa_public_key.size() != utl::kMlDsaPublicKeyBytes) {
     return pp::Error("failed to derive ML-DSA public key from secret key");

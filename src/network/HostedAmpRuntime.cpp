@@ -8,7 +8,9 @@ HostedAmpRuntime::HostedAmpRuntime(Host host) : host_(std::move(host)), io_(host
   open_ = true;
 }
 
-HostedAmpRuntime::~HostedAmpRuntime() { closeHosted(); }
+HostedAmpRuntime::~HostedAmpRuntime() {
+  closeHosted();
+}
 
 void HostedAmpRuntime::closeHosted() {
   if (!open_.exchange(false)) {
@@ -23,7 +25,9 @@ void HostedAmpRuntime::post(IoTask task) {
   }
 }
 
-bool HostedAmpRuntime::onIoThread() const { return io_->RunsTasksOnCurrentThread(); }
+bool HostedAmpRuntime::onIoThread() const {
+  return io_->RunsTasksOnCurrentThread();
+}
 
 std::string HostedAmpRuntime::listenMultiaddr() const {
   return open_ && host_.listenMultiaddr ? host_.listenMultiaddr() : std::string{};

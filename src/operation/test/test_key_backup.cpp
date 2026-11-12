@@ -10,7 +10,7 @@ using namespace pp::operation;
 
 namespace {
 
-constexpr const char *kPassphrase = "correct horse battery";
+constexpr const char* kPassphrase = "correct horse battery";
 
 BackedUpKey key() {
   auto pair = utl::mlDsaGenerate().value();

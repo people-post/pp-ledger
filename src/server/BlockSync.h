@@ -61,24 +61,24 @@ public:
     std::function<std::optional<std::string>()> firstBlockHash;
     /** Optional: a further check of block 0 when this node syncs from it (a re-genesis's
      *  predecessor against the node's old ledger, B037). */
-    std::function<pp::Roe<void>(const Ledger::ChainNode &)> checkGenesis;
+    std::function<pp::Roe<void>(const Ledger::ChainNode&)> checkGenesis;
     /** Optional: vet the authority and admin set a node with no blocks takes from block `blockId`. */
-    std::function<pp::Roe<void>(uint64_t blockId, const ChainAuthority &, const Client::Wallet &admin)>
+    std::function<pp::Roe<void>(uint64_t blockId, const ChainAuthority&, const Client::Wallet& admin)>
         checkStartingAuthority;
     /** The beacon authority at the local tip, to follow along the blocks being synced. */
     std::function<pp::Roe<AuthorityTrail>()> authorityTrail;
     /** Optional: a signed tip this sync verified (the node may serve it on). */
-    std::function<void(const Client::SignedTip &)> onTipVerified;
+    std::function<void(const Client::SignedTip&)> onTipVerified;
     /**
      * Optional: the beacon certificate the upstream serves on STATUS (beacon-authority ba5c),
      * offered before its tip is checked — a later generation's cutover may refuse that tip.
      */
-    std::function<void(const Ledger::Record &)> offerCertificate;
+    std::function<void(const Ledger::Record&)> offerCertificate;
     /**
      * Optional: equivocation evidence the upstream serves on STATUS (beacon-authority ba6), offered
      * after its certificate and before its tip — the node halts on it and refuses tips above it.
      */
-    std::function<void(const Client::Equivocation &)> offerEquivocation;
+    std::function<void(const Client::Equivocation&)> offerEquivocation;
     /**
      * Optional: the block the node's held certificate vouches for (Chain::vouchedCutover, bp2). A
      * node behind it syncs up to it first, with no signed tip — once the old generation is refused
@@ -86,11 +86,11 @@ public:
      */
     std::function<std::optional<std::pair<uint64_t, std::string>>()> vouchedCutover;
     /** Validate and append one block (its id is nextBlockId()). */
-    std::function<pp::Roe<void>(const Ledger::ChainNode &)> applyBlock;
+    std::function<pp::Roe<void>(const Ledger::ChainNode&)> applyBlock;
     /** Run a task on the server thread (Server::postToServerThread). */
     std::function<void(std::function<void()>)> postToServerThread;
     /** Called once per sync, on the server thread. */
-    std::function<void(const Result &)> onFinished;
+    std::function<void(const Result&)> onFinished;
   };
 
   struct Options {
@@ -103,8 +103,8 @@ public:
 
   enum class Start { Started, AlreadyRunning, BackingOff };
 
-  BlockSync(Client &client, Hooks hooks);
-  BlockSync(Client &client, Hooks hooks, Options options);
+  BlockSync(Client& client, Hooks hooks);
+  BlockSync(Client& client, Hooks hooks, Options options);
 
   /** Begin a sync unless one is running or a recent failure is backing off. */
   Start start();
@@ -123,7 +123,7 @@ private:
   /** Check the upstream's signed tip and start authenticating up to it. */
   void syncToSignedTip();
   /** A node with blocks, behind the block its held certificate vouches for: sync up to it. */
-  void syncToVouchedCutover(uint64_t height, std::string hash, const std::string &localTip);
+  void syncToVouchedCutover(uint64_t height, std::string hash, const std::string& localTip);
   /** A node with no blocks: authenticate from its first block up to the tip, or a cutover (bp2). */
   void syncFresh(uint64_t next);
   /** End of the range for a node with no blocks: check the STATUS certificate against the trail. */
@@ -137,7 +137,7 @@ private:
   bool process(Ledger::ChainNode block);
   bool authenticate(Ledger::ChainNode block);
   /** A node with no blocks: its first block starts the trail (and may be pinned or vetted). */
-  bool authenticateFirst(Ledger::ChainNode &block);
+  bool authenticateFirst(Ledger::ChainNode& block);
   bool apply(Ledger::ChainNode block);
   /** The current phase covered its range: start the next, or finish. */
   void endPhase();
@@ -146,9 +146,10 @@ private:
   void finish(bool ok, std::string error);
 
   /** Wrap a client callback: hop to the server thread, drop if we are gone or stale. */
-  template <typename T, typename Fn> Client::Done<T> onServerThread(Fn fn);
+  template <typename T, typename Fn>
+  Client::Done<T> onServerThread(Fn fn);
 
-  Client &client_;
+  Client& client_;
   Hooks hooks_;
   Options options_;
   /** Lets late network callbacks detect that this object is gone. */

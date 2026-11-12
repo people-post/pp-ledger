@@ -53,7 +53,7 @@ TEST_F(FileStoreTest, InitializesSuccessfully) {
 TEST_F(FileStoreTest, WriteAndRead) {
   fileStore.init(config);
 
-  const char *testData = "Hello, FileStore!";
+  const char* testData = "Hello, FileStore!";
   size_t dataSize = strlen(testData) + 1;
 
   // Write data (returns block index)
@@ -74,8 +74,8 @@ TEST_F(FileStoreTest, WriteAndRead) {
 TEST_F(FileStoreTest, MultipleWrites) {
   fileStore.init(config);
 
-  const char *data1 = "First block";
-  const char *data2 = "Second block";
+  const char* data1 = "First block";
+  const char* data2 = "Second block";
   size_t size1 = strlen(data1) + 1;
   size_t size2 = strlen(data2) + 1;
 
@@ -130,7 +130,7 @@ TEST_F(FileStoreTest, FileSizeIncreasesWithWrites) {
 
   size_t sizeAfterInit = fileStore.getCurrentSize();
 
-  const char *data = "Test data";
+  const char* data = "Test data";
   size_t dataSize = strlen(data) + 1;
 
   auto result = fileStore.write(data, dataSize);
@@ -145,12 +145,12 @@ TEST_F(FileStoreTest, ReopensPersistentFile) {
   // Write data to file
   fileStore.init(config);
 
-  const char *testData = "Persistent data";
+  const char* testData = "Persistent data";
   size_t dataSize = strlen(testData) + 1;
   auto writeResult = fileStore.write(testData, dataSize);
   ASSERT_TRUE(writeResult.isOk());
   EXPECT_EQ(writeResult.value(), 0); // First block
-  
+
   size_t fileSize = fileStore.getCurrentSize();
   uint64_t blockCount = fileStore.getBlockCount();
   EXPECT_EQ(blockCount, 1);
@@ -163,7 +163,7 @@ TEST_F(FileStoreTest, ReopensPersistentFile) {
 
   // File size should be restored
   EXPECT_EQ(fileStore2.getCurrentSize(), fileSize);
-  
+
   // Block count should be restored from header
   EXPECT_EQ(fileStore2.getBlockCount(), blockCount);
 
@@ -184,7 +184,7 @@ TEST_F(FileStoreTest, FileSizeMatchesActualFileSize) {
   EXPECT_EQ(reportedSize, actualFileSize);
 
   // After writing, sizes should still match
-  const char *testData = "Test data";
+  const char* testData = "Test data";
   size_t dataSize = strlen(testData) + 1;
   auto writeResult = fileStore.write(testData, dataSize);
   ASSERT_TRUE(writeResult.isOk());
@@ -197,7 +197,7 @@ TEST_F(FileStoreTest, FileSizeMatchesActualFileSize) {
 TEST_F(FileStoreTest, ReadBlockReturnsCorrectByteCount) {
   fileStore.init(config);
 
-  const char *testData = "Test data for byte count";
+  const char* testData = "Test data for byte count";
   size_t dataSize = strlen(testData) + 1;
 
   auto writeResult = fileStore.write(testData, dataSize);
@@ -224,7 +224,7 @@ TEST_F(FileStoreTest, MultipleFilesAreIndependent) {
 
   fileStore.init(config);
 
-  const char *data1 = "File 1 data";
+  const char* data1 = "File 1 data";
   size_t size1 = strlen(data1) + 1;
   auto result1 = fileStore.write(data1, size1);
   ASSERT_TRUE(result1.isOk());
@@ -238,7 +238,7 @@ TEST_F(FileStoreTest, MultipleFilesAreIndependent) {
   auto init2 = fileStore2.init(config2);
   ASSERT_TRUE(init2.isOk());
 
-  const char *data2 = "File 2 data";
+  const char* data2 = "File 2 data";
   size_t size2 = strlen(data2) + 1;
   auto result2 = fileStore2.write(data2, size2);
   ASSERT_TRUE(result2.isOk());
@@ -294,7 +294,7 @@ TEST_F(FileStoreTest, CannotWriteBeyondMaxSize) {
 TEST_F(FileStoreTest, BuildBlockIndexRejectsCorruptedHugeBlockSize) {
   fileStore.init(config);
 
-  const char *testData = "valid block";
+  const char* testData = "valid block";
   size_t dataSize = strlen(testData) + 1;
   ASSERT_TRUE(fileStore.write(testData, dataSize).isOk());
   fileStore.close();
@@ -302,11 +302,10 @@ TEST_F(FileStoreTest, BuildBlockIndexRejectsCorruptedHugeBlockSize) {
   // Append a corrupted block: a size prefix that claims far more data than
   // remains in the file, followed by a little garbage.
   {
-    std::fstream raw(testFile, std::ios::binary | std::ios::in | std::ios::out |
-                                    std::ios::ate);
+    std::fstream raw(testFile, std::ios::binary | std::ios::in | std::ios::out | std::ios::ate);
     ASSERT_TRUE(raw.is_open());
     uint64_t hugeSize = UINT64_MAX - 3;
-    raw.write(reinterpret_cast<const char *>(&hugeSize), sizeof(hugeSize));
+    raw.write(reinterpret_cast<const char*>(&hugeSize), sizeof(hugeSize));
     raw.write("junk", 4);
   }
 
@@ -339,7 +338,7 @@ TEST_F(FileStoreTest, RequiresMinimumMaxSize) {
 namespace {
 
 /** The file as a power loss would leave it right now: what reached the file, nothing more. */
-std::string snapshot(const std::string &file, const std::string &name) {
+std::string snapshot(const std::string& file, const std::string& name) {
   const std::string copy = std::filesystem::path(file).parent_path().string() + "/" + name;
   std::filesystem::copy_file(file, copy, std::filesystem::copy_options::overwrite_existing);
   return copy;

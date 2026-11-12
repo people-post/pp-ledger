@@ -22,9 +22,8 @@ using RoleServerFactory = std::function<std::unique_ptr<Server>(bool firstStart)
  * or a server ends without asking for one. `stop` is every server's stop source, so a stop between
  * two servers holds. RoleRunner runs it for its role; tests for a server of their own.
  */
-Service::Roe<void> runRoleLoop(const RoleRunner::Options &options, const std::string &role,
-                               const RoleServerFactory &make, const std::atomic<bool> &stop,
-                               logging::Logger &log);
+Service::Roe<void> runRoleLoop(const RoleRunner::Options& options, const std::string& role,
+                               const RoleServerFactory& make, const std::atomic<bool>& stop, logging::Logger& log);
 
 } // namespace pp
 

@@ -18,35 +18,51 @@ namespace {
 
 std::string transactionTypeToHumanString(uint16_t type) {
   switch (type) {
-    case Ledger::T_DEFAULT:   return "default";
-    case Ledger::T_GENESIS:   return "genesis";
-    case Ledger::T_NEW_USER: return "new_user";
-    case Ledger::T_CONFIG:   return "config";
-    case Ledger::T_USER_UPDATE:     return "user_update";
-    case Ledger::T_RENEWAL:  return "renewal";
-    case Ledger::T_END_USER: return "end_user";
-    case Ledger::T_MINER_REGISTER: return "miner_register";
-    case Ledger::T_MINER_REVOKE: return "miner_revoke";
-    case Ledger::T_BEACON_CERT: return "beacon_cert";
-    case Ledger::T_RECOVERY: return "recovery";
-    case Ledger::T_IMPORT: return "import";
-    case Ledger::T_ACCOUNT_RECOVERY: return "account_recovery";
-    case Ledger::T_DOMAIN_ASSIGN: return "domain_assign";
-    case Ledger::T_BEACON_SEED: return "beacon_seed";
-    default: return "unknown_" + std::to_string(type);
+    case Ledger::T_DEFAULT:
+      return "default";
+    case Ledger::T_GENESIS:
+      return "genesis";
+    case Ledger::T_NEW_USER:
+      return "new_user";
+    case Ledger::T_CONFIG:
+      return "config";
+    case Ledger::T_USER_UPDATE:
+      return "user_update";
+    case Ledger::T_RENEWAL:
+      return "renewal";
+    case Ledger::T_END_USER:
+      return "end_user";
+    case Ledger::T_MINER_REGISTER:
+      return "miner_register";
+    case Ledger::T_MINER_REVOKE:
+      return "miner_revoke";
+    case Ledger::T_BEACON_CERT:
+      return "beacon_cert";
+    case Ledger::T_RECOVERY:
+      return "recovery";
+    case Ledger::T_IMPORT:
+      return "import";
+    case Ledger::T_ACCOUNT_RECOVERY:
+      return "account_recovery";
+    case Ledger::T_DOMAIN_ASSIGN:
+      return "domain_assign";
+    case Ledger::T_BEACON_SEED:
+      return "beacon_seed";
+    default:
+      return "unknown_" + std::to_string(type);
   }
 }
 
 } // namespace
 
-std::string Ledger::Block::producerSigningMessage(const std::string &networkId, const std::string &blockHash) {
+std::string Ledger::Block::producerSigningMessage(const std::string& networkId, const std::string& blockHash) {
   return std::string("pp-ledger/block-producer/v1") + utl::binaryPack(networkId) + utl::binaryPack(blockHash);
 }
 
 uint64_t Ledger::Block::boundedBytes() const {
   const uint64_t all = ltsToString().size();
-  const uint64_t signatures = utl::binaryPack(producerSignatures).size() -
-                              utl::binaryPack(std::vector<std::string>{}).size();
+  const uint64_t signatures =
+      utl::binaryPack(producerSignatures).size() - utl::binaryPack(std::vector<std::string>{}).size();
   return all - signatures;
 }
 
@@ -54,8 +70,8 @@ std::string Ledger::Block::headerToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
   uint16_t version = CURRENT_VERSION;
-  ar & version & index & timestamp & previousHash & slot & slotLeader & epoch &
-      txIndex & txRoot & stateRoot & stakeSnapshotHash & epochSeed & finalAt;
+  ar & version & index & timestamp & previousHash & slot & slotLeader & epoch & txIndex & txRoot & stateRoot &
+      stakeSnapshotHash & epochSeed & finalAt;
   return oss.str();
 }
 
@@ -70,7 +86,7 @@ std::string Ledger::Block::ltsToString() const {
   return oss.str();
 }
 
-bool Ledger::Block::ltsFromString(const std::string &str) {
+bool Ledger::Block::ltsFromString(const std::string& str) {
   std::istringstream iss(str, std::ios::binary);
   InputArchive ar(iss);
 
@@ -87,7 +103,7 @@ bool Ledger::Block::ltsFromString(const std::string &str) {
   }
 
   // Deserialize block fields
-  ar & *this;
+  ar&* this;
 
   if (ar.failed()) {
     return false;
@@ -105,7 +121,7 @@ pp::common::Meta Ledger::TxCommon::ltsToMeta() const {
 
 namespace {
 template <typename TxT>
-void appendIdempotencyMeta(pp::common::Meta &m, const TxT &tx) {
+void appendIdempotencyMeta(pp::common::Meta& m, const TxT& tx) {
   m.setUIntForJson("idempotentId", tx.idempotentId);
   m.set("validationTsMin", tx.validationTsMin);
   m.set("validationTsMax", tx.validationTsMax);
@@ -121,7 +137,7 @@ pp::common::Meta Ledger::TxIdempotencyWindow::ltsToMeta() const {
 }
 
 pp::common::Meta Ledger::TxDefault::ltsToMeta() const {
-  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  pp::common::Meta m = static_cast<const Ledger::TxCommon&>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
   m.setUIntForJson("tokenId", tokenId);
   m.setUIntForJson("amount", amount);
@@ -131,11 +147,11 @@ pp::common::Meta Ledger::TxDefault::ltsToMeta() const {
 }
 
 pp::common::Meta Ledger::TxGenesis::ltsToMeta() const {
-  return static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  return static_cast<const Ledger::TxCommon&>(*this).ltsToMeta();
 }
 
 pp::common::Meta Ledger::TxNewUser::ltsToMeta() const {
-  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  pp::common::Meta m = static_cast<const Ledger::TxCommon&>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
   m.setUIntForJson("amount", amount);
   m.setUIntForJson("fromWalletId", fromWalletId);
@@ -144,13 +160,13 @@ pp::common::Meta Ledger::TxNewUser::ltsToMeta() const {
 }
 
 pp::common::Meta Ledger::TxConfig::ltsToMeta() const {
-  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  pp::common::Meta m = static_cast<const Ledger::TxCommon&>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
   return m;
 }
 
 pp::common::Meta Ledger::TxBeaconCert::ltsToMeta() const {
-  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  pp::common::Meta m = static_cast<const Ledger::TxCommon&>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
   return m;
 }
@@ -162,14 +178,14 @@ pp::common::Meta Ledger::TxImport::ltsToMeta() const {
 }
 
 pp::common::Meta Ledger::TxAccountRecovery::ltsToMeta() const {
-  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  pp::common::Meta m = static_cast<const Ledger::TxCommon&>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
   m.setUIntForJson("walletId", walletId);
   return m;
 }
 
 pp::common::Meta Ledger::TxDomainAssign::ltsToMeta() const {
-  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  pp::common::Meta m = static_cast<const Ledger::TxCommon&>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
   m.setUIntForJson("walletId", walletId);
   m.set("domain", domain);
@@ -184,41 +200,41 @@ pp::common::Meta Ledger::TxBeaconSeed::ltsToMeta() const {
 }
 
 pp::common::Meta Ledger::TxRecovery::ltsToMeta() const {
-  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  pp::common::Meta m = static_cast<const Ledger::TxCommon&>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
   return m;
 }
 
 pp::common::Meta Ledger::TxUserUpdate::ltsToMeta() const {
-  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  pp::common::Meta m = static_cast<const Ledger::TxCommon&>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
   m.setUIntForJson("walletId", walletId);
   return m;
 }
 
 pp::common::Meta Ledger::TxRenewal::ltsToMeta() const {
-  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  pp::common::Meta m = static_cast<const Ledger::TxCommon&>(*this).ltsToMeta();
   m.setUIntForJson("walletId", walletId);
   return m;
 }
 
 pp::common::Meta Ledger::TxEndUser::ltsToMeta() const {
-  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  pp::common::Meta m = static_cast<const Ledger::TxCommon&>(*this).ltsToMeta();
   m.setUIntForJson("walletId", walletId);
   return m;
 }
 
 pp::common::Meta Ledger::TxMiner::ltsToMeta() const {
-  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  pp::common::Meta m = static_cast<const Ledger::TxCommon&>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
   m.setUIntForJson("walletId", walletId);
   return m;
 }
 
-uint16_t Ledger::typeOf(const TypedTx &tx) {
-  static constexpr uint16_t kTypeByIndex[] = {T_DEFAULT,     T_GENESIS, T_NEW_USER,       T_CONFIG,
-                                              T_USER_UPDATE, T_RENEWAL, T_END_USER,       T_MINER_REGISTER,
-                                              T_MINER_REVOKE, T_BEACON_CERT, T_RECOVERY, T_IMPORT,
+uint16_t Ledger::typeOf(const TypedTx& tx) {
+  static constexpr uint16_t kTypeByIndex[] = {T_DEFAULT,          T_GENESIS,       T_NEW_USER,   T_CONFIG,
+                                              T_USER_UPDATE,      T_RENEWAL,       T_END_USER,   T_MINER_REGISTER,
+                                              T_MINER_REVOKE,     T_BEACON_CERT,   T_RECOVERY,   T_IMPORT,
                                               T_ACCOUNT_RECOVERY, T_DOMAIN_ASSIGN, T_BEACON_SEED};
   static_assert(std::size(kTypeByIndex) == std::variant_size_v<TypedTx>);
   return kTypeByIndex[tx.index()];
@@ -231,9 +247,8 @@ pp::common::Meta Ledger::Record::ltsToMeta() const {
 
   auto txRoe = decode();
   if (txRoe) {
-    const pp::common::Meta dataMeta = std::visit(
-        [](const auto &tx) -> pp::common::Meta { return tx.ltsToMeta(); },
-        txRoe.value());
+    const pp::common::Meta dataMeta =
+        std::visit([](const auto& tx) -> pp::common::Meta { return tx.ltsToMeta(); }, txRoe.value());
     j.set("data", dataMeta);
   } else {
     j.set("data", utl::toJsonSafeString(data));
@@ -241,7 +256,7 @@ pp::common::Meta Ledger::Record::ltsToMeta() const {
 
   std::vector<pp::common::Meta::Value> sigVals;
   sigVals.reserve(signatures.size());
-  for (const auto &sig : signatures) {
+  for (const auto& sig : signatures) {
     // Named local avoids GCC -Wmaybe-uninitialized false positive on
     // std::variant move into vector from a converting temporary.
     std::string safe = utl::toJsonSafeString(sig);
@@ -251,138 +266,127 @@ pp::common::Meta Ledger::Record::ltsToMeta() const {
   return j;
 }
 
-std::string Ledger::Record::makeSigningMessage(uint16_t type,
-                                               const std::string &networkId,
-                                               const std::string &payload) {
+std::string Ledger::Record::makeSigningMessage(uint16_t type, const std::string& networkId,
+                                               const std::string& payload) {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
   ar & type & networkId & payload;
   return oss.str();
 }
 
-std::string
-Ledger::Record::signingMessage(const std::string &networkId) const {
+std::string Ledger::Record::signingMessage(const std::string& networkId) const {
   return makeSigningMessage(type, networkId, data);
 }
 
-Ledger::Roe<Ledger::TypedTx>
-Ledger::Record::decode() const {
+Ledger::Roe<Ledger::TypedTx> Ledger::Record::decode() const {
   switch (type) {
-  case Ledger::T_DEFAULT: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxDefault payload: " +
-                                  txRoe.error().message);
+    case Ledger::T_DEFAULT: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxDefault payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_GENESIS: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxGenesis payload: " +
-                                  txRoe.error().message);
+    case Ledger::T_GENESIS: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxGenesis payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_NEW_USER: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxNewUser payload: " +
-                                  txRoe.error().message);
+    case Ledger::T_NEW_USER: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxNewUser payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_CONFIG: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxConfig payload: " +
-                                  txRoe.error().message);
+    case Ledger::T_CONFIG: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxConfig payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_USER_UPDATE: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxUserUpdate payload: " +
-                                  txRoe.error().message);
+    case Ledger::T_USER_UPDATE: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxUserUpdate payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_RENEWAL: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxRenewal payload: " +
-                                  txRoe.error().message);
+    case Ledger::T_RENEWAL: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxRenewal payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_END_USER: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxEndUser payload: " +
-                                  txRoe.error().message);
+    case Ledger::T_END_USER: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxEndUser payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_MINER_REGISTER: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxMinerRegister>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxMinerRegister payload: " + txRoe.error().message);
+    case Ledger::T_MINER_REGISTER: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxMinerRegister>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxMinerRegister payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_MINER_REVOKE: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxMinerRevoke>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxMinerRevoke payload: " + txRoe.error().message);
+    case Ledger::T_MINER_REVOKE: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxMinerRevoke>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxMinerRevoke payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_BEACON_CERT: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxBeaconCert>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxBeaconCert payload: " + txRoe.error().message);
+    case Ledger::T_BEACON_CERT: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxBeaconCert>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxBeaconCert payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_RECOVERY: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxRecovery>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxRecovery payload: " + txRoe.error().message);
+    case Ledger::T_RECOVERY: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxRecovery>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxRecovery payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_IMPORT: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxImport>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxImport payload: " + txRoe.error().message);
+    case Ledger::T_IMPORT: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxImport>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxImport payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_ACCOUNT_RECOVERY: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxAccountRecovery>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxAccountRecovery payload: " + txRoe.error().message);
+    case Ledger::T_ACCOUNT_RECOVERY: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxAccountRecovery>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxAccountRecovery payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_DOMAIN_ASSIGN: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxDomainAssign>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxDomainAssign payload: " + txRoe.error().message);
+    case Ledger::T_DOMAIN_ASSIGN: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxDomainAssign>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxDomainAssign payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  case Ledger::T_BEACON_SEED: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxBeaconSeed>(data);
-    if (!txRoe) {
-      return Ledger::Error(1, "Invalid packed TxBeaconSeed payload: " + txRoe.error().message);
+    case Ledger::T_BEACON_SEED: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxBeaconSeed>(data);
+      if (!txRoe) {
+        return Ledger::Error(1, "Invalid packed TxBeaconSeed payload: " + txRoe.error().message);
+      }
+      return Ledger::TypedTx(txRoe.value());
     }
-    return Ledger::TypedTx(txRoe.value());
-  }
-  default:
-    return Ledger::Error(1, "Unknown transaction type: " +
-                                std::to_string(type));
+    default:
+      return Ledger::Error(1, "Unknown transaction type: " + std::to_string(type));
   }
 }
 
@@ -403,14 +407,14 @@ pp::common::Meta Ledger::Block::ltsToMeta() const {
 
   std::vector<pp::common::Meta::Value> recVals;
   recVals.reserve(records.size());
-  for (const auto &rec : records) {
+  for (const auto& rec : records) {
     recVals.push_back(std::make_shared<pp::common::Meta>(rec.ltsToMeta()));
   }
   j.set("records", pp::common::Meta::array(std::move(recVals)));
   if (!committee.empty()) {
     std::vector<pp::common::Meta::Value> members;
     members.reserve(committee.size());
-    for (const auto &member : committee) {
+    for (const auto& member : committee) {
       auto m = std::make_shared<pp::common::Meta>();
       m->setUIntForJson("id", member.id);
       m->setUIntForJson("stake", member.stake);
@@ -451,7 +455,7 @@ Ledger::Roe<void> Ledger::init(const InitConfig& config) {
   workDir_ = config.workDir;
   volumesDir_ = workDir_ + "/volumes";
   indexFilePath_ = workDir_ + "/ledger_index.dat";
-  
+
   // Verify work directory does NOT exist (fresh initialization)
   std::error_code ec;
   if (std::filesystem::exists(workDir_, ec)) {
@@ -484,9 +488,8 @@ Ledger::Roe<void> Ledger::init(const InitConfig& config) {
     return Error("Failed to save initial index");
   }
 
-  log().info << "Ledger initialized at " << workDir_ 
-            << " with startingBlockId=" << meta_.startingBlockId
-            << ", nextBlockId=" << getNextBlockId();
+  log().info << "Ledger initialized at " << workDir_ << " with startingBlockId=" << meta_.startingBlockId
+             << ", nextBlockId=" << getNextBlockId();
 
   return {};
 }
@@ -525,9 +528,8 @@ Ledger::Roe<void> Ledger::mount(const std::string& workDir) {
     return Error("Failed to mount VolumeStore: " + mountResult.error().message);
   }
 
-  log().info << "Ledger mounted successfully at " << workDir_ 
-            << " with startingBlockId=" << meta_.startingBlockId
-            << ", nextBlockId=" << getNextBlockId();
+  log().info << "Ledger mounted successfully at " << workDir_ << " with startingBlockId=" << meta_.startingBlockId
+             << ", nextBlockId=" << getNextBlockId();
 
   if (store_.getBlockCount() > 0) {
     auto result = readBlock(getNextBlockId() - 1);
@@ -546,19 +548,18 @@ Ledger::Roe<void> Ledger::addBlock(const Ledger::ChainNode& block) {
   // block's declared index would silently diverge.
   const uint64_t expectedIndex = getNextBlockId();
   if (block.block.index != expectedIndex) {
-    return Error("Block index mismatch: expected " +
-                 std::to_string(expectedIndex) + ", got " +
+    return Error("Block index mismatch: expected " + std::to_string(expectedIndex) + ", got " +
                  std::to_string(block.block.index));
   }
 
   // Serialize Block using Block::ltsToString()
   std::string blockData = block.block.ltsToString();
-  
+
   // Create RawBlock with serialized block data and hash
   RawBlock rawBlock;
   rawBlock.data = blockData;
   rawBlock.hash = block.hash;
-  
+
   // Append block to store
   auto appendResult = store_.appendBlock(utl::binaryPack(rawBlock));
   if (!appendResult.isOk()) {
@@ -581,8 +582,8 @@ Ledger::Roe<void> Ledger::addBlock(const Ledger::ChainNode& block) {
 Ledger::Roe<void> Ledger::rewindTo(uint64_t nextBlockId) {
   const uint64_t next = getNextBlockId();
   if (nextBlockId > next) {
-    return Error("Cannot rewind forward to block " + std::to_string(nextBlockId) + " (next is " +
-                 std::to_string(next) + ")");
+    return Error("Cannot rewind forward to block " + std::to_string(nextBlockId) + " (next is " + std::to_string(next) +
+                 ")");
   }
   if (nextBlockId < meta_.startingBlockId) {
     return Error("Cannot rewind below the ledger's first block " + std::to_string(meta_.startingBlockId));
@@ -597,10 +598,10 @@ Ledger::Roe<void> Ledger::rewindTo(uint64_t nextBlockId) {
   if (auto rewound = store_.rewindTo(nextBlockId - meta_.startingBlockId); !rewound) {
     return Error("Failed to rewind the block store: " + rewound.error().message);
   }
-  auto &checkpoints = meta_.checkpointIds;
-  checkpoints.erase(std::remove_if(checkpoints.begin(), checkpoints.end(),
-                                   [nextBlockId](uint64_t id) { return id >= nextBlockId; }),
-                    checkpoints.end());
+  auto& checkpoints = meta_.checkpointIds;
+  checkpoints.erase(
+      std::remove_if(checkpoints.begin(), checkpoints.end(), [nextBlockId](uint64_t id) { return id >= nextBlockId; }),
+      checkpoints.end());
   if (!saveIndex()) {
     return Error("Failed to save the index after rewinding");
   }
@@ -635,9 +636,8 @@ Ledger::Roe<void> Ledger::updateCheckpoints(const std::vector<uint64_t>& blockId
   size_t minSize = std::min(meta_.checkpointIds.size(), blockIds.size());
   for (size_t i = 0; i < minSize; ++i) {
     if (meta_.checkpointIds[i] != blockIds[i]) {
-      return Error("Checkpoint ID mismatch at index " + std::to_string(i) + 
-                   ": existing=" + std::to_string(meta_.checkpointIds[i]) + 
-                   ", new=" + std::to_string(blockIds[i]));
+      return Error("Checkpoint ID mismatch at index " + std::to_string(i) +
+                   ": existing=" + std::to_string(meta_.checkpointIds[i]) + ", new=" + std::to_string(blockIds[i]));
     }
   }
 
@@ -646,8 +646,8 @@ Ledger::Roe<void> Ledger::updateCheckpoints(const std::vector<uint64_t>& blockId
   uint64_t nextBlockId = getNextBlockId();
   for (uint64_t checkpointId : blockIds) {
     if (checkpointId >= nextBlockId) {
-      return Error("Checkpoint ID " + std::to_string(checkpointId) + 
-                   " exceeds or equals next block ID " + std::to_string(nextBlockId));
+      return Error("Checkpoint ID " + std::to_string(checkpointId) + " exceeds or equals next block ID " +
+                   std::to_string(nextBlockId));
     }
   }
 
@@ -669,17 +669,16 @@ Ledger::Roe<Ledger::ChainNode> Ledger::readBlock(uint64_t blockId) const {
   // Check if block ID is within valid range
   uint64_t nextBlockId = getNextBlockId();
   uint64_t blockCount = store_.getBlockCount();
-  
+
   // If ledger is empty, any read should fail
   if (blockCount == 0) {
-    return Error("Block ID " + std::to_string(blockId) + 
-                 " exceeds last block ID (ledger is empty)");
+    return Error("Block ID " + std::to_string(blockId) + " exceeds last block ID (ledger is empty)");
   }
-  
+
   // Block ID must be less than nextBlockId (i.e., <= last block ID)
   if (blockId >= nextBlockId) {
-    return Error("Block ID " + std::to_string(blockId) + 
-                 " exceeds or equals next block ID " + std::to_string(nextBlockId));
+    return Error("Block ID " + std::to_string(blockId) + " exceeds or equals next block ID " +
+                 std::to_string(nextBlockId));
   }
 
   uint64_t lastBlockId = nextBlockId - 1;
@@ -689,16 +688,15 @@ Ledger::Roe<Ledger::ChainNode> Ledger::readBlock(uint64_t blockId) const {
 
   // Convert blockId to store index: index = blockId - startingBlockId
   if (blockId < meta_.startingBlockId) {
-    return Error("Block ID " + std::to_string(blockId) + 
-                 " is less than starting block ID " + std::to_string(meta_.startingBlockId));
+    return Error("Block ID " + std::to_string(blockId) + " is less than starting block ID " +
+                 std::to_string(meta_.startingBlockId));
   }
   uint64_t index = blockId - meta_.startingBlockId;
 
   // Read block data from store
   auto readResult = store_.readBlock(index);
   if (!readResult.isOk()) {
-    return Error("Failed to read block " + std::to_string(blockId) + 
-                 ": " + readResult.error().message);
+    return Error("Failed to read block " + std::to_string(blockId) + ": " + readResult.error().message);
   }
 
   // Deserialize RawBlock from binary string
@@ -753,7 +751,7 @@ bool Ledger::loadIndex() {
 
   try {
     InputArchive ar(file);
-    
+
     // Read header
     IndexFileHeader header;
     ar & header;
@@ -782,8 +780,8 @@ bool Ledger::loadIndex() {
       return false;
     }
 
-    log().info << "Loaded index: startingBlockId=" << meta_.startingBlockId 
-              << ", checkpoints=" << meta_.checkpointIds.size();
+    log().info << "Loaded index: startingBlockId=" << meta_.startingBlockId
+               << ", checkpoints=" << meta_.checkpointIds.size();
 
     return true;
   } catch (const std::exception& e) {
@@ -838,7 +836,8 @@ Ledger::Roe<Ledger::ChainNode> Ledger::findBlockByTimestamp(int64_t timestamp) c
     uint64_t mid = low + (high - low) / 2;
     auto result = readBlock(mid);
     if (!result) {
-      return Error("Failed to read block " + std::to_string(mid) + " during findBlockByTimestamp: " + result.error().message);
+      return Error("Failed to read block " + std::to_string(mid) +
+                   " during findBlockByTimestamp: " + result.error().message);
     }
     if (result.value().block.timestamp >= timestamp) {
       high = mid;
@@ -854,7 +853,7 @@ Ledger::Roe<Ledger::ChainNode> Ledger::findBlockByTimestamp(int64_t timestamp) c
 
 Ledger::Roe<void> Ledger::cleanupData() {
   std::error_code ec;
-  
+
   if (std::filesystem::exists(volumesDir_, ec)) {
     std::filesystem::remove_all(volumesDir_, ec);
     if (ec) {
@@ -871,7 +870,7 @@ Ledger::Roe<void> Ledger::cleanupData() {
   }
 
   log().info << "Cleaned up ledger data at " << workDir_;
-  
+
   return {};
 }
 

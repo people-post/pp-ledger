@@ -27,33 +27,31 @@ namespace utl {
 
 // Initialize libsodium (safe to call multiple times)
 namespace {
-  struct SodiumInitializer {
-    SodiumInitializer() {
-      if (sodium_init() < 0) {
-        throw std::runtime_error("Failed to initialize libsodium");
-      }
+struct SodiumInitializer {
+  SodiumInitializer() {
+    if (sodium_init() < 0) {
+      throw std::runtime_error("Failed to initialize libsodium");
     }
-  };
-  static SodiumInitializer sodium_initializer;
-
-  ByteVector toBytes(const std::string &s) {
-    return ByteVector(reinterpret_cast<const uint8_t *>(s.data()),
-                      reinterpret_cast<const uint8_t *>(s.data()) + s.size());
   }
+};
+static SodiumInitializer sodium_initializer;
 
-  std::string fromBytes(const ByteVector &v) {
-    return std::string(reinterpret_cast<const char *>(v.data()), v.size());
-  }
+ByteVector toBytes(const std::string& s) {
+  return ByteVector(reinterpret_cast<const uint8_t*>(s.data()), reinterpret_cast<const uint8_t*>(s.data()) + s.size());
 }
 
+std::string fromBytes(const ByteVector& v) {
+  return std::string(reinterpret_cast<const char*>(v.data()), v.size());
+}
+} // namespace
+
 int64_t getCurrentTime() {
-  return std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
+  return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
 std::string formatTimestampLocal(int64_t unixSeconds) {
   time_t t = static_cast<time_t>(unixSeconds);
-  std::tm local {};
+  std::tm local{};
 #if defined(_WIN32)
   if (localtime_s(&local, &t) != 0) {
     return std::to_string(unixSeconds);
@@ -69,22 +67,22 @@ std::string formatTimestampLocal(int64_t unixSeconds) {
   return std::string(buf);
 }
 
-bool parseInt(const std::string &str, int &value) {
+bool parseInt(const std::string& str, int& value) {
   auto [ptr, ec] = std::from_chars(str.data(), str.data() + str.size(), value);
   return ec == std::errc{} && ptr == str.data() + str.size();
 }
 
-bool parseInt64(const std::string &str, int64_t &value) {
+bool parseInt64(const std::string& str, int64_t& value) {
   auto [ptr, ec] = std::from_chars(str.data(), str.data() + str.size(), value);
   return ec == std::errc{} && ptr == str.data() + str.size();
 }
 
-bool parseUInt64(const std::string &str, uint64_t &value) {
+bool parseUInt64(const std::string& str, uint64_t& value) {
   auto [ptr, ec] = std::from_chars(str.data(), str.data() + str.size(), value);
   return ec == std::errc{} && ptr == str.data() + str.size();
 }
 
-bool parsePort(const std::string &str, uint16_t &port) {
+bool parsePort(const std::string& str, uint16_t& port) {
   int portInt = 0;
   if (!parseInt(str, portInt)) {
     return false;
@@ -96,10 +94,9 @@ bool parsePort(const std::string &str, uint16_t &port) {
   return true;
 }
 
-bool parseHostPort(const std::string &hostPort, std::string &host, uint16_t &port) {
+bool parseHostPort(const std::string& hostPort, std::string& host, uint16_t& port) {
   size_t colonPos = hostPort.find_last_of(':');
-  if (colonPos == std::string::npos || colonPos == 0 ||
-      colonPos == hostPort.length() - 1) {
+  if (colonPos == std::string::npos || colonPos == 0 || colonPos == hostPort.length() - 1) {
     return false;
   }
 
@@ -108,7 +105,7 @@ bool parseHostPort(const std::string &hostPort, std::string &host, uint16_t &por
   return parsePort(portStr, port);
 }
 
-pp::Roe<pp::common::Object> loadJsonFile(const std::string &configPath) {
+pp::Roe<pp::common::Object> loadJsonFile(const std::string& configPath) {
   if (!std::filesystem::exists(configPath)) {
     return Error(1, "Configuration file not found: " + configPath);
   }
@@ -118,27 +115,26 @@ pp::Roe<pp::common::Object> loadJsonFile(const std::string &configPath) {
     return Error(2, "Failed to open configuration file: " + configPath);
   }
 
-  std::string content((std::istreambuf_iterator<char>(configFile)),
-                      std::istreambuf_iterator<char>());
+  std::string content((std::istreambuf_iterator<char>(configFile)), std::istreambuf_iterator<char>());
   configFile.close();
 
   auto parsed = pp::common::io::valueFromJsonString(content);
   if (!parsed.isOk()) {
     return Error(3, "Failed to parse JSON: " + parsed.error().message);
   }
-  const auto *obj = pp::common::asObject(parsed.value());
+  const auto* obj = pp::common::asObject(parsed.value());
   if (!obj) {
     return Error(3, "Configuration root must be a JSON object");
   }
   return *obj;
 }
 
-pp::Roe<pp::common::Object> parseJsonRequest(const std::string &request) {
+pp::Roe<pp::common::Object> parseJsonRequest(const std::string& request) {
   auto parsed = pp::common::io::valueFromJsonString(request);
   if (!parsed.isOk()) {
     return Error(1, "Failed to parse request JSON: " + parsed.error().message);
   }
-  const auto *obj = pp::common::asObject(parsed.value());
+  const auto* obj = pp::common::asObject(parsed.value());
   if (!obj) {
     return Error(2, "request root must be a JSON object");
   }
@@ -148,24 +144,21 @@ pp::Roe<pp::common::Object> parseJsonRequest(const std::string &request) {
   return *obj;
 }
 
-std::string sha256(const std::string &input) {
+std::string sha256(const std::string& input) {
   return hexEncode(sha256Raw(input));
 }
 
-std::string sha256Raw(const std::string &input) {
+std::string sha256Raw(const std::string& input) {
   unsigned char hash[crypto_hash_sha256_BYTES];
 
-  if (crypto_hash_sha256(hash,
-                         reinterpret_cast<const unsigned char*>(input.c_str()),
-                         input.size()) != 0) {
+  if (crypto_hash_sha256(hash, reinterpret_cast<const unsigned char*>(input.c_str()), input.size()) != 0) {
     throw std::runtime_error("crypto_hash_sha256 failed");
   }
 
-  return std::string(reinterpret_cast<const char *>(hash),
-                     crypto_hash_sha256_BYTES);
+  return std::string(reinterpret_cast<const char*>(hash), crypto_hash_sha256_BYTES);
 }
 
-std::string hexEncode(const std::string &data) {
+std::string hexEncode(const std::string& data) {
   std::stringstream ss;
   for (unsigned char c : data) {
     ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(c);
@@ -173,7 +166,7 @@ std::string hexEncode(const std::string &data) {
   return ss.str();
 }
 
-std::string hexDecode(const std::string &hex) {
+std::string hexDecode(const std::string& hex) {
   if (hex.size() % 2 != 0) {
     return {};
   }
@@ -182,20 +175,28 @@ std::string hexDecode(const std::string &hex) {
   for (size_t i = 0; i < hex.size(); i += 2) {
     int hi = 0, lo = 0;
     char c1 = hex[i], c2 = hex[i + 1];
-    if (c1 >= '0' && c1 <= '9') hi = c1 - '0';
-    else if (c1 >= 'a' && c1 <= 'f') hi = c1 - 'a' + 10;
-    else if (c1 >= 'A' && c1 <= 'F') hi = c1 - 'A' + 10;
-    else return {};
-    if (c2 >= '0' && c2 <= '9') lo = c2 - '0';
-    else if (c2 >= 'a' && c2 <= 'f') lo = c2 - 'a' + 10;
-    else if (c2 >= 'A' && c2 <= 'F') lo = c2 - 'A' + 10;
-    else return {};
+    if (c1 >= '0' && c1 <= '9')
+      hi = c1 - '0';
+    else if (c1 >= 'a' && c1 <= 'f')
+      hi = c1 - 'a' + 10;
+    else if (c1 >= 'A' && c1 <= 'F')
+      hi = c1 - 'A' + 10;
+    else
+      return {};
+    if (c2 >= '0' && c2 <= '9')
+      lo = c2 - '0';
+    else if (c2 >= 'a' && c2 <= 'f')
+      lo = c2 - 'a' + 10;
+    else if (c2 >= 'A' && c2 <= 'F')
+      lo = c2 - 'A' + 10;
+    else
+      return {};
     out.push_back(static_cast<char>((hi << 4) | lo));
   }
   return out;
 }
 
-std::string toJsonSafeString(const std::string &s) {
+std::string toJsonSafeString(const std::string& s) {
   for (unsigned char c : s) {
     if (c >= 128 || (c < 32 && c != ' ')) {
       return "0x" + hexEncode(s);
@@ -204,14 +205,14 @@ std::string toJsonSafeString(const std::string &s) {
   return s;
 }
 
-std::string fromJsonSafeString(const std::string &s) {
+std::string fromJsonSafeString(const std::string& s) {
   if (s.size() >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
     return hexDecode(s.substr(2));
   }
   return s;
 }
 
-pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &content) {
+pp::Roe<void> writeToNewFile(const std::string& filePath, const std::string& content) {
   if (std::filesystem::exists(filePath)) {
     return Error(1, "File already exists: " + filePath);
   }
@@ -236,7 +237,7 @@ pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &con
     }
     return Error(3, "Failed to open file for writing: " + filePath);
   }
-  const char *data = content.data();
+  const char* data = content.data();
   size_t remaining = content.size();
   while (remaining > 0) {
     const ssize_t n = ::write(fd, data, remaining);
@@ -267,12 +268,10 @@ pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &con
   }
 
   std::error_code permEc;
-  std::filesystem::permissions(
-      filePath, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
-      std::filesystem::perm_options::replace, permEc);
+  std::filesystem::permissions(filePath, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+                               std::filesystem::perm_options::replace, permEc);
   if (permEc) {
-    return Error(5, "Failed to set restrictive permissions on " + filePath +
-                        ": " + permEc.message());
+    return Error(5, "Failed to set restrictive permissions on " + filePath + ": " + permEc.message());
   }
 #endif
 
@@ -291,8 +290,7 @@ pp::common::Meta MlDsaKeyPair::ltsToMeta() const {
 pp::Roe<MlDsaKeyPair> mlDsaGenerate() {
   auto result = MlDsa::GenerateKeyPair();
   if (result.isError()) {
-    return Error(1, result.error().message.empty() ? "ML-DSA-65 keygen failed"
-                                                   : result.error().message);
+    return Error(1, result.error().message.empty() ? "ML-DSA-65 keygen failed" : result.error().message);
   }
   MlDsaKeyPair pair;
   pair.publicKey = fromBytes(result->public_key);
@@ -300,35 +298,29 @@ pp::Roe<MlDsaKeyPair> mlDsaGenerate() {
   return pair;
 }
 
-pp::Roe<std::string> mlDsaSign(const std::string &privateKey,
-                               const std::string &message) {
+pp::Roe<std::string> mlDsaSign(const std::string& privateKey, const std::string& message) {
   if (privateKey.size() != kMlDsaPrivateKeyBytes) {
-    return Error(1, "mlDsaSign: private key must be " +
-                        std::to_string(kMlDsaPrivateKeyBytes) + " bytes");
+    return Error(1, "mlDsaSign: private key must be " + std::to_string(kMlDsaPrivateKeyBytes) + " bytes");
   }
   auto result = MlDsa::Sign(toBytes(privateKey), toBytes(message));
   if (result.isError()) {
-    return Error(1, result.error().message.empty() ? "ML-DSA-65 sign failed"
-                                                   : result.error().message);
+    return Error(1, result.error().message.empty() ? "ML-DSA-65 sign failed" : result.error().message);
   }
   return fromBytes(*result);
 }
 
-bool mlDsaVerify(const std::string &publicKey, const std::string &message,
-                 const std::string &signature) {
-  if (publicKey.size() != kMlDsaPublicKeyBytes ||
-      signature.size() != kMlDsaSignatureBytes) {
+bool mlDsaVerify(const std::string& publicKey, const std::string& message, const std::string& signature) {
+  if (publicKey.size() != kMlDsaPublicKeyBytes || signature.size() != kMlDsaSignatureBytes) {
     return false;
   }
-  auto result =
-      MlDsa::Verify(toBytes(publicKey), toBytes(message), toBytes(signature));
+  auto result = MlDsa::Verify(toBytes(publicKey), toBytes(message), toBytes(signature));
   if (result.isError()) {
     return false;
   }
   return *result;
 }
 
-bool isValidMlDsaPublicKey(const std::string &str) {
+bool isValidMlDsaPublicKey(const std::string& str) {
   std::string raw;
   if (str.size() == kMlDsaPublicKeyBytes) {
     raw = str;
@@ -337,8 +329,7 @@ bool isValidMlDsaPublicKey(const std::string &str) {
     if (raw.size() != kMlDsaPublicKeyBytes) {
       return false;
     }
-  } else if (str.size() == kMlDsaPublicKeyBytes * 2 + 2 &&
-             (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))) {
+  } else if (str.size() == kMlDsaPublicKeyBytes * 2 + 2 && (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))) {
     raw = hexDecode(str.substr(2));
     if (raw.size() != kMlDsaPublicKeyBytes) {
       return false;
@@ -354,7 +345,7 @@ bool isValidMlDsaPublicKey(const std::string &str) {
   return false;
 }
 
-static std::string trimWhitespace(const std::string &s) {
+static std::string trimWhitespace(const std::string& s) {
   size_t start = s.find_first_not_of(" \t\r\n");
   if (start == std::string::npos) {
     return "";
@@ -366,22 +357,22 @@ static std::string trimWhitespace(const std::string &s) {
 namespace {
 
 bool isHexChar(char c) {
-  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-         (c >= 'A' && c <= 'F');
+  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
-bool isHexString(const std::string &s, size_t expectedLen) {
-  if (s.size() != expectedLen) return false;
+bool isHexString(const std::string& s, size_t expectedLen) {
+  if (s.size() != expectedLen)
+    return false;
   for (char c : s) {
-    if (!isHexChar(c)) return false;
+    if (!isHexChar(c))
+      return false;
   }
   return true;
 }
 
 } // namespace
 
-pp::Roe<std::string> readPrivateKey(const std::string &keyOrPath,
-                                    const std::string &baseDir) {
+pp::Roe<std::string> readPrivateKey(const std::string& keyOrPath, const std::string& baseDir) {
   if (keyOrPath.empty()) {
     return Error(1, "Key path or value cannot be empty");
   }
@@ -389,8 +380,7 @@ pp::Roe<std::string> readPrivateKey(const std::string &keyOrPath,
   if (!baseDir.empty()) {
     std::filesystem::path p(keyOrPath);
     if (p.is_relative()) {
-      resolvedPath =
-          (std::filesystem::path(baseDir) / p).lexically_normal().string();
+      resolvedPath = (std::filesystem::path(baseDir) / p).lexically_normal().string();
     }
   }
 
@@ -404,8 +394,7 @@ pp::Roe<std::string> readPrivateKey(const std::string &keyOrPath,
     if (!file.is_open()) {
       return Error(2, "Failed to read key from: " + keyOrPath);
     }
-    content.assign(std::istreambuf_iterator<char>(file),
-                   std::istreambuf_iterator<char>());
+    content.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
     if (content.size() == kMlDsaPrivateKeyBytes) {
       return content;
     }
@@ -419,8 +408,7 @@ pp::Roe<std::string> readPrivateKey(const std::string &keyOrPath,
 
   // Otherwise hex text: tolerate surrounding whitespace and a 0x prefix.
   content = trimWhitespace(content);
-  if (content.size() >= 2 && content[0] == '0' &&
-      (content[1] == 'x' || content[1] == 'X')) {
+  if (content.size() >= 2 && content[0] == '0' && (content[1] == 'x' || content[1] == 'X')) {
     content = content.substr(2);
   }
   if (content.empty()) {
@@ -430,14 +418,12 @@ pp::Roe<std::string> readPrivateKey(const std::string &keyOrPath,
   if (isHexString(content, hexLen)) {
     std::string raw = hexDecode(content);
     if (raw.size() != kMlDsaPrivateKeyBytes) {
-      return Error(3, "Invalid hex-encoded private key (expected " +
-                          std::to_string(hexLen) + " hex chars)");
+      return Error(3, "Invalid hex-encoded private key (expected " + std::to_string(hexLen) + " hex chars)");
     }
     return raw;
   }
-  return Error(4, "Private key must be " + std::to_string(kMlDsaPrivateKeyBytes) +
-                      " bytes raw or " + std::to_string(hexLen) +
-                      " hex characters, got " + std::to_string(content.size()));
+  return Error(4, "Private key must be " + std::to_string(kMlDsaPrivateKeyBytes) + " bytes raw or " +
+                      std::to_string(hexLen) + " hex characters, got " + std::to_string(content.size()));
 }
 
 } // namespace utl

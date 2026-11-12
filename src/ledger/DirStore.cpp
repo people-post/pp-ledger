@@ -7,42 +7,39 @@
 namespace pp {
 
 std::string DirStore::formatId(uint32_t id) {
-    std::ostringstream oss;
-    oss << std::setw(6) << std::setfill('0') << id;
-    return oss.str();
+  std::ostringstream oss;
+  oss << std::setw(6) << std::setfill('0') << id;
+  return oss.str();
 }
 
-std::string DirStore::getIndexFilePath(const std::string &dirPath) {
-    return dirPath + "/idx.dat";
+std::string DirStore::getIndexFilePath(const std::string& dirPath) {
+  return dirPath + "/idx.dat";
 }
 
-DirStore::Roe<void> DirStore::ensureDirectory(const std::string &dirPath) const {
-    std::error_code ec;
-    if (!std::filesystem::exists(dirPath, ec)) {
-        if (ec) {
-            log().error << "Failed to check directory existence " << dirPath
-                        << ": " << ec.message();
-            return Error("Failed to check directory: " + ec.message());
-        }
-        if (!std::filesystem::create_directories(dirPath, ec)) {
-            log().error << "Failed to create directory " << dirPath << ": "
-                        << ec.message();
-            return Error("Failed to create directory: " + ec.message());
-        }
-        log().info << "Created directory: " << dirPath;
-    } else if (ec) {
-        log().error << "Failed to check directory existence " << dirPath
-                    << ": " << ec.message();
-        return Error("Failed to check directory: " + ec.message());
+DirStore::Roe<void> DirStore::ensureDirectory(const std::string& dirPath) const {
+  std::error_code ec;
+  if (!std::filesystem::exists(dirPath, ec)) {
+    if (ec) {
+      log().error << "Failed to check directory existence " << dirPath << ": " << ec.message();
+      return Error("Failed to check directory: " + ec.message());
     }
-    return {};
+    if (!std::filesystem::create_directories(dirPath, ec)) {
+      log().error << "Failed to create directory " << dirPath << ": " << ec.message();
+      return Error("Failed to create directory: " + ec.message());
+    }
+    log().info << "Created directory: " << dirPath;
+  } else if (ec) {
+    log().error << "Failed to check directory existence " << dirPath << ": " << ec.message();
+    return Error("Failed to check directory: " + ec.message());
+  }
+  return {};
 }
 
 DirStore::Roe<void> DirStore::validateMinFileSize(size_t maxFileSize) const {
-    if (maxFileSize < static_cast<size_t>(1024) * 1024) {
-        return Error("Max file size shall be at least 1MB");
-    }
-    return {};
+  if (maxFileSize < static_cast<size_t>(1024) * 1024) {
+    return Error("Max file size shall be at least 1MB");
+  }
+  return {};
 }
 
 } // namespace pp

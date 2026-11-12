@@ -6,12 +6,13 @@
 
 namespace pp {
 
-BlockSync::BlockSync(Client &client, Hooks hooks) : BlockSync(client, std::move(hooks), Options{}) {}
+BlockSync::BlockSync(Client& client, Hooks hooks) : BlockSync(client, std::move(hooks), Options{}) {}
 
-BlockSync::BlockSync(Client &client, Hooks hooks, Options options)
+BlockSync::BlockSync(Client& client, Hooks hooks, Options options)
     : client_(client), hooks_(std::move(hooks)), options_(options) {}
 
-template <typename T, typename Fn> Client::Done<T> BlockSync::onServerThread(Fn fn) {
+template <typename T, typename Fn>
+Client::Done<T> BlockSync::onServerThread(Fn fn) {
   std::weak_ptr<int> alive = alive_;
   const uint64_t attempt = attempt_;
   return [this, alive, attempt, fn = std::move(fn)](Client::Roe<T> result) {
@@ -123,7 +124,7 @@ void BlockSync::syncToSignedTip() {
   beginRange(Phase::Authenticate, next, tip_.height + 1);
 }
 
-void BlockSync::syncToVouchedCutover(uint64_t height, std::string hash, const std::string &localTip) {
+void BlockSync::syncToVouchedCutover(uint64_t height, std::string hash, const std::string& localTip) {
   auto trail = hooks_.authorityTrail();
   if (!trail) {
     finish(false, "Beacon authority unavailable: " + trail.error().message);
@@ -157,7 +158,7 @@ void BlockSync::syncFresh(uint64_t next) {
       }
     }
   }
-  const auto &tip = status_.signedTip;
+  const auto& tip = status_.signedTip;
   if (cert && cert->hasCutover() && cert->cutoverHeight >= next && (!tip || tip->generation < cert->generation)) {
     targetHeight_ = cert->cutoverHeight;
     targetHash_ = cert->cutoverHash;
@@ -183,8 +184,8 @@ void BlockSync::syncFresh(uint64_t next) {
   authHashes_.clear();
   held_.clear();
   const bool pinned = hooks_.firstBlockHash && hooks_.firstBlockHash().has_value();
-  log().info << "No local blocks: authenticating blocks " << next << " to " << targetHeight_ << " from block "
-             << next << (pinned ? " (pinned)" : "") << (targetVouched_ ? " (a certificate's cutover)" : "");
+  log().info << "No local blocks: authenticating blocks " << next << " to " << targetHeight_ << " from block " << next
+             << (pinned ? " (pinned)" : "") << (targetVouched_ ? " (a certificate's cutover)" : "");
   beginRange(Phase::Authenticate, next, targetHeight_ + 1);
 }
 
@@ -217,10 +218,9 @@ void BlockSync::fetchMore() {
       continue; // kept from Authenticate, or already applied another way
     }
     ++outstanding_;
-    client_.fetchBlockAsync(blockId, onServerThread<Ledger::ChainNode>(
-                                         [this, blockId](Client::Roe<Ledger::ChainNode> result) {
-                                           onBlock(blockId, std::move(result));
-                                         }));
+    client_.fetchBlockAsync(
+        blockId, onServerThread<Ledger::ChainNode>(
+                     [this, blockId](Client::Roe<Ledger::ChainNode> result) { onBlock(blockId, std::move(result)); }));
   }
 }
 
@@ -267,26 +267,25 @@ void BlockSync::advance() {
 
 bool BlockSync::process(Ledger::ChainNode block) {
   if (block.block.index != nextToProcess_) {
-    finish(false, "Upstream sent block " + std::to_string(block.block.index) + " for " +
-                      std::to_string(nextToProcess_));
+    finish(false,
+           "Upstream sent block " + std::to_string(block.block.index) + " for " + std::to_string(nextToProcess_));
     return false;
   }
   ++processed_;
   switch (phase_) {
-  case Phase::Authenticate:
-    return authenticate(std::move(block));
-  case Phase::Apply:
-    return apply(std::move(block));
-  case Phase::Status:
-    break;
+    case Phase::Authenticate:
+      return authenticate(std::move(block));
+    case Phase::Apply:
+      return apply(std::move(block));
+    case Phase::Status:
+      break;
   }
   return true;
 }
 
-bool BlockSync::authenticateFirst(Ledger::ChainNode &block) {
+bool BlockSync::authenticateFirst(Ledger::ChainNode& block) {
   const std::string hash = chain_block::calculateBlockHash(block.block);
-  if (const auto pinned = hooks_.firstBlockHash ? hooks_.firstBlockHash() : std::nullopt;
-      pinned && *pinned != hash) {
+  if (const auto pinned = hooks_.firstBlockHash ? hooks_.firstBlockHash() : std::nullopt; pinned && *pinned != hash) {
     finish(false, "Block " + std::to_string(nextToProcess_) + " is not the pinned first block");
     return false;
   }
@@ -304,8 +303,8 @@ bool BlockSync::authenticateFirst(Ledger::ChainNode &block) {
   if (hooks_.checkStartingAuthority) {
     if (auto vetted = hooks_.checkStartingAuthority(nextToProcess_, trail.value().authority(), trail.value().admin());
         !vetted) {
-      finish(false, "Block " + std::to_string(nextToProcess_) + " carries an authority this node does not accept: " +
-                        vetted.error().message);
+      finish(false, "Block " + std::to_string(nextToProcess_) +
+                        " carries an authority this node does not accept: " + vetted.error().message);
       return false;
     }
   }
@@ -354,25 +353,25 @@ bool BlockSync::apply(Ledger::ChainNode block) {
 
 void BlockSync::endPhase() {
   switch (phase_) {
-  case Phase::Authenticate:
-    if (linkHash_ != targetHash_) {
-      finish(false, "Blocks up to " + std::to_string(targetHeight_) + " do not lead to the " +
-                        (targetVouched_ ? "block the certificate vouches for" : "signed tip"));
+    case Phase::Authenticate:
+      if (linkHash_ != targetHash_) {
+        finish(false, "Blocks up to " + std::to_string(targetHeight_) + " do not lead to the " +
+                          (targetVouched_ ? "block the certificate vouches for" : "signed tip"));
+        return;
+      }
+      if (freshStart_ && freshCertificate_ && !acceptFreshCertificate()) {
+        return;
+      }
+      if (!targetVouched_ && !verifyTip()) {
+        return;
+      }
+      beginRange(Phase::Apply, authBase_, target_);
       return;
-    }
-    if (freshStart_ && freshCertificate_ && !acceptFreshCertificate()) {
+    case Phase::Apply:
+      finish(true, {});
       return;
-    }
-    if (!targetVouched_ && !verifyTip()) {
+    case Phase::Status:
       return;
-    }
-    beginRange(Phase::Apply, authBase_, target_);
-    return;
-  case Phase::Apply:
-    finish(true, {});
-    return;
-  case Phase::Status:
-    return;
   }
 }
 

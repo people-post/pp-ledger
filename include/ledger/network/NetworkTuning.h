@@ -48,8 +48,7 @@ struct NetworkTuning {
   std::chrono::milliseconds channelReadTimeout() const { return dataTimeoutFor(rpcTimeout); }
 
   /** Copy the amp policy into a link config. */
-  void applyTo(pp::amp::PeerLinkConfig &config) const;
-
+  void applyTo(pp::amp::PeerLinkConfig& config) const;
 };
 
 } // namespace network

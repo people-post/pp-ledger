@@ -10,19 +10,18 @@
 
 namespace pp {
 
-chain_tx::Roe<const Ledger::TxMiner *> MinerTxHandler::expect(const Ledger::TypedTx &tx) const {
+chain_tx::Roe<const Ledger::TxMiner*> MinerTxHandler::expect(const Ledger::TypedTx& tx) const {
   if (registering_) {
-    if (const auto *p = std::get_if<Ledger::TxMinerRegister>(&tx)) {
-      return static_cast<const Ledger::TxMiner *>(p);
+    if (const auto* p = std::get_if<Ledger::TxMinerRegister>(&tx)) {
+      return static_cast<const Ledger::TxMiner*>(p);
     }
-  } else if (const auto *p = std::get_if<Ledger::TxMinerRevoke>(&tx)) {
-    return static_cast<const Ledger::TxMiner *>(p);
+  } else if (const auto* p = std::get_if<Ledger::TxMinerRevoke>(&tx)) {
+    return static_cast<const Ledger::TxMiner*>(p);
   }
   return chain_tx::TxError(chain_err::E_INTERNAL, "Expected a miner registration transaction");
 }
 
-chain_tx::Roe<uint64_t> MinerTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
-                                                           uint64_t /*slotLeaderId*/) const {
+chain_tx::Roe<uint64_t> MinerTxHandler::getSignerAccountId(const Ledger::TypedTx& tx, uint64_t /*slotLeaderId*/) const {
   auto p = expect(tx);
   if (!p) {
     return p.error();
@@ -30,7 +29,7 @@ chain_tx::Roe<uint64_t> MinerTxHandler::getSignerAccountId(const Ledger::TypedTx
   return p.value()->walletId;
 }
 
-chain_tx::Roe<bool> MinerTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx, uint64_t walletId) const {
+chain_tx::Roe<bool> MinerTxHandler::matchesWalletForIndex(const Ledger::TypedTx& tx, uint64_t walletId) const {
   auto p = expect(tx);
   if (!p) {
     return p.error();
@@ -38,8 +37,8 @@ chain_tx::Roe<bool> MinerTxHandler::matchesWalletForIndex(const Ledger::TypedTx 
   return p.value()->walletId == walletId;
 }
 
-chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
-MinerTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
+chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>> MinerTxHandler::getIdempotencyKey(
+    const Ledger::TypedTx& tx) const {
   auto p = expect(tx);
   if (!p) {
     return p.error();
@@ -50,13 +49,13 @@ MinerTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
   return std::optional<std::pair<uint64_t, uint64_t>>(std::make_pair(p.value()->walletId, p.value()->idempotentId));
 }
 
-chain_tx::Roe<void> MinerTxHandler::applyBuffer(const Ledger::TypedTx &tx, AccountBuffer &bank,
-                                                const BufferApplyContext &c) const {
+chain_tx::Roe<void> MinerTxHandler::applyBuffer(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                                const BufferApplyContext& c) const {
   auto p = expect(tx);
   if (!p) {
     return p.error();
   }
-  const Ledger::TxMiner &m = *p.value();
+  const Ledger::TxMiner& m = *p.value();
   if (auto idem = validateIdempotencyUsingContext(c.ctx, m.idempotentId, m.walletId, m.validationTsMin,
                                                   m.validationTsMax, c.effectiveSlot, c.admissionMode,
                                                   /*requireNonZeroId=*/true);
@@ -72,13 +71,13 @@ chain_tx::Roe<void> MinerTxHandler::applyBuffer(const Ledger::TypedTx &tx, Accou
   return applyMiner(m, c.ctx, bank, c.effectiveSlot, chain_block::BlockAdmissionMode::Full);
 }
 
-chain_tx::Roe<void> MinerTxHandler::applyBlock(const Ledger::TypedTx &tx, AccountBuffer &bank,
-                                               const BlockApplyContext &c) const {
+chain_tx::Roe<void> MinerTxHandler::applyBlock(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                               const BlockApplyContext& c) const {
   auto p = expect(tx);
   if (!p) {
     return p.error();
   }
-  const Ledger::TxMiner &m = *p.value();
+  const Ledger::TxMiner& m = *p.value();
   if (auto idem = validateIdempotencyUsingContext(c.ctx, m.idempotentId, m.walletId, m.validationTsMin,
                                                   m.validationTsMax, c.blockSlot, c.admissionMode,
                                                   /*requireNonZeroId=*/true);
@@ -88,8 +87,8 @@ chain_tx::Roe<void> MinerTxHandler::applyBlock(const Ledger::TypedTx &tx, Accoun
   return applyMiner(m, c.ctx, bank, c.blockSlot, c.admissionMode);
 }
 
-chain_tx::Roe<void> MinerTxHandler::checkRegisterAllowed(const Ledger::TxMiner &tx, const TxContext &ctx,
-                                                         const Client::Wallet &wallet, uint64_t slot) const {
+chain_tx::Roe<void> MinerTxHandler::checkRegisterAllowed(const Ledger::TxMiner& tx, const TxContext& ctx,
+                                                         const Client::Wallet& wallet, uint64_t slot) const {
   if (AccountIds::isSystemAccount(tx.walletId)) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "System accounts cannot be miners");
   }
@@ -97,7 +96,7 @@ chain_tx::Roe<void> MinerTxHandler::checkRegisterAllowed(const Ledger::TxMiner &
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "Account is already a registered miner: " + std::to_string(tx.walletId));
   }
-  const BlockChainConfig &config = ctx.optChainConfig.value();
+  const BlockChainConfig& config = ctx.optChainConfig.value();
   const uint64_t deregistered = wallet.miner.autoDeregisteredEpoch;
   if (deregistered != Client::MinerState::kNever && config.minerReregisterCooldownEpochs > 0) {
     const uint64_t epoch = ctx.consensus.getEpochFromSlot(slot);
@@ -118,12 +117,12 @@ chain_tx::Roe<void> MinerTxHandler::checkRegisterAllowed(const Ledger::TxMiner &
   return {};
 }
 
-chain_tx::Roe<void> MinerTxHandler::applyMiner(const Ledger::TxMiner &tx, const TxContext &ctx, AccountBuffer &bank,
+chain_tx::Roe<void> MinerTxHandler::applyMiner(const Ledger::TxMiner& tx, const TxContext& ctx, AccountBuffer& bank,
                                                uint64_t slot, chain_block::BlockAdmissionMode admissionMode) const {
   if (!ctx.optChainConfig.has_value()) {
     return chain_tx::TxError(chain_err::E_STATE_INIT, "Chain config required for miner registration");
   }
-  const BlockChainConfig &config = ctx.optChainConfig.value();
+  const BlockChainConfig& config = ctx.optChainConfig.value();
   if (chain_block::admissionTxStrict(admissionMode)) {
     if (!ctx.fnBillableCustomMetaSizeForFee.has_value()) {
       return chain_tx::TxError(chain_err::E_INTERNAL, "Fee-meta size extractor not configured on TxContext");
@@ -135,10 +134,9 @@ chain_tx::Roe<void> MinerTxHandler::applyMiner(const Ledger::TxMiner &tx, const 
     }
     const uint64_t flat = registering_ ? config.minerRegistrationFee : 0;
     if (flat > std::numeric_limits<uint64_t>::max() - metaFee.value() || tx.fee < metaFee.value() + flat) {
-      return chain_tx::TxError(chain_err::E_TX_FEE,
-                               std::string(registering_ ? "Miner registration" : "Miner revoke") +
-                                   " fee below minimum " + std::to_string(metaFee.value() + flat) + ": " +
-                                   std::to_string(tx.fee));
+      return chain_tx::TxError(chain_err::E_TX_FEE, std::string(registering_ ? "Miner registration" : "Miner revoke") +
+                                                        " fee below minimum " + std::to_string(metaFee.value() + flat) +
+                                                        ": " + std::to_string(tx.fee));
     }
   }
 
@@ -157,7 +155,7 @@ chain_tx::Roe<void> MinerTxHandler::applyMiner(const Ledger::TxMiner &tx, const 
       return allowed;
     }
     miner.registered = true;
-    miner.lastProducedSlot = slot;  // a new miner is not due straight away
+    miner.lastProducedSlot = slot; // a new miner is not due straight away
     miner.missedDue = 0;
     miner.autoDeregisteredEpoch = Client::MinerState::kNever;
   } else {
@@ -170,8 +168,7 @@ chain_tx::Roe<void> MinerTxHandler::applyMiner(const Ledger::TxMiner &tx, const 
   }
 
   if (tx.fee > 0) {
-    if (auto paid = bank.withdrawBalance(tx.walletId, AccountBuffer::ID_GENESIS, static_cast<int64_t>(tx.fee));
-        !paid) {
+    if (auto paid = bank.withdrawBalance(tx.walletId, AccountBuffer::ID_GENESIS, static_cast<int64_t>(tx.fee)); !paid) {
       return chain_tx::TxError(chain_err::E_ACCOUNT_BALANCE, "Failed to pay miner fee: " + paid.error().message);
     }
     if (auto credited = chain_tx::creditFeeToFeeAccount(bank, tx.fee, "Failed to credit miner fee: "); !credited) {

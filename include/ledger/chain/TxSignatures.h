@@ -21,10 +21,9 @@ namespace pp::chain_tx {
  */
 constexpr size_t kMaxSignatureCount = 32;
 
-Roe<void> verifySignaturesAgainstAccount(
-    const std::string &message, const std::vector<std::string> &signatures,
-    const AccountBuffer::Account &account, const Crypto &crypto,
-    logging::Logger &logger);
+Roe<void> verifySignaturesAgainstAccount(const std::string& message, const std::vector<std::string>& signatures,
+                                         const AccountBuffer::Account& account, const Crypto& crypto,
+                                         logging::Logger& logger);
 
 } // namespace pp::chain_tx
 

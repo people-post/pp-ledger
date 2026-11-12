@@ -13,8 +13,8 @@ public:
 
   bool isSupported(uint8_t keyType) const;
   std::string name(uint8_t keyType) const;
-  bool verify(uint8_t keyType, const std::string &publicKey,
-              const std::string &message, const std::string &signature) const;
+  bool verify(uint8_t keyType, const std::string& publicKey, const std::string& message,
+              const std::string& signature) const;
 };
 
 } // namespace pp

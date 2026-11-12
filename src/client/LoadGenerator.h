@@ -22,8 +22,8 @@ namespace pp::load {
 
 /** What a request may be in a mix. */
 enum class Kind {
-  TxAdd,      ///< a valid transfer between two funded accounts
-  TxJunk,     ///< a transfer that decodes but is badly signed: the pool takes it, no block will
+  TxAdd,  ///< a valid transfer between two funded accounts
+  TxJunk, ///< a transfer that decodes but is badly signed: the pool takes it, no block will
   Status,
   AccountGet,
   BlockGet,
@@ -34,11 +34,11 @@ enum class Kind {
 };
 
 std::string kindName(Kind kind);
-std::optional<Kind> kindFromName(const std::string &name);
+std::optional<Kind> kindFromName(const std::string& name);
 
 /** Weighted kinds: "tx_add=10,status=1". */
 using Mix = std::vector<std::pair<Kind, uint32_t>>;
-pp::Roe<Mix> parseMix(const std::string &spec);
+pp::Roe<Mix> parseMix(const std::string& spec);
 
 /** What became of one request, from its reply. */
 enum class Outcome {
@@ -54,7 +54,7 @@ enum class Outcome {
 };
 
 std::string outcomeName(Outcome outcome);
-Outcome classify(Kind kind, const Client::Roe<std::string> &reply);
+Outcome classify(Kind kind, const Client::Roe<std::string>& reply);
 
 /** Latency samples, ms. */
 class Latencies {
@@ -76,21 +76,22 @@ struct Account {
 };
 
 /** accounts.json: {"networkId": ..., "accounts": [{"id": n, "key": "<hex>"}]}. */
-pp::Roe<void> writeAccounts(const std::string &path, const std::string &networkId, const std::vector<Account> &accounts);
-pp::Roe<std::vector<Account>> readAccounts(const std::string &path, std::string &networkId);
+pp::Roe<void> writeAccounts(const std::string& path, const std::string& networkId,
+                            const std::vector<Account>& accounts);
+pp::Roe<std::vector<Account>> readAccounts(const std::string& path, std::string& networkId);
 
 /** A transfer of `amount` from `from` to `to` with `fee`, signed for `networkId` (badly when `junk`). */
-pp::Roe<Ledger::Record> transfer(const Account &from, uint64_t to, uint64_t amount, uint64_t fee,
-                                 const std::string &networkId, bool junk = false);
+pp::Roe<Ledger::Record> transfer(const Account& from, uint64_t to, uint64_t amount, uint64_t fee,
+                                 const std::string& networkId, bool junk = false);
 
 struct RunConfig {
-  std::string host;     ///< multiaddr of the node to load (a relay, or the beacon)
+  std::string host; ///< multiaddr of the node to load (a relay, or the beacon)
   Mix mix{{Kind::TxAdd, 1}};
-  double rate{10};      ///< requests per second, all kinds
+  double rate{10}; ///< requests per second, all kinds
   std::chrono::seconds duration{10};
-  uint64_t burst{0};    ///< transfers sent at once, at burstAt
+  uint64_t burst{0}; ///< transfers sent at once, at burstAt
   std::chrono::seconds burstAt{0};
-  size_t peers{4};      ///< client identities (the server's limits are per peer)
+  size_t peers{4}; ///< client identities (the server's limits are per peer)
   uint64_t amount{1};
   uint64_t fee{1};
   /**
@@ -114,12 +115,12 @@ struct KindReport {
 struct RunReport {
   std::map<Kind, KindReport> kinds;
   double seconds{0};
-  uint64_t validSent{0}; ///< valid transfers sent
-  uint64_t taken{0};     ///< of those, answered as pooled
-  uint64_t included{0};  ///< of those sent, seen in a block (taken or not)
+  uint64_t validSent{0};        ///< valid transfers sent
+  uint64_t taken{0};            ///< of those, answered as pooled
+  uint64_t included{0};         ///< of those sent, seen in a block (taken or not)
   uint64_t includedNotTaken{0}; ///< included although the reply was an error: a retry would pay twice
-  Latencies inclusionMs;     ///< from send to the block, as the loaded node served it
-  Latencies inclusionBlocks; ///< blocks from the tip at send to the block that included it
+  Latencies inclusionMs;        ///< from send to the block, as the loaded node served it
+  Latencies inclusionBlocks;    ///< blocks from the tip at send to the block that included it
   uint64_t firstBlock{0};
   uint64_t lastBlock{0};
   uint64_t junkIncluded{0}; ///< must stay 0
@@ -129,12 +130,12 @@ struct RunReport {
 };
 
 /** Run the load on `cfg.host` with `accounts` (at least two for transfers). */
-pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &accounts);
+pp::Roe<RunReport> run(const RunConfig& cfg, const std::vector<Account>& accounts);
 
 struct SetupConfig {
   std::string host;
-  uint64_t from{0};                     ///< the funding account
-  std::vector<std::string> fromKeys;    ///< its private keys (as many as it needs)
+  uint64_t from{0};                  ///< the funding account
+  std::vector<std::string> fromKeys; ///< its private keys (as many as it needs)
   size_t accounts{100};
   uint64_t amount{100000};
   uint64_t fee{1};
@@ -142,7 +143,7 @@ struct SetupConfig {
 };
 
 /** Create `cfg.accounts` funded accounts (T_NEW_USER from `cfg.from`); returns those that exist. */
-pp::Roe<std::vector<Account>> setup(const SetupConfig &cfg, std::string &networkId);
+pp::Roe<std::vector<Account>> setup(const SetupConfig& cfg, std::string& networkId);
 
 } // namespace pp::load
 

@@ -26,7 +26,7 @@ public:
   AccountStateTree clone() const;
 
   /** Insert or replace leaf value (32-byte digest). */
-  void setLeaf(uint64_t key, const std::string &leafHash);
+  void setLeaf(uint64_t key, const std::string& leafHash);
 
   /** Remove leaf (revert to empty subtree). */
   void clearLeaf(uint64_t key);
@@ -37,19 +37,19 @@ public:
    */
   std::vector<std::string> siblings(uint64_t key) const;
   /** The root `leafHash` at `key` and its `siblings` (leaf level first) make. */
-  static std::string rootFrom(uint64_t key, const std::string &leafHash, const std::vector<std::string> &siblings);
+  static std::string rootFrom(uint64_t key, const std::string& leafHash, const std::vector<std::string>& siblings);
   /** The leaf of a key nobody holds. */
-  static const std::string &emptyLeaf() { return emptyAt(0); }
+  static const std::string& emptyLeaf() { return emptyAt(0); }
   /** Whether `sibling` at `height` (0: the leaf's) is the empty subtree's: proofs leave those out. */
-  static bool isEmptyAt(int height, const std::string &sibling) { return sibling == emptyAt(height); }
+  static bool isEmptyAt(int height, const std::string& sibling) { return sibling == emptyAt(height); }
   /** The empty subtree of `height`, to put back what a proof left out. */
-  static const std::string &emptySubtree(int height) { return emptyAt(height); }
+  static const std::string& emptySubtree(int height) { return emptyAt(height); }
 
   /** Current root digest (32 bytes). */
-  const std::string &root() const { return rootHash_; }
+  const std::string& root() const { return rootHash_; }
 
   /** Empty-tree root (same for all fresh trees). */
-  static const std::string &emptyRoot();
+  static const std::string& emptyRoot();
 
 private:
   struct Node {
@@ -61,13 +61,11 @@ private:
   std::shared_ptr<Node> root_;
   std::string rootHash_;
 
-  static const std::string &emptyAt(int height);
-  static std::string hashInternal(const std::string &left,
-                                  const std::string &right);
-  static std::shared_ptr<Node>
-  setRec(const std::shared_ptr<Node> &node, uint64_t key, int height,
-         const std::string &leafHash, bool clear);
-  static std::string nodeHash(const std::shared_ptr<Node> &node, int height);
+  static const std::string& emptyAt(int height);
+  static std::string hashInternal(const std::string& left, const std::string& right);
+  static std::shared_ptr<Node> setRec(const std::shared_ptr<Node>& node, uint64_t key, int height,
+                                      const std::string& leafHash, bool clear);
+  static std::string nodeHash(const std::shared_ptr<Node>& node, int height);
 };
 
 } // namespace pp

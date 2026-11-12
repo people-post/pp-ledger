@@ -10,8 +10,7 @@ namespace consensus {
 
 EpochManager::EpochManager() {}
 
-void EpochManager::initializeEpoch(uint64_t epochNumber,
-                                   const std::string &nonce) {
+void EpochManager::initializeEpoch(uint64_t epochNumber, const std::string& nonce) {
   EpochInfo info;
   info.number = epochNumber;
   info.nonce = nonce;
@@ -22,22 +21,19 @@ void EpochManager::initializeEpoch(uint64_t epochNumber,
 
   epochs_[epochNumber] = info;
 
-  log().info << "Initialized epoch " + std::to_string(epochNumber) +
-                    " [slots " + std::to_string(info.startSlot) + "-" +
+  log().info << "Initialized epoch " + std::to_string(epochNumber) + " [slots " + std::to_string(info.startSlot) + "-" +
                     std::to_string(info.endSlot) + "]";
 }
 
-void EpochManager::finalizeEpoch(uint64_t epochNumber,
-                                 const std::vector<std::string> &blockHashes) {
+void EpochManager::finalizeEpoch(uint64_t epochNumber, const std::vector<std::string>& blockHashes) {
   auto it = epochs_.find(epochNumber);
   if (it == epochs_.end()) {
-    log().warning << "Cannot finalize uninitialized epoch " +
-                         std::to_string(epochNumber);
+    log().warning << "Cannot finalize uninitialized epoch " + std::to_string(epochNumber);
     return;
   }
 
-  log().info << "Finalized epoch " + std::to_string(epochNumber) + " with " +
-                    std::to_string(blockHashes.size()) + " blocks";
+  log().info << "Finalized epoch " + std::to_string(epochNumber) + " with " + std::to_string(blockHashes.size()) +
+                    " blocks";
 }
 
 EpochManager::EpochInfo EpochManager::getEpochInfo(uint64_t epochNumber) const {
@@ -64,9 +60,7 @@ EpochManager::EpochInfo EpochManager::getCurrentEpochInfo() const {
 
 uint64_t EpochManager::getCurrentEpoch() const {
   auto now = std::chrono::system_clock::now();
-  int64_t currentTime =
-      std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
-          .count();
+  int64_t currentTime = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
 
   // Cache result for performance
   if (currentTime == lastUpdateTime_) {
@@ -84,20 +78,17 @@ bool EpochManager::isEpochInitialized(uint64_t epochNumber) const {
   return epochs_.find(epochNumber) != epochs_.end();
 }
 
-void EpochManager::setSlotLeader(uint64_t epochNumber, uint64_t slot,
-                                 const std::string &leader) {
+void EpochManager::setSlotLeader(uint64_t epochNumber, uint64_t slot, const std::string& leader) {
   auto it = epochs_.find(epochNumber);
   if (it == epochs_.end()) {
-    log().warning << "Cannot set slot leader for uninitialized epoch " +
-                         std::to_string(epochNumber);
+    log().warning << "Cannot set slot leader for uninitialized epoch " + std::to_string(epochNumber);
     return;
   }
 
   it->second.slotLeaders[slot] = leader;
 }
 
-std::string EpochManager::getSlotLeader(uint64_t epochNumber,
-                                        uint64_t slot) const {
+std::string EpochManager::getSlotLeader(uint64_t epochNumber, uint64_t slot) const {
   auto it = epochs_.find(epochNumber);
   if (it == epochs_.end()) {
     return "";
@@ -128,9 +119,7 @@ void EpochManager::setSlotDuration(uint64_t duration) {
 
 uint64_t EpochManager::getCurrentSlot() const {
   auto now = std::chrono::system_clock::now();
-  int64_t currentTime =
-      std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
-          .count();
+  int64_t currentTime = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
 
   if (currentTime < genesisTime_) {
     return 0;

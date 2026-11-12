@@ -44,39 +44,35 @@ RecordHandler::RecordHandler() {
   install(Ledger::T_BEACON_SEED, std::make_unique<BeaconSeedTxHandler>());
 }
 
-ITxHandler *RecordHandler::get(std::size_t type) {
+ITxHandler* RecordHandler::get(std::size_t type) {
   return type < handlers_.size() ? handlers_[type].get() : nullptr;
 }
 
-const ITxHandler *RecordHandler::get(std::size_t type) const {
+const ITxHandler* RecordHandler::get(std::size_t type) const {
   return type < handlers_.size() ? handlers_[type].get() : nullptr;
 }
 
-chain_tx::Roe<std::pair<const ITxHandler *, Ledger::TypedTx>>
-RecordHandler::decodeWithHandler(const Ledger::Record &rec) const {
+chain_tx::Roe<std::pair<const ITxHandler*, Ledger::TypedTx>> RecordHandler::decodeWithHandler(
+    const Ledger::Record& rec) const {
   auto typedRoe = rec.decode();
   if (!typedRoe) {
-    return chain_tx::TxError(
-        chain_err::E_INVALID_ARGUMENT,
-        "Invalid packed transaction payload: " + typedRoe.error().message);
+    return chain_tx::TxError(chain_err::E_INVALID_ARGUMENT,
+                             "Invalid packed transaction payload: " + typedRoe.error().message);
   }
-  const ITxHandler *handler = get(rec.type);
+  const ITxHandler* handler = get(rec.type);
   if (!handler) {
-    return chain_tx::TxError(
-        chain_err::E_INTERNAL,
-        "Transaction handler not registered for type " +
-            std::to_string(rec.type));
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "Transaction handler not registered for type " + std::to_string(rec.type));
   }
   return std::make_pair(handler, typedRoe.value());
 }
 
-bool RecordHandler::matchesWalletForIndex(const Ledger::Record &rec,
-                                          uint64_t walletId) const {
+bool RecordHandler::matchesWalletForIndex(const Ledger::Record& rec, uint64_t walletId) const {
   auto typedRoe = rec.decode();
   if (!typedRoe) {
     return false;
   }
-  const ITxHandler *handler = get(rec.type);
+  const ITxHandler* handler = get(rec.type);
   if (!handler) {
     return false;
   }
@@ -84,27 +80,21 @@ bool RecordHandler::matchesWalletForIndex(const Ledger::Record &rec,
   return matchRoe && matchRoe.value();
 }
 
-chain_tx::Roe<uint64_t>
-RecordHandler::getSignerAccountId(const Ledger::Record &rec,
-                                  uint64_t slotLeaderId) const {
+chain_tx::Roe<uint64_t> RecordHandler::getSignerAccountId(const Ledger::Record& rec, uint64_t slotLeaderId) const {
   auto decoded = decodeWithHandler(rec);
   if (!decoded) {
     return decoded.error();
   }
-  auto signerRoe =
-      decoded.value().first->getSignerAccountId(decoded.value().second,
-                                                slotLeaderId);
+  auto signerRoe = decoded.value().first->getSignerAccountId(decoded.value().second, slotLeaderId);
   if (!signerRoe) {
-    return chain_tx::TxError(
-        chain_err::E_TX_SIGNATURE,
-        "Failed to resolve signer account id: " + signerRoe.error().message);
+    return chain_tx::TxError(chain_err::E_TX_SIGNATURE,
+                             "Failed to resolve signer account id: " + signerRoe.error().message);
   }
   return signerRoe.value();
 }
 
-chain_tx::Roe<void>
-RecordHandler::applyBuffer(const Ledger::Record &rec, AccountBuffer &bank,
-                           const BufferApplyContext &ctx) const {
+chain_tx::Roe<void> RecordHandler::applyBuffer(const Ledger::Record& rec, AccountBuffer& bank,
+                                               const BufferApplyContext& ctx) const {
   auto decoded = decodeWithHandler(rec);
   if (!decoded) {
     return decoded.error();
@@ -115,9 +105,8 @@ RecordHandler::applyBuffer(const Ledger::Record &rec, AccountBuffer &bank,
   return decoded.value().first->applyBuffer(decoded.value().second, bank, ctx);
 }
 
-chain_tx::Roe<void>
-RecordHandler::applyBlock(const Ledger::Record &rec, AccountBuffer &bank,
-                          const BlockApplyContext &ctx) const {
+chain_tx::Roe<void> RecordHandler::applyBlock(const Ledger::Record& rec, AccountBuffer& bank,
+                                              const BlockApplyContext& ctx) const {
   auto decoded = decodeWithHandler(rec);
   if (!decoded) {
     return decoded.error();
@@ -128,18 +117,18 @@ RecordHandler::applyBlock(const Ledger::Record &rec, AccountBuffer &bank,
   return decoded.value().first->applyBlock(decoded.value().second, bank, ctx);
 }
 
-chain_tx::Roe<void> RecordHandler::checkNotFrozen(const Ledger::Record &rec, const ITxHandler &handler,
-                                                  const Ledger::TypedTx &tx, const AccountBuffer &bank,
-                                                  const AccountBuffer &committed) const {
+chain_tx::Roe<void> RecordHandler::checkNotFrozen(const Ledger::Record& rec, const ITxHandler& handler,
+                                                  const Ledger::TypedTx& tx, const AccountBuffer& bank,
+                                                  const AccountBuffer& committed) const {
   switch (rec.type) {
-  case Ledger::T_DEFAULT:
-  case Ledger::T_NEW_USER:
-  case Ledger::T_USER_UPDATE:
-  case Ledger::T_MINER_REGISTER:
-  case Ledger::T_MINER_REVOKE:
-    break;
-  default: // signed by a leader, a recovery set, the admin set, or not at all
-    return {};
+    case Ledger::T_DEFAULT:
+    case Ledger::T_NEW_USER:
+    case Ledger::T_USER_UPDATE:
+    case Ledger::T_MINER_REGISTER:
+    case Ledger::T_MINER_REVOKE:
+      break;
+    default: // signed by a leader, a recovery set, the admin set, or not at all
+      return {};
   }
   auto signer = handler.getSignerAccountId(tx, 0);
   if (!signer) {
@@ -158,7 +147,7 @@ chain_tx::Roe<void> RecordHandler::checkNotFrozen(const Ledger::Record &rec, con
   return {};
 }
 
-void RecordHandler::redirectLoggers(const std::string &baseName) {
+void RecordHandler::redirectLoggers(const std::string& baseName) {
   for (std::size_t i = 0; i < handlers_.size(); ++i) {
     if (!handlers_[i]) {
       continue;
@@ -167,22 +156,20 @@ void RecordHandler::redirectLoggers(const std::string &baseName) {
   }
 }
 
-std::optional<std::string>
-RecordHandler::getUserAccountMeta(const Ledger::Record &rec,
-                                  uint64_t accountId) const {
+std::optional<std::string> RecordHandler::getUserAccountMeta(const Ledger::Record& rec, uint64_t accountId) const {
   auto typedRoe = rec.decode();
   if (!typedRoe) {
     return std::nullopt;
   }
-  const ITxHandler *handler = get(rec.type);
+  const ITxHandler* handler = get(rec.type);
   if (!handler) {
     return std::nullopt;
   }
   return handler->getUserAccountMetaForTx(typedRoe.value(), accountId);
 }
 
-chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
-RecordHandler::getIdempotencyKey(const Ledger::Record &rec) const {
+chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>> RecordHandler::getIdempotencyKey(
+    const Ledger::Record& rec) const {
   auto typedRoe = rec.decode();
   if (!typedRoe) {
     return std::optional<std::pair<uint64_t, uint64_t>>{};
@@ -190,46 +177,43 @@ RecordHandler::getIdempotencyKey(const Ledger::Record &rec) const {
   if (rec.type >= kNumTxTypes) {
     return std::optional<std::pair<uint64_t, uint64_t>>{};
   }
-  const ITxHandler *handler = get(rec.type);
+  const ITxHandler* handler = get(rec.type);
   if (!handler) {
     return std::optional<std::pair<uint64_t, uint64_t>>{};
   }
   return handler->getIdempotencyKey(typedRoe.value());
 }
 
-std::optional<std::string>
-RecordHandler::getGenesisAccountMeta(const Ledger::Record &rec,
-                                     const Ledger::Block &block) const {
+std::optional<std::string> RecordHandler::getGenesisAccountMeta(const Ledger::Record& rec,
+                                                                const Ledger::Block& block) const {
   auto typedRoe = rec.decode();
   if (!typedRoe) {
     return std::nullopt;
   }
-  const ITxHandler *handler = get(rec.type);
+  const ITxHandler* handler = get(rec.type);
   if (!handler) {
     return std::nullopt;
   }
   return handler->getGenesisAccountMetaForTx(typedRoe.value(), block);
 }
 
-chain_tx::Roe<size_t>
-RecordHandler::getBillableCustomMetaSizeForFee(const BlockChainConfig &config,
-                                               const Ledger::TypedTx &tx) const {
+chain_tx::Roe<size_t> RecordHandler::getBillableCustomMetaSizeForFee(const BlockChainConfig& config,
+                                                                     const Ledger::TypedTx& tx) const {
   const auto type = static_cast<std::size_t>(Ledger::typeOf(tx));
-  const ITxHandler *handler = get(type);
+  const ITxHandler* handler = get(type);
   if (!handler) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "Transaction handler not registered for type " +
-                                 std::to_string(type));
+                             "Transaction handler not registered for type " + std::to_string(type));
   }
   return handler->getBillableCustomMetaSizeForFee(config, tx);
 }
 
-chain_tx::Roe<uint64_t> minimumFeeFor(const BlockChainConfig &config, const Ledger::TypedTx &tx, bool afterGenesis) {
+chain_tx::Roe<uint64_t> minimumFeeFor(const BlockChainConfig& config, const Ledger::TypedTx& tx, bool afterGenesis) {
   static const RecordHandler handler;
-  auto fee = chain_tx::calculateMinimumFeeForTransaction(
-      config, tx, [](const BlockChainConfig &cfg, const Ledger::TypedTx &t) {
-        return handler.getBillableCustomMetaSizeForFee(cfg, t);
-      });
+  auto fee = chain_tx::calculateMinimumFeeForTransaction(config, tx,
+                                                         [](const BlockChainConfig& cfg, const Ledger::TypedTx& t) {
+                                                           return handler.getBillableCustomMetaSizeForFee(cfg, t);
+                                                         });
   if (!fee || !afterGenesis || !std::holds_alternative<Ledger::TxNewUser>(tx)) {
     return fee;
   }

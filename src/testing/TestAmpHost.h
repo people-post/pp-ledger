@@ -28,14 +28,14 @@ inline network::LedgerAmpConfig freshAmpIdentity() {
  * drives from a thread of its own, advertising a protocol of its own.
  */
 struct TestAmpHost {
-  static constexpr const char *kProtocol = "/pp-mesh/test/1.0.0";
+  static constexpr const char* kProtocol = "/pp-mesh/test/1.0.0";
 
   std::unique_ptr<pp::amp::AmpStack> stack;
   std::string listen;
   std::thread pump;
   std::atomic<bool> stopping{false};
 
-  void start(const std::shared_ptr<pp::adp::MemoryDatagramHub> &hub, const pp::adp::IpEndpoint &address) {
+  void start(const std::shared_ptr<pp::adp::MemoryDatagramHub>& hub, const pp::adp::IpEndpoint& address) {
     auto config = freshAmpIdentity();
     pp::amp::AmpStack::Config stackConfig;
     stackConfig.identity = config.identity;

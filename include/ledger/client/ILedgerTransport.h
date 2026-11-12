@@ -23,12 +23,12 @@ class ILedgerTransport {
 public:
   virtual ~ILedgerTransport() = default;
 
-  template <typename T> using Roe = ResultOrError<T, LedgerTransportError>;
+  template <typename T>
+  using Roe = ResultOrError<T, LedgerTransportError>;
 
   virtual bool requiresRemoteEndpoint() const { return true; }
 
-  virtual Roe<std::string> roundTrip(const std::string &requestBody,
-                                     std::chrono::milliseconds timeout) = 0;
+  virtual Roe<std::string> roundTrip(const std::string& requestBody, std::chrono::milliseconds timeout) = 0;
 
   using Done = std::function<void(Roe<std::string>)>;
 
@@ -37,8 +37,7 @@ public:
    * It may run on a transport thread (AMP: the io lane), so it must not touch
    * caller state directly. Default: blocking roundTrip(), `done` inline.
    */
-  virtual void roundTripAsync(const std::string &requestBody,
-                              std::chrono::milliseconds timeout, Done done) {
+  virtual void roundTripAsync(const std::string& requestBody, std::chrono::milliseconds timeout, Done done) {
     done(roundTrip(requestBody, timeout));
   }
 };

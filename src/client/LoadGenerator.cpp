@@ -33,41 +33,49 @@ using pp::common::Value;
 
 namespace {
 
-const std::vector<std::pair<Kind, std::string>> &kindNames() {
-  static const std::vector<std::pair<Kind, std::string>> names = {
-      {Kind::TxAdd, "tx_add"},           {Kind::TxJunk, "tx_junk"},       {Kind::Status, "status"},
-      {Kind::AccountGet, "account_get"}, {Kind::BlockGet, "block_get"}, {Kind::TxByWallet, "tx_get_by_wallet"},
-      {Kind::Big, "big"},           {Kind::BlockWait, "block_wait"}, {Kind::Register, "register"}};
+const std::vector<std::pair<Kind, std::string>>& kindNames() {
+  static const std::vector<std::pair<Kind, std::string>> names = {{Kind::TxAdd, "tx_add"},
+                                                                  {Kind::TxJunk, "tx_junk"},
+                                                                  {Kind::Status, "status"},
+                                                                  {Kind::AccountGet, "account_get"},
+                                                                  {Kind::BlockGet, "block_get"},
+                                                                  {Kind::TxByWallet, "tx_get_by_wallet"},
+                                                                  {Kind::Big, "big"},
+                                                                  {Kind::BlockWait, "block_wait"},
+                                                                  {Kind::Register, "register"}};
   return names;
 }
 
-bool contains(const std::string &text, const char *part) {
+bool contains(const std::string& text, const char* part) {
   std::string lower = text;
-  std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  std::transform(lower.begin(), lower.end(), lower.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return lower.find(part) != std::string::npos;
 }
 
-bool isTransfer(Kind kind) { return kind == Kind::TxAdd || kind == Kind::TxJunk; }
+bool isTransfer(Kind kind) {
+  return kind == Kind::TxAdd || kind == Kind::TxJunk;
+}
 
 uint32_t requestType(Kind kind) {
   switch (kind) {
-  case Kind::TxAdd:
-  case Kind::TxJunk:
-    return Client::T_REQ_TX_ADD;
-  case Kind::Status:
-    return Client::T_REQ_STATUS;
-  case Kind::AccountGet:
-    return Client::T_REQ_ACCOUNT_GET;
-  case Kind::BlockGet:
-    return Client::T_REQ_BLOCK_GET;
-  case Kind::TxByWallet:
-    return Client::T_REQ_TX_GET_BY_WALLET;
-  case Kind::Big:
-    return Client::T_REQ_BLOCK_ADD;
-  case Kind::BlockWait:
-    return Client::T_REQ_BLOCK_WAIT;
-  case Kind::Register:
-    return Client::T_REQ_REGISTER;
+    case Kind::TxAdd:
+    case Kind::TxJunk:
+      return Client::T_REQ_TX_ADD;
+    case Kind::Status:
+      return Client::T_REQ_STATUS;
+    case Kind::AccountGet:
+      return Client::T_REQ_ACCOUNT_GET;
+    case Kind::BlockGet:
+      return Client::T_REQ_BLOCK_GET;
+    case Kind::TxByWallet:
+      return Client::T_REQ_TX_GET_BY_WALLET;
+    case Kind::Big:
+      return Client::T_REQ_BLOCK_ADD;
+    case Kind::BlockWait:
+      return Client::T_REQ_BLOCK_WAIT;
+    case Kind::Register:
+      return Client::T_REQ_REGISTER;
   }
   return 0;
 }
@@ -77,7 +85,7 @@ int64_t nowSeconds() {
 }
 
 /** An error message with its numbers masked ("account N"), cut to 100 characters: one line per kind. */
-std::string errorKind(const std::string &message) {
+std::string errorKind(const std::string& message) {
   std::string out;
   for (size_t i = 0; i < message.size() && out.size() < 100; ++i) {
     if (std::isdigit(static_cast<unsigned char>(message[i]))) {
@@ -99,7 +107,7 @@ double msSince(Clock::time_point t) {
 } // namespace
 
 std::string kindName(Kind kind) {
-  for (const auto &[k, name] : kindNames()) {
+  for (const auto& [k, name] : kindNames()) {
     if (k == kind) {
       return name;
     }
@@ -107,8 +115,8 @@ std::string kindName(Kind kind) {
   return "?";
 }
 
-std::optional<Kind> kindFromName(const std::string &name) {
-  for (const auto &[k, n] : kindNames()) {
+std::optional<Kind> kindFromName(const std::string& name) {
+  for (const auto& [k, n] : kindNames()) {
     if (n == name) {
       return k;
     }
@@ -116,7 +124,7 @@ std::optional<Kind> kindFromName(const std::string &name) {
   return std::nullopt;
 }
 
-pp::Roe<Mix> parseMix(const std::string &spec) {
+pp::Roe<Mix> parseMix(const std::string& spec) {
   Mix mix;
   std::stringstream in(spec);
   std::string item;
@@ -134,7 +142,7 @@ pp::Roe<Mix> parseMix(const std::string &spec) {
     if (eq != std::string::npos) {
       try {
         weight = static_cast<uint32_t>(std::stoul(item.substr(eq + 1)));
-      } catch (const std::exception &) {
+      } catch (const std::exception&) {
         return pp::Error("Bad weight in the mix: '" + item + "'");
       }
     }
@@ -150,29 +158,29 @@ pp::Roe<Mix> parseMix(const std::string &spec) {
 
 std::string outcomeName(Outcome outcome) {
   switch (outcome) {
-  case Outcome::Taken:
-    return "taken";
-  case Outcome::Duplicate:
-    return "duplicate";
-  case Outcome::PoolFull:
-    return "pool_full";
-  case Outcome::Served:
-    return "served";
-  case Outcome::Busy:
-    return "busy";
-  case Outcome::Expired:
-    return "expired";
-  case Outcome::Timeout:
-    return "timeout";
-  case Outcome::Unsent:
-    return "unsent";
-  case Outcome::Refused:
-    return "refused";
+    case Outcome::Taken:
+      return "taken";
+    case Outcome::Duplicate:
+      return "duplicate";
+    case Outcome::PoolFull:
+      return "pool_full";
+    case Outcome::Served:
+      return "served";
+    case Outcome::Busy:
+      return "busy";
+    case Outcome::Expired:
+      return "expired";
+    case Outcome::Timeout:
+      return "timeout";
+    case Outcome::Unsent:
+      return "unsent";
+    case Outcome::Refused:
+      return "refused";
   }
   return "?";
 }
 
-Outcome classify(Kind kind, const Client::Roe<std::string> &reply) {
+Outcome classify(Kind kind, const Client::Roe<std::string>& reply) {
   if (reply) {
     if (!isTransfer(kind)) {
       return Outcome::Served;
@@ -180,19 +188,19 @@ Outcome classify(Kind kind, const Client::Roe<std::string> &reply) {
     return contains(reply.value(), "already submitted") ? Outcome::Duplicate : Outcome::Taken;
   }
   switch (reply.error().code) { // the node's own word first (LR007)
-  case Client::E_BUSY:
-  case Client::E_RATE_LIMITED:
-    return Outcome::Busy;
-  case Client::E_POOL_FULL:
-    return Outcome::PoolFull;
-  case Client::E_UPSTREAM_TIMEOUT:
-    return Outcome::Timeout;
-  case Client::E_EXPIRED:
-    return Outcome::Expired;
-  default:
-    break;
+    case Client::E_BUSY:
+    case Client::E_RATE_LIMITED:
+      return Outcome::Busy;
+    case Client::E_POOL_FULL:
+      return Outcome::PoolFull;
+    case Client::E_UPSTREAM_TIMEOUT:
+      return Outcome::Timeout;
+    case Client::E_EXPIRED:
+      return Outcome::Expired;
+    default:
+      break;
   }
-  const std::string &message = reply.error().message;
+  const std::string& message = reply.error().message;
   if (Client::isTransportError(reply.error().code)) {
     // Sent and not answered in time, or never sent: no link (a dial that timed out or backs off), no
     // channel, no free place to the peer.
@@ -223,16 +231,18 @@ double Latencies::quantile(double q) const {
   return sorted[static_cast<size_t>(std::llround(rank))];
 }
 
-double Latencies::max() const { return samples_.empty() ? 0 : *std::max_element(samples_.begin(), samples_.end()); }
+double Latencies::max() const {
+  return samples_.empty() ? 0 : *std::max_element(samples_.begin(), samples_.end());
+}
 
 // ============ accounts ============
 
-pp::Roe<void> writeAccounts(const std::string &path, const std::string &networkId,
-                            const std::vector<Account> &accounts) {
+pp::Roe<void> writeAccounts(const std::string& path, const std::string& networkId,
+                            const std::vector<Account>& accounts) {
   Object root;
   root.set("networkId", networkId);
   std::vector<Value> list;
-  for (const auto &account : accounts) {
+  for (const auto& account : accounts) {
     auto entry = std::make_shared<Object>();
     entry->setUIntForJson("id", account.id);
     entry->set("key", utl::hexEncode(account.privateKey));
@@ -251,20 +261,20 @@ pp::Roe<void> writeAccounts(const std::string &path, const std::string &networkI
   return {};
 }
 
-pp::Roe<std::vector<Account>> readAccounts(const std::string &path, std::string &networkId) {
+pp::Roe<std::vector<Account>> readAccounts(const std::string& path, std::string& networkId) {
   auto json = utl::loadJsonFile(path);
   if (!json) {
     return pp::Error("Cannot read " + path + ": " + json.error().message);
   }
-  const Object &root = json.value();
+  const Object& root = json.value();
   networkId = root.getString("networkId").value_or("");
-  const auto *list = root.getArray("accounts");
+  const auto* list = root.getArray("accounts");
   if (!list) {
     return pp::Error(path + ": no `accounts`");
   }
   std::vector<Account> accounts;
-  for (const auto &value : list->elements) {
-    const auto *entry = pp::common::asObject(value);
+  for (const auto& value : list->elements) {
+    const auto* entry = pp::common::asObject(value);
     if (!entry) {
       return pp::Error(path + ": an account is not an object");
     }
@@ -283,11 +293,11 @@ pp::Roe<std::vector<Account>> readAccounts(const std::string &path, std::string 
 
 namespace {
 
-uint64_t randomId(std::mt19937_64 &rng) {
+uint64_t randomId(std::mt19937_64& rng) {
   return std::uniform_int_distribution<uint64_t>(AccountIds::ID_FIRST_USER, AccountIds::ID_LIMIT - 1)(rng);
 }
 
-void setWindow(Ledger::TxIdempotencyWindow &tx, std::mt19937_64 &rng) {
+void setWindow(Ledger::TxIdempotencyWindow& tx, std::mt19937_64& rng) {
   const int64_t now = nowSeconds();
   tx.idempotentId = std::uniform_int_distribution<uint64_t>(1, UINT64_MAX)(rng);
   tx.validationTsMin = now - 60;
@@ -295,9 +305,9 @@ void setWindow(Ledger::TxIdempotencyWindow &tx, std::mt19937_64 &rng) {
 }
 
 /** Sign `record` with each of `keys` for `networkId`. */
-pp::Roe<void> sign(Ledger::Record &record, const std::vector<std::string> &keys, const std::string &networkId) {
+pp::Roe<void> sign(Ledger::Record& record, const std::vector<std::string>& keys, const std::string& networkId) {
   const std::string message = record.signingMessage(networkId);
-  for (const auto &key : keys) {
+  for (const auto& key : keys) {
     auto signature = utl::mlDsaSign(key, message);
     if (!signature) {
       return pp::Error(signature.error().message);
@@ -307,14 +317,16 @@ pp::Roe<void> sign(Ledger::Record &record, const std::vector<std::string> &keys,
   return {};
 }
 
-std::string keyOf(const Ledger::Record &record) { return utl::sha256Raw(utl::binaryPack(record)); }
+std::string keyOf(const Ledger::Record& record) {
+  return utl::sha256Raw(utl::binaryPack(record));
+}
 
 thread_local std::mt19937_64 tlsRng{std::random_device{}()};
 
 } // namespace
 
-pp::Roe<Ledger::Record> transfer(const Account &from, uint64_t to, uint64_t amount, uint64_t fee,
-                                 const std::string &networkId, bool junk) {
+pp::Roe<Ledger::Record> transfer(const Account& from, uint64_t to, uint64_t amount, uint64_t fee,
+                                 const std::string& networkId, bool junk) {
   Ledger::TxDefault tx;
   tx.fromWalletId = from.id;
   tx.toWalletId = to;
@@ -343,7 +355,7 @@ struct Peer {
   Client client;
 };
 
-pp::Roe<std::unique_ptr<Peer>> connect(const std::string &host) {
+pp::Roe<std::unique_ptr<Peer>> connect(const std::string& host) {
   auto keys = utl::mlDsaGenerate();
   if (!keys) {
     return pp::Error("Cannot make a client identity: " + keys.error().message);
@@ -381,12 +393,12 @@ struct Sent {
 
 } // namespace
 
-pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &accounts) {
+pp::Roe<RunReport> run(const RunConfig& cfg, const std::vector<Account>& accounts) {
   if (cfg.rate <= 0 || cfg.peers == 0) {
     return pp::Error("rate and peers must be positive");
   }
-  const bool transfers = cfg.burst > 0 || std::any_of(cfg.mix.begin(), cfg.mix.end(),
-                                                      [](const auto &k) { return isTransfer(k.first); });
+  const bool transfers =
+      cfg.burst > 0 || std::any_of(cfg.mix.begin(), cfg.mix.end(), [](const auto& k) { return isTransfer(k.first); });
   if (transfers && accounts.size() < 2) {
     return pp::Error("Transfers need at least two funded accounts (pp-client load-setup)");
   }
@@ -399,7 +411,7 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
     }
     peers.push_back(std::move(peer.value()));
   }
-  Peer &watcher = *peers.back();
+  Peer& watcher = *peers.back();
   auto state = watcher.client.fetchBeaconState();
   if (!state) {
     return pp::Error("Cannot reach " + cfg.host + ": " + state.error().message);
@@ -413,12 +425,12 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
   // Plan every request.
   std::mt19937_64 rng{std::random_device{}()};
   uint32_t totalWeight = 0;
-  for (const auto &[kind, weight] : cfg.mix) {
+  for (const auto& [kind, weight] : cfg.mix) {
     totalWeight += weight;
   }
   auto pickKind = [&]() {
     uint32_t r = std::uniform_int_distribution<uint32_t>(0, totalWeight - 1)(rng);
-    for (const auto &[kind, weight] : cfg.mix) {
+    for (const auto& [kind, weight] : cfg.mix) {
       if (r < weight) {
         return kind;
       }
@@ -426,12 +438,12 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
     }
     return cfg.mix.front().first;
   };
-  auto pickAccount = [&]() -> const Account & {
+  auto pickAccount = [&]() -> const Account& {
     return accounts[std::uniform_int_distribution<size_t>(0, accounts.size() - 1)(rng)];
   };
   auto planTransfer = [&](Kind kind, Clock::duration at) -> pp::Roe<Planned> {
-    const Account &from = pickAccount();
-    const Account *to = &pickAccount();
+    const Account& from = pickAccount();
+    const Account* to = &pickAccount();
     while (to->id == from.id) {
       to = &pickAccount();
     }
@@ -444,7 +456,8 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
   std::vector<Planned> plan;
   const auto total = static_cast<uint64_t>(cfg.rate * static_cast<double>(cfg.duration.count()));
   for (uint64_t i = 0; i < total; ++i) {
-    const auto at = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(static_cast<double>(i) / cfg.rate));
+    const auto at =
+        std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(static_cast<double>(i) / cfg.rate));
     const Kind kind = pickKind();
     if (isTransfer(kind)) {
       auto planned = planTransfer(kind, at);
@@ -463,7 +476,7 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
     }
     plan.push_back(std::move(planned.value()));
   }
-  std::stable_sort(plan.begin(), plan.end(), [](const Planned &a, const Planned &b) { return a.at < b.at; });
+  std::stable_sort(plan.begin(), plan.end(), [](const Planned& a, const Planned& b) { return a.at < b.at; });
 
   // Shared with the reply callbacks (AMP io lanes, which may outlive this call) and the watcher.
   struct Shared {
@@ -475,9 +488,9 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
     Clock::time_point lastInclusion = Clock::now();
   };
   auto shared = std::make_shared<Shared>();
-  std::mutex &mu = shared->mu;
-  RunReport &report = shared->report;
-  auto &sent = shared->sent;
+  std::mutex& mu = shared->mu;
+  RunReport& report = shared->report;
+  auto& sent = shared->sent;
   report.firstBlock = tip;
 
   std::atomic<bool> watching{true};
@@ -493,7 +506,7 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
             break; // again next round
           }
           std::lock_guard<std::mutex> lock(mu);
-          for (const auto &record : block.value().block.records) {
+          for (const auto& record : block.value().block.records) {
             auto it = sent.find(keyOf(record));
             if (it == sent.end() || it->second.included) {
               continue;
@@ -518,40 +531,40 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
   // Send, open loop.
   const auto start = Clock::now();
   size_t peerIndex = 0;
-  for (const auto &planned : plan) {
+  for (const auto& planned : plan) {
     std::this_thread::sleep_until(start + planned.at);
     std::string payload = planned.payload;
     switch (planned.kind) {
-    case Kind::AccountGet:
-      payload = utl::binaryPack(pickAccount().id);
-      break;
-    case Kind::BlockGet:
-      payload = utl::binaryPack(std::uniform_int_distribution<uint64_t>(0, std::max<uint64_t>(tip, 1) - 1)(rng));
-      break;
-    case Kind::TxByWallet: {
-      Client::TxGetByWalletRequest request;
-      request.walletId = pickAccount().id;
-      payload = utl::binaryPack(request);
-      break;
-    }
-    case Kind::Big: {
-      static const std::string big(4 * 1024 * 1024 - 4096, 'b'); // under the RPC's limit, no block
-      payload = big;
-      break;
-    }
-    case Kind::BlockWait:
-      payload = utl::binaryPack(tip);
-      break;
-    case Kind::Register: {
-      Client::MinerInfo info; // a signature of the right size, so the beacon verifies it
-      info.id = pickAccount().id;
-      info.issuedAt = nowSeconds();
-      info.signatures = {std::string(utl::kMlDsaSignatureBytes, 'r')};
-      payload = utl::binaryPack(info.ltsToMeta());
-      break;
-    }
-    default:
-      break;
+      case Kind::AccountGet:
+        payload = utl::binaryPack(pickAccount().id);
+        break;
+      case Kind::BlockGet:
+        payload = utl::binaryPack(std::uniform_int_distribution<uint64_t>(0, std::max<uint64_t>(tip, 1) - 1)(rng));
+        break;
+      case Kind::TxByWallet: {
+        Client::TxGetByWalletRequest request;
+        request.walletId = pickAccount().id;
+        payload = utl::binaryPack(request);
+        break;
+      }
+      case Kind::Big: {
+        static const std::string big(4 * 1024 * 1024 - 4096, 'b'); // under the RPC's limit, no block
+        payload = big;
+        break;
+      }
+      case Kind::BlockWait:
+        payload = utl::binaryPack(tip);
+        break;
+      case Kind::Register: {
+        Client::MinerInfo info; // a signature of the right size, so the beacon verifies it
+        info.id = pickAccount().id;
+        info.issuedAt = nowSeconds();
+        info.signatures = {std::string(utl::kMlDsaSignatureBytes, 'r')};
+        payload = utl::binaryPack(info.ltsToMeta());
+        break;
+      }
+      default:
+        break;
     }
     const auto sentAt = Clock::now();
     {
@@ -563,26 +576,27 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
         report.validSent += planned.kind == Kind::TxAdd ? 1 : 0;
       }
     }
-    Peer &peer = *peers[peerIndex++ % cfg.peers];
-    peer.client.requestAsync(requestType(planned.kind), payload,
-                             [shared, kind = planned.kind, key = planned.key, sentAt](Client::Roe<std::string> reply) {
-                               const Outcome outcome = classify(kind, reply);
-                               std::lock_guard<std::mutex> lock(shared->mu);
-                               auto &k = shared->report.kinds[kind];
-                               ++k.outcomes[outcome];
-                               k.latencyMs.add(msSince(sentAt));
-                               if (!reply) {
-                                 ++k.errors[errorKind(reply.error().message)];
-                               }
-                               if (kind == Kind::TxAdd && (outcome == Outcome::Taken || outcome == Outcome::Duplicate)) {
-                                 ++shared->report.taken;
-                                 shared->sent[key].taken = true;
-                               }
-                               if (--shared->outstanding == 0) {
-                                 shared->repliesDone.notify_all();
-                               }
-                             },
-                             cfg.timeout);
+    Peer& peer = *peers[peerIndex++ % cfg.peers];
+    peer.client.requestAsync(
+        requestType(planned.kind), payload,
+        [shared, kind = planned.kind, key = planned.key, sentAt](Client::Roe<std::string> reply) {
+          const Outcome outcome = classify(kind, reply);
+          std::lock_guard<std::mutex> lock(shared->mu);
+          auto& k = shared->report.kinds[kind];
+          ++k.outcomes[outcome];
+          k.latencyMs.add(msSince(sentAt));
+          if (!reply) {
+            ++k.errors[errorKind(reply.error().message)];
+          }
+          if (kind == Kind::TxAdd && (outcome == Outcome::Taken || outcome == Outcome::Duplicate)) {
+            ++shared->report.taken;
+            shared->sent[key].taken = true;
+          }
+          if (--shared->outstanding == 0) {
+            shared->repliesDone.notify_all();
+          }
+        },
+        cfg.timeout);
   }
   report.seconds = std::chrono::duration<double>(Clock::now() - start).count();
 
@@ -607,11 +621,11 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
   }
   watching = false;
   follow.join();
-  for (auto &peer : peers) {
+  for (auto& peer : peers) {
     peer->runtime.Stop();
   }
   std::lock_guard<std::mutex> lock(mu);
-  for (const auto &[key, entry] : sent) {
+  for (const auto& [key, entry] : sent) {
     report.includedNotTaken += entry.valid && entry.included && !entry.taken ? 1 : 0;
   }
   return report;
@@ -632,22 +646,22 @@ std::string fixed(double v, int digits = 1) {
 std::string RunReport::text() const {
   std::ostringstream out;
   uint64_t sentTotal = 0;
-  for (const auto &[kind, k] : kinds) {
+  for (const auto& [kind, k] : kinds) {
     sentTotal += k.sent;
   }
   out << "Sent " << sentTotal << " requests in " << fixed(seconds) << " s ("
       << fixed(seconds > 0 ? static_cast<double>(sentTotal) / seconds : 0) << "/s)\n";
-  for (const auto &[kind, k] : kinds) {
+  for (const auto& [kind, k] : kinds) {
     out << "  " << kindName(kind) << ": sent " << k.sent;
-    for (const auto &[outcome, n] : k.outcomes) {
+    for (const auto& [outcome, n] : k.outcomes) {
       out << ", " << outcomeName(outcome) << " " << n;
     }
     out << "; reply ms p50 " << fixed(k.latencyMs.quantile(0.5)) << " p99 " << fixed(k.latencyMs.quantile(0.99))
         << " max " << fixed(k.latencyMs.max()) << "\n";
   }
-  for (const auto &[kind, k] : kinds) {
+  for (const auto& [kind, k] : kinds) {
     std::vector<std::pair<uint64_t, std::string>> top;
-    for (const auto &[message, n] : k.errors) {
+    for (const auto& [message, n] : k.errors) {
       top.emplace_back(n, message);
     }
     std::sort(top.rbegin(), top.rend());
@@ -655,8 +669,8 @@ std::string RunReport::text() const {
       out << "    " << kindName(kind) << " error x" << top[i].first << ": " << top[i].second << "\n";
     }
   }
-  out << "Transfers sent " << validSent << ", taken " << taken << ", included " << included << " (blocks "
-      << firstBlock << "-" << lastBlock << ")";
+  out << "Transfers sent " << validSent << ", taken " << taken << ", included " << included << " (blocks " << firstBlock
+      << "-" << lastBlock << ")";
   if (included > 0) {
     out << "; inclusion s p50 " << fixed(inclusionMs.quantile(0.5) / 1000) << " p99 "
         << fixed(inclusionMs.quantile(0.99) / 1000) << ", blocks p50 " << fixed(inclusionBlocks.quantile(0.5), 0)
@@ -676,11 +690,11 @@ Object RunReport::json() const {
   Object root;
   root.set("seconds", seconds);
   std::vector<Value> list;
-  for (const auto &[kind, k] : kinds) {
+  for (const auto& [kind, k] : kinds) {
     auto entry = std::make_shared<Object>();
     entry->set("kind", kindName(kind));
     entry->setUIntForJson("sent", k.sent);
-    for (const auto &[outcome, n] : k.outcomes) {
+    for (const auto& [outcome, n] : k.outcomes) {
       entry->setUIntForJson(outcomeName(outcome), n);
     }
     entry->set("replyMsP50", k.latencyMs.quantile(0.5));
@@ -706,7 +720,7 @@ Object RunReport::json() const {
 
 // ============ setup ============
 
-pp::Roe<std::vector<Account>> setup(const SetupConfig &cfg, std::string &networkId) {
+pp::Roe<std::vector<Account>> setup(const SetupConfig& cfg, std::string& networkId) {
   if (cfg.fromKeys.empty()) {
     return pp::Error("The funding account's keys are required");
   }
@@ -714,7 +728,7 @@ pp::Roe<std::vector<Account>> setup(const SetupConfig &cfg, std::string &network
   if (!connected) {
     return connected.error();
   }
-  Peer &peer = *connected.value();
+  Peer& peer = *connected.value();
   auto state = peer.client.fetchBeaconState();
   if (!state) {
     return pp::Error("Cannot reach " + cfg.host + ": " + state.error().message);

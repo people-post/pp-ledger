@@ -43,11 +43,11 @@ struct NodeConfig {
   explicit NodeConfig(uint16_t defaultPort = 0) : port(defaultPort) {}
 
   /** What `jd` sets; without `port`, the default stays. */
-  pp::Roe<void> fromJson(const pp::common::Object &jd);
-  void toJson(pp::common::Object &j) const;
+  pp::Roe<void> fromJson(const pp::common::Object& jd);
+  void toJson(pp::common::Object& j) const;
 
   /** `allowedPeers`, an array of peer ids; absent = nullopt. */
-  static pp::Roe<std::optional<std::set<std::string>>> parseAllowedPeers(const pp::common::Object &jd);
+  static pp::Roe<std::optional<std::set<std::string>>> parseAllowedPeers(const pp::common::Object& jd);
 };
 
 /** A follower's (relay, miner): the upstreams it may follow, and the network it expects. */
@@ -59,9 +59,9 @@ struct FollowerConfig : NodeConfig {
 
   using NodeConfig::NodeConfig;
 
-  pp::Roe<void> fromJson(const pp::common::Object &jd);
+  pp::Roe<void> fromJson(const pp::common::Object& jd);
   /** `placeholder` stands in `beacons` while there is no upstream (a template to fill in). */
-  void toJson(pp::common::Object &j, const std::string &placeholder) const;
+  void toJson(pp::common::Object& j, const std::string& placeholder) const;
 
   /** The variables a follower reads besides env_config::commonFields: upstreams and the anchor. */
   static std::vector<env_config::Field> envFields();

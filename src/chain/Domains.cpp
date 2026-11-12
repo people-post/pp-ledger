@@ -37,8 +37,7 @@ std::optional<std::string> normalize(std::string_view text) {
 chain_tx::Roe<void> validateFor(std::string_view domain, uint64_t accountId) {
   const std::string shown(domain);
   if (!isWellFormed(domain)) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "A domain is 1 to 7 capital letters A-Z: '" + shown + "'");
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "A domain is 1 to 7 capital letters A-Z: '" + shown + "'");
   }
   if (AccountIds::isSystemAccount(accountId)) {
     if (domain.size() > kMaxSystemLetters) {
@@ -49,9 +48,9 @@ chain_tx::Roe<void> validateFor(std::string_view domain, uint64_t accountId) {
   }
   if (AccountIds::isIssuedAccount(accountId)) {
     if (domain.size() <= kMaxSystemLetters) {
-      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                               "An issued account's domain is 4 to 7 letters (1 to 3 are the system's): '" +
-                                   shown + "'");
+      return chain_tx::TxError(
+          chain_err::E_TX_VALIDATION,
+          "An issued account's domain is 4 to 7 letters (1 to 3 are the system's): '" + shown + "'");
     }
     return {};
   }

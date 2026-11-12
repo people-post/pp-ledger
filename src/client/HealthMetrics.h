@@ -15,11 +15,11 @@ namespace pp {
  * Client RPC and renders the answers here, one series per node (label `node`).
  */
 struct HealthMetricsTarget {
-  std::string node;                        ///< the label: beacon, miner, or a name given
+  std::string node;                         ///< the label: beacon, miner, or a name given
   std::optional<Client::NodeHealth> health; ///< none: the node did not answer
 };
 
-std::string renderHealthMetrics(const std::vector<HealthMetricsTarget> &targets);
+std::string renderHealthMetrics(const std::vector<HealthMetricsTarget>& targets);
 
 } // namespace pp
 

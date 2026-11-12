@@ -10,12 +10,9 @@
 
 namespace pp {
 
-chain_tx::Roe<uint64_t>
-ConfigTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
-                                    uint64_t slotLeaderId) const {
+chain_tx::Roe<uint64_t> ConfigTxHandler::getSignerAccountId(const Ledger::TypedTx& tx, uint64_t slotLeaderId) const {
   (void)slotLeaderId;
-  auto pRoe =
-      chain_tx::expectTx<Ledger::TxConfig>(tx, "getSignerAccountId", "TxConfig");
+  auto pRoe = chain_tx::expectTx<Ledger::TxConfig>(tx, "getSignerAccountId", "TxConfig");
   if (!pRoe) {
     return pRoe.error();
   }
@@ -23,11 +20,8 @@ ConfigTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
   return AccountBuffer::ID_GENESIS;
 }
 
-chain_tx::Roe<bool>
-ConfigTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
-                                       uint64_t walletId) const {
-  auto pRoe = chain_tx::expectTx<Ledger::TxConfig>(tx, "matchesWalletForIndex",
-                                                   "TxConfig");
+chain_tx::Roe<bool> ConfigTxHandler::matchesWalletForIndex(const Ledger::TypedTx& tx, uint64_t walletId) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxConfig>(tx, "matchesWalletForIndex", "TxConfig");
   if (!pRoe) {
     return pRoe.error();
   }
@@ -35,29 +29,25 @@ ConfigTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
   return walletId == AccountBuffer::ID_GENESIS;
 }
 
-chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
-ConfigTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
-  auto pRoe =
-      chain_tx::expectTx<Ledger::TxConfig>(tx, "getIdempotencyKey", "TxConfig");
+chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>> ConfigTxHandler::getIdempotencyKey(
+    const Ledger::TypedTx& tx) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxConfig>(tx, "getIdempotencyKey", "TxConfig");
   if (!pRoe) {
     return pRoe.error();
   }
-  const auto *p = pRoe.value();
+  const auto* p = pRoe.value();
   if (p->idempotentId == 0) {
     return std::optional<std::pair<uint64_t, uint64_t>>{};
   }
-  return std::optional<std::pair<uint64_t, uint64_t>>(
-      std::make_pair(AccountBuffer::ID_GENESIS, p->idempotentId));
+  return std::optional<std::pair<uint64_t, uint64_t>>(std::make_pair(AccountBuffer::ID_GENESIS, p->idempotentId));
 }
 
 namespace {
 
 /** What a config update may change, relative to the active config. */
-chain_tx::Roe<void> validateConfigChange(const BlockChainConfig &next,
-                                         const std::optional<BlockChainConfig> &current) {
+chain_tx::Roe<void> validateConfigChange(const BlockChainConfig& next, const std::optional<BlockChainConfig>& current) {
   if (!current.has_value()) {
-    return chain_tx::TxError(chain_err::E_STATE_INIT,
-                             "Chain config not initialized for Full-mode update");
+    return chain_tx::TxError(chain_err::E_STATE_INIT, "Chain config not initialized for Full-mode update");
   }
   if (next.genesisTime != current->genesisTime) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis time mismatch");
@@ -81,28 +71,22 @@ chain_tx::Roe<void> validateConfigChange(const BlockChainConfig &next,
 
 } // namespace
 
-chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const Ledger::TypedTx &tx,
-                                                 AccountBuffer &bank,
-                                                 const BufferApplyContext &c) const {
-  auto pRoe =
-      chain_tx::expectTx<Ledger::TxConfig>(tx, "applyBuffer", "TxConfig");
+chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                                 const BufferApplyContext& c) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxConfig>(tx, "applyBuffer", "TxConfig");
   if (!pRoe) {
     return pRoe.error();
   }
-  const auto *p = pRoe.value();
-  if (auto idem = validateIdempotencyUsingContext(
-          c.ctx, p->idempotentId, AccountBuffer::ID_GENESIS, p->validationTsMin,
-          p->validationTsMax, c.effectiveSlot, c.admissionMode);
+  const auto* p = pRoe.value();
+  if (auto idem = validateIdempotencyUsingContext(c.ctx, p->idempotentId, AccountBuffer::ID_GENESIS, p->validationTsMin,
+                                                  p->validationTsMax, c.effectiveSlot, c.admissionMode);
       !idem) {
     return idem;
   }
-  if (auto seeded = chain_tx::seedCommittedAccount(
-          bank, c.ctx.bank, AccountBuffer::ID_GENESIS);
-      !seeded) {
+  if (auto seeded = chain_tx::seedCommittedAccount(bank, c.ctx.bank, AccountBuffer::ID_GENESIS); !seeded) {
     return seeded;
   }
-  auto config = applyConfigUpdate(*p, c.ctx, bank, c.blockId,
-                                  c.ctx.consensus.getEpochFromSlot(c.effectiveSlot),
+  auto config = applyConfigUpdate(*p, c.ctx, bank, c.blockId, c.ctx.consensus.getEpochFromSlot(c.effectiveSlot),
                                   chain_block::BlockAdmissionMode::Full);
   if (!config) {
     return config.error();
@@ -110,18 +94,15 @@ chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const Ledger::TypedTx &tx,
   return {};
 }
 
-chain_tx::Roe<void> ConfigTxHandler::applyBlock(const Ledger::TypedTx &tx,
-                                                AccountBuffer &bank,
-                                                const BlockApplyContext &c) const {
-  auto pRoe =
-      chain_tx::expectTx<Ledger::TxConfig>(tx, "applyBlock", "TxConfig");
+chain_tx::Roe<void> ConfigTxHandler::applyBlock(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                                const BlockApplyContext& c) const {
+  auto pRoe = chain_tx::expectTx<Ledger::TxConfig>(tx, "applyBlock", "TxConfig");
   if (!pRoe) {
     return pRoe.error();
   }
-  const auto *p = pRoe.value();
-  if (auto idem = validateIdempotencyUsingContext(
-          c.ctx, p->idempotentId, AccountBuffer::ID_GENESIS, p->validationTsMin,
-          p->validationTsMax, c.blockSlot, c.admissionMode);
+  const auto* p = pRoe.value();
+  if (auto idem = validateIdempotencyUsingContext(c.ctx, p->idempotentId, AccountBuffer::ID_GENESIS, p->validationTsMin,
+                                                  p->validationTsMax, c.blockSlot, c.admissionMode);
       !idem) {
     return idem;
   }
@@ -139,31 +120,26 @@ chain_tx::Roe<void> ConfigTxHandler::applyBlock(const Ledger::TypedTx &tx,
 }
 
 chain_tx::Roe<BlockChainConfig> ConfigTxHandler::applyConfigUpdate(
-    const Ledger::TxConfig &tx, const TxContext &ctx, AccountBuffer &bank,
-    uint64_t blockId, uint64_t epoch, chain_block::BlockAdmissionMode admissionMode) const {
+    const Ledger::TxConfig& tx, const TxContext& ctx, AccountBuffer& bank, uint64_t blockId, uint64_t epoch,
+    chain_block::BlockAdmissionMode admissionMode) const {
   if (tx.fee != 0) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "System update transaction must have fee 0");
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "System update transaction must have fee 0");
   }
   // One pending update at a time, so at most one takes effect per epoch. (A
   // pending update whose epoch has come is in force once that epoch's first
   // block applies.)
   if (ctx.pendingChainConfig.has_value() && epoch < ctx.pendingChainConfig->activationEpoch) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "A config update is already pending (applies from epoch " +
-            std::to_string(ctx.pendingChainConfig->activationEpoch) + ")");
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "A config update is already pending (applies from epoch " +
+                                                             std::to_string(ctx.pendingChainConfig->activationEpoch) +
+                                                             ")");
   }
 
   GenesisAccountMeta gm;
   if (!gm.ltsFromString(tx.meta)) {
-    return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                             "Failed to deserialize checkpoint config: " +
-                                 tx.meta);
+    return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE, "Failed to deserialize checkpoint config: " + tx.meta);
   }
 
-  if (auto shape = chain_tx::validateGenesisWalletShape(gm.genesis.wallet);
-      !shape) {
+  if (auto shape = chain_tx::validateGenesisWalletShape(gm.genesis.wallet); !shape) {
     return shape.error();
   }
   if (gm.hasImport) {
@@ -176,8 +152,7 @@ chain_tx::Roe<BlockChainConfig> ConfigTxHandler::applyConfigUpdate(
 
   if (chain_block::admissionTxStrict(admissionMode)) {
     if (ctx.optAuthority.has_value()) {
-      if (auto frozen = chain_tx::requireAdminSetNotFrozen(ctx.optAuthority.value(), "Config update", epoch);
-          !frozen) {
+      if (auto frozen = chain_tx::requireAdminSetNotFrozen(ctx.optAuthority.value(), "Config update", epoch); !frozen) {
         return frozen.error();
       }
     }
@@ -192,14 +167,13 @@ chain_tx::Roe<BlockChainConfig> ConfigTxHandler::applyConfigUpdate(
   }
 
   // The genesis account's domain was given in the genesis block, for good (projects/domains).
-  if (auto held = bank.getAccount(AccountBuffer::ID_GENESIS); held && held.value().wallet.domain != gm.genesis.wallet.domain) {
+  if (auto held = bank.getAccount(AccountBuffer::ID_GENESIS);
+      held && held.value().wallet.domain != gm.genesis.wallet.domain) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "A config update cannot change the genesis account's domain");
   }
 
-  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, 0,
-                          gm.genesis.wallet.mBalances)) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Genesis account balance mismatch");
+  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, 0, gm.genesis.wallet.mBalances)) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis account balance mismatch");
   }
 
   const bool strict = chain_block::admissionTxStrict(admissionMode);
@@ -215,18 +189,15 @@ chain_tx::Roe<BlockChainConfig> ConfigTxHandler::applyConfigUpdate(
   }
   gm.genesis.meta = attachmentRoe.value();
 
-  if (auto replaced = chain_tx::replaceGenesisAccount(bank, blockId,
-                                                      gm.genesis.wallet, gm.genesis.meta);
-      !replaced) {
+  if (auto replaced = chain_tx::replaceGenesisAccount(bank, blockId, gm.genesis.wallet, gm.genesis.meta); !replaced) {
     return replaced.error();
   }
   return gm.config;
 }
 
-std::optional<std::string>
-ConfigTxHandler::getGenesisAccountMetaForTx(const Ledger::TypedTx &tx,
-                                            const Ledger::Block & /*block*/) const {
-  const auto *p = std::get_if<Ledger::TxConfig>(&tx);
+std::optional<std::string> ConfigTxHandler::getGenesisAccountMetaForTx(const Ledger::TypedTx& tx,
+                                                                       const Ledger::Block& /*block*/) const {
+  const auto* p = std::get_if<Ledger::TxConfig>(&tx);
   if (!p) {
     return std::nullopt;
   }

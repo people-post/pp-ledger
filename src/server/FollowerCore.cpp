@@ -5,7 +5,7 @@
 
 namespace pp {
 
-FollowerCore::Roe<void> FollowerCore::addBlock(const Ledger::ChainNode &block) {
+FollowerCore::Roe<void> FollowerCore::addBlock(const Ledger::ChainNode& block) {
   auto result = chain_.addBlock(block);
   if (!result) {
     return Error(result.error().code, result.error().message);
@@ -14,8 +14,8 @@ FollowerCore::Roe<void> FollowerCore::addBlock(const Ledger::ChainNode &block) {
   return {};
 }
 
-FollowerCore::Roe<void> FollowerCore::verifySignedTip(const Client::SignedTip &tip,
-                                                      const std::vector<const Ledger::Block *> &pending) const {
+FollowerCore::Roe<void> FollowerCore::verifySignedTip(const Client::SignedTip& tip,
+                                                      const std::vector<const Ledger::Block*>& pending) const {
   auto verified = chain_.verifySignedTip(tip, pending);
   if (!verified) {
     return Error(verified.error().code, verified.error().message);
@@ -31,8 +31,8 @@ FollowerCore::Roe<AuthorityTrail> FollowerCore::authorityTrail() const {
   return trail.value();
 }
 
-std::optional<Chain::CertificateOffer> FollowerCore::noteCertificate(const Ledger::Record &record,
-                                                                     const std::string &from) {
+std::optional<Chain::CertificateOffer> FollowerCore::noteCertificate(const Ledger::Record& record,
+                                                                     const std::string& from) {
   if (!certificates_) {
     return std::nullopt; // no chain yet: nothing to verify it against
   }
@@ -43,15 +43,15 @@ std::optional<Chain::CertificateOffer> FollowerCore::noteCertificate(const Ledge
   return offered;
 }
 
-std::optional<Chain::EquivocationOffer> FollowerCore::noteEquivocation(const Client::Equivocation &evidence,
-                                                                       const std::string &from) {
+std::optional<Chain::EquivocationOffer> FollowerCore::noteEquivocation(const Client::Equivocation& evidence,
+                                                                       const std::string& from) {
   if (!equivocations_) {
     return std::nullopt; // no chain yet: nothing to verify it against
   }
   return equivocations_->note(evidence, from);
 }
 
-FollowerCore::Roe<void> FollowerCore::openLedger(const std::string &workDir, int64_t timeOffsetMs,
+FollowerCore::Roe<void> FollowerCore::openLedger(const std::string& workDir, int64_t timeOffsetMs,
                                                  uint64_t startingBlockId) {
   setWorkDir(workDir);
   if (!std::filesystem::exists(workDir)) {

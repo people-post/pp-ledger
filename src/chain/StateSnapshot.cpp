@@ -12,25 +12,25 @@ namespace pp {
 std::string StateSnapshot::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
-  ar &VERSION &*this;
+  ar & VERSION & *this;
   return oss.str();
 }
 
-bool StateSnapshot::ltsFromString(const std::string &str) {
+bool StateSnapshot::ltsFromString(const std::string& str) {
   std::istringstream iss(str, std::ios::binary);
   InputArchive ar(iss);
   uint32_t version = 0;
-  ar &version;
+  ar & version;
   if (version != VERSION) {
     return false;
   }
-  ar &*this;
+  ar&* this;
   return !ar.failed();
 }
 
 std::string StateSnapshot::accountsRoot() const {
   AccountStateTree tree;
-  for (const auto &account : accounts) {
+  for (const auto& account : accounts) {
     AccountBuffer::Account leaf;
     leaf.id = account.id;
     leaf.wallet = account.wallet;
@@ -58,10 +58,12 @@ struct Scratch {
 };
 
 /** Copies `ledgerDir` into the scratch directory and cuts the copy after `height`. */
-Roe<void> copyAndCut(const std::string &ledgerDir, uint64_t height, Scratch &scratch, const std::filesystem::path &copy) {
+Roe<void> copyAndCut(const std::string& ledgerDir, uint64_t height, Scratch& scratch,
+                     const std::filesystem::path& copy) {
   std::error_code ec;
   if (std::filesystem::exists(scratch.dir, ec)) {
-    return Error(1, "Scratch directory " + scratch.dir.string() + " exists: give a path that does not (it is removed after)");
+    return Error(
+        1, "Scratch directory " + scratch.dir.string() + " exists: give a path that does not (it is removed after)");
   }
   if (!std::filesystem::create_directories(scratch.dir, ec) || ec) {
     return Error(1, "Cannot create scratch directory " + scratch.dir.string() + ": " + ec.message());
@@ -94,7 +96,7 @@ Roe<void> copyAndCut(const std::string &ledgerDir, uint64_t height, Scratch &scr
 
 } // namespace
 
-Roe<StateSnapshot> exportState(const std::string &ledgerDir, uint64_t height, const std::string &scratchDir) {
+Roe<StateSnapshot> exportState(const std::string& ledgerDir, uint64_t height, const std::string& scratchDir) {
   Scratch scratch{std::filesystem::path(scratchDir)};
   const auto copy = scratch.dir / "ledger";
   if (auto copied = copyAndCut(ledgerDir, height, scratch, copy); !copied) {

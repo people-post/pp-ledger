@@ -13,8 +13,7 @@ protected:
 
   void SetUp() override {
     store.redirectLogger("volumestore");
-    testDir = pp::test::uniqueTempPath("pp-ledger-volumestore-test")
-                  .string();
+    testDir = pp::test::uniqueTempPath("pp-ledger-volumestore-test").string();
     std::error_code ec;
     std::filesystem::remove_all(testDir, ec);
 
@@ -71,7 +70,7 @@ TEST_F(VolumeStoreTest, WritesAndReadsBlocks) {
 TEST_F(VolumeStoreTest, PersistsAcrossRemount) {
   ASSERT_TRUE(store.init(config).isOk());
   std::vector<std::string> blocks = {"a", "b", "c"};
-  for (const auto &b : blocks) {
+  for (const auto& b : blocks) {
     ASSERT_TRUE(store.appendBlock(b).isOk());
   }
   store.close();

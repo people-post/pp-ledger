@@ -2,9 +2,8 @@
 
 namespace pp {
 
-Service::Roe<void> runRoleLoop(const RoleRunner::Options &options, const std::string &role,
-                               const RoleServerFactory &make, const std::atomic<bool> &stop,
-                               logging::Logger &log) {
+Service::Roe<void> runRoleLoop(const RoleRunner::Options& options, const std::string& role,
+                               const RoleServerFactory& make, const std::atomic<bool>& stop, logging::Logger& log) {
   log.info << "Running " << role << " with work directory: " << options.workDir
            << (options.host ? " (on the host's Amp runtime)" : "");
   bool firstStart = true;

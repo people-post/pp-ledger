@@ -15,12 +15,10 @@ namespace pp::chain_tx {
  * success so callers keep the same `*p` usage style as `std::get_if`.
  */
 template <typename T>
-Roe<const T *> expectTx(const Ledger::TypedTx &tx, const char *where,
-                        const char *typeName) {
-  const auto *p = std::get_if<T>(&tx);
+Roe<const T*> expectTx(const Ledger::TypedTx& tx, const char* where, const char* typeName) {
+  const auto* p = std::get_if<T>(&tx);
   if (!p) {
-    return TxError(chain_err::E_INTERNAL,
-                   std::string(where) + ": expected " + typeName);
+    return TxError(chain_err::E_INTERNAL, std::string(where) + ": expected " + typeName);
   }
   return p;
 }

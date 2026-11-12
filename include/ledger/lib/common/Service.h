@@ -20,7 +20,8 @@ public:
     using RoeErrorBase::RoeErrorBase;
   };
 
-  template <typename T> using Roe = ResultOrError<T, Error>;
+  template <typename T>
+  using Roe = ResultOrError<T, Error>;
 
   /**
    * Constructor
@@ -33,12 +34,12 @@ public:
   ~Service() override;
 
   // Delete copy operations (inherited, but explicit for clarity)
-  Service(const Service &) = delete;
-  Service &operator=(const Service &) = delete;
+  Service(const Service&) = delete;
+  Service& operator=(const Service&) = delete;
 
   /** Stop requested: on this service, or by its stop source. */
   bool isStopSet() const {
-    const std::atomic<bool> *source = stopSource_.load();
+    const std::atomic<bool>* source = stopSource_.load();
     return isStopSet_ || (source && source->load());
   }
 
@@ -49,7 +50,7 @@ public:
    * Setting it is one atomic store: safe from any thread and a signal handler. It must outlive
    * the service.
    */
-  void setStopSource(const std::atomic<bool> *source) { stopSource_ = source; }
+  void setStopSource(const std::atomic<bool>* source) { stopSource_ = source; }
 
   Roe<void> run();
   Roe<void> start();
@@ -78,9 +79,9 @@ protected:
 
 private:
   /// Flag indicating if stop has been requested
-  std::atomic<bool> isStopSet_{ false };
+  std::atomic<bool> isStopSet_{false};
   /// See setStopSource
-  std::atomic<const std::atomic<bool> *> stopSource_{ nullptr };
+  std::atomic<const std::atomic<bool>*> stopSource_{nullptr};
 
   /// The service thread
   std::thread thread_;

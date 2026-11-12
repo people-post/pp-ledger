@@ -57,16 +57,12 @@ TEST(AccountBufferStateRootTest, IncrementalRootMatchesIndependentReplay) {
   user.wallet.minSignatures = 1;
   user.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
   ASSERT_TRUE(a.add(user).isOk());
-  ASSERT_TRUE(a.depositBalance(AccountBuffer::ID_FIRST_USER,
-                               AccountBuffer::ID_GENESIS, 50)
-                  .isOk());
+  ASSERT_TRUE(a.depositBalance(AccountBuffer::ID_FIRST_USER, AccountBuffer::ID_GENESIS, 50).isOk());
 
   AccountBuffer b;
   ASSERT_TRUE(b.add(fee).isOk());
   ASSERT_TRUE(b.add(user).isOk());
-  ASSERT_TRUE(b.depositBalance(AccountBuffer::ID_FIRST_USER,
-                               AccountBuffer::ID_GENESIS, 50)
-                  .isOk());
+  ASSERT_TRUE(b.depositBalance(AccountBuffer::ID_FIRST_USER, AccountBuffer::ID_GENESIS, 50).isOk());
   EXPECT_EQ(a.calculateStateRoot(), b.calculateStateRoot());
 }
 

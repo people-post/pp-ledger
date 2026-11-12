@@ -7,8 +7,7 @@
 
 namespace pp {
 
-using UnframedRequestHandler =
-    std::function<std::string(const std::string &requestBody)>;
+using UnframedRequestHandler = std::function<std::string(const std::string& requestBody)>;
 
 /** Same-process transport: no length prefix; dispatches unframed RPC bytes. */
 class InProcessLedgerTransport : public ILedgerTransport {
@@ -17,8 +16,7 @@ public:
 
   bool requiresRemoteEndpoint() const override { return false; }
 
-  Roe<std::string> roundTrip(const std::string &requestBody,
-                             std::chrono::milliseconds timeout) override;
+  Roe<std::string> roundTrip(const std::string& requestBody, std::chrono::milliseconds timeout) override;
 
 private:
   UnframedRequestHandler handler_;

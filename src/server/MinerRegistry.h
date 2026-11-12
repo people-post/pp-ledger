@@ -29,7 +29,7 @@ public:
   /** Drop records last renewed more than `ttlSec` before `nowSec`; returns how many. */
   size_t expire(int64_t nowSec, int64_t ttlSec) {
     const size_t removed =
-        std::erase_if(miners_, [&](const auto &entry) { return nowSec - entry.second.tLastMessage > ttlSec; });
+        std::erase_if(miners_, [&](const auto& entry) { return nowSec - entry.second.tLastMessage > ttlSec; });
     if (removed > 0) {
       ++version_;
     }
@@ -37,12 +37,12 @@ public:
   }
 
   /** False when `miner` is not newer than the stored record: a replay of an old registration. */
-  bool isNewer(const Client::MinerInfo &miner) const {
+  bool isNewer(const Client::MinerInfo& miner) const {
     auto it = miners_.find(miner.id);
     return it == miners_.end() || miner.issuedAt > it->second.issuedAt;
   }
 
-  const std::map<uint64_t, Client::MinerInfo> &miners() const { return miners_; }
+  const std::map<uint64_t, Client::MinerInfo>& miners() const { return miners_; }
   uint64_t version() const { return version_; }
 
 private:

@@ -11,7 +11,7 @@ using namespace pp::load;
 
 namespace {
 
-Client::Roe<std::string> serverError(const std::string &message) {
+Client::Roe<std::string> serverError(const std::string& message) {
   return Client::Error(Client::E_SERVER_ERROR, message);
 }
 
@@ -39,10 +39,10 @@ TEST(LoadGeneratorTest, ClassifiesReplies) {
   EXPECT_EQ(classify(Kind::TxAdd, serverError("Request failed: AmpLedgerTransport: response timeout")),
             Outcome::Timeout)
       << "a relay's forward that timed out";
-  EXPECT_EQ(classify(Kind::TxAdd, Client::Roe<std::string>(Client::Error(
-                                      Client::E_REQUEST_FAILED, "Request failed: amp link: dial in backoff"))),
+  EXPECT_EQ(classify(Kind::TxAdd, Client::Roe<std::string>(Client::Error(Client::E_REQUEST_FAILED,
+                                                                         "Request failed: amp link: dial in backoff"))),
             Outcome::Unsent);
-  auto transport = [](const char *message) {
+  auto transport = [](const char* message) {
     return Client::Roe<std::string>(Client::Error(Client::E_REQUEST_FAILED, message));
   };
   EXPECT_EQ(classify(Kind::Status, transport("Request failed: AmpLedgerTransport: response timeout")), Outcome::Timeout)

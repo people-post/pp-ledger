@@ -46,8 +46,7 @@ int64_t offsetOf(int64_t serverMs, int64_t localReceiptMs, int64_t rttMs) {
 }
 
 int64_t localNowMs() {
-  return std::chrono::duration_cast<std::chrono::milliseconds>(
-             std::chrono::system_clock::now().time_since_epoch())
+  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
       .count();
 }
 
@@ -58,7 +57,9 @@ void estimate(Fetch fetch, Done done) {
   run->sample();
 }
 
-ClockFollower::ClockFollower(Hooks hooks) : hooks_(std::move(hooks)) { redirectLogger("ClockFollower"); }
+ClockFollower::ClockFollower(Hooks hooks) : hooks_(std::move(hooks)) {
+  redirectLogger("ClockFollower");
+}
 
 void ClockFollower::maintain() {
   const uint64_t generation = hooks_.generation();

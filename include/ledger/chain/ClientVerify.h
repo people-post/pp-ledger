@@ -20,14 +20,14 @@
 namespace pp::verify {
 
 /** Block 0 is the one `genesisHash` names: its hash recomputed from its contents. */
-chain_tx::Roe<void> checkGenesis(const Ledger::ChainNode &genesis, const std::string &genesisHash);
+chain_tx::Roe<void> checkGenesis(const Ledger::ChainNode& genesis, const std::string& genesisHash);
 
 /**
  * The beacon authority at block `upToBlockId` of `upToEpoch`: `proof` replayed from block 0 (checked
  * first), each step signed by the admin set in force at its point.
  */
-chain_tx::Roe<AuthorityTrail> authorityAt(const Ledger::ChainNode &genesis, const std::string &genesisHash,
-                                          const Client::AuthorityProof &proof, uint64_t upToBlockId,
+chain_tx::Roe<AuthorityTrail> authorityAt(const Ledger::ChainNode& genesis, const std::string& genesisHash,
+                                          const Client::AuthorityProof& proof, uint64_t upToBlockId,
                                           uint64_t upToEpoch);
 
 /**
@@ -35,7 +35,7 @@ chain_tx::Roe<AuthorityTrail> authorityAt(const Ledger::ChainNode &genesis, cons
  * signs: each hash recomputed from its contents, each linked to the next by `previousHash`, the first
  * the tip's height and hash. The tip's signature is the trail's to check (AuthorityTrail::verifyTip).
  */
-chain_tx::Roe<void> checkBlocksUnderTip(const Client::SignedTip &tip, const std::vector<Ledger::ChainNode> &blocks);
+chain_tx::Roe<void> checkBlocksUnderTip(const Client::SignedTip& tip, const std::vector<Ledger::ChainNode>& blocks);
 
 /** An account as a proof shows it, once checked: none when the account does not exist. */
 struct ProvenAccount {
@@ -50,7 +50,7 @@ struct ProvenAccount {
  * `proof` against `block` (checked already): its leaf and path give the block's state root. The
  * proof must be of `accountId`, the account asked for: a node chooses what it answers.
  */
-chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block &block, const Client::AccountProof &proof,
+chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block& block, const Client::AccountProof& proof,
                                                uint64_t accountId);
 
 /** A domain as a proof shows it, once checked (projects/domains): no account when nobody has it. */
@@ -64,8 +64,8 @@ struct ProvenDomain {
  * `proof` against `block` (checked already): the domain's leaf and path give the block's state root.
  * The proof must be of `domain` (normalized), the domain asked for.
  */
-chain_tx::Roe<ProvenDomain> checkDomainProof(const Ledger::Block &block, const Client::DomainProof &proof,
-                                             const std::string &domain);
+chain_tx::Roe<ProvenDomain> checkDomainProof(const Ledger::Block& block, const Client::DomainProof& proof,
+                                             const std::string& domain);
 
 } // namespace pp::verify
 

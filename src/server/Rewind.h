@@ -18,8 +18,8 @@ namespace pp::rewind {
  * directory and restarts; the fresh server applies it before anything mounts the ledger, then
  * keeps it in `rewound.dat` as the last rewind (STATUS). Each step can be repeated after a crash.
  */
-constexpr const char *FILE_ORDER = "rewind.dat";
-constexpr const char *FILE_DONE = "rewound.dat";
+constexpr const char* FILE_ORDER = "rewind.dat";
+constexpr const char* FILE_DONE = "rewound.dat";
 
 /** What schedule() did. */
 struct Scheduled {
@@ -42,21 +42,21 @@ struct Scheduled {
  * cannot be read) and the operator has not approved its generation (`approvedGeneration`, 0 =
  * none): the emergency. An approved one that drops final blocks is written `crossedFinality`.
  */
-pp::Roe<Scheduled> schedule(const Chain &chain, const std::string &dataDir, uint64_t approvedGeneration);
+pp::Roe<Scheduled> schedule(const Chain& chain, const std::string& dataDir, uint64_t approvedGeneration);
 
 /** Write `order` durably, for the next start to apply. */
-pp::Roe<void> writeOrder(const std::string &dataDir, const Client::RewindReport &order);
+pp::Roe<void> writeOrder(const std::string& dataDir, const Client::RewindReport& order);
 
 /**
  * At start, before the ledger mounts: apply a pending order to the ledger at `ledgerDir` — keep the
  * blocks up to `keptUpTo`, or remove the ledger when that lies below its first block (the node then
  * joins fresh) — record it as the last rewind and drop the order. None when no order was pending.
  */
-pp::Roe<std::optional<Client::RewindReport>> applyPendingOrder(const std::string &dataDir,
-                                                               const std::string &ledgerDir);
+pp::Roe<std::optional<Client::RewindReport>> applyPendingOrder(const std::string& dataDir,
+                                                               const std::string& ledgerDir);
 
 /** The last rewind this node applied; none if none. */
-pp::Roe<std::optional<Client::RewindReport>> lastApplied(const std::string &dataDir);
+pp::Roe<std::optional<Client::RewindReport>> lastApplied(const std::string& dataDir);
 
 } // namespace pp::rewind
 

@@ -73,7 +73,8 @@ public:
    * `fn`, run only while this host is open: a call after close() is dropped, and close() waits for
    * one in progress on another thread. The returned function outlives the host safely.
    */
-  template <typename... Args> std::function<void(Args...)> guard(std::function<void(Args...)> fn) const {
+  template <typename... Args>
+  std::function<void(Args...)> guard(std::function<void(Args...)> fn) const {
     return lifetime_.Bind([open = open_, fn = std::move(fn)](Args... args) {
       if (open->load(std::memory_order_acquire)) {
         fn(std::forward<Args>(args)...);

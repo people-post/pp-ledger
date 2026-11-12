@@ -17,7 +17,9 @@ std::shared_ptr<InFlightLimit> makeBulkInFlightLimit() {
 
 AmpHost::AmpHost() = default;
 
-AmpHost::~AmpHost() { close(); }
+AmpHost::~AmpHost() {
+  close();
+}
 
 void AmpHost::open() {
   in_flight_ = makeInFlightLimit();
@@ -27,7 +29,7 @@ void AmpHost::open() {
 
 void AmpHost::close() {
   open_->store(false, std::memory_order_release);
-  lifetime_.InvalidateAndWait();  // a call that saw it open finishes first (not one on this thread)
+  lifetime_.InvalidateAndWait(); // a call that saw it open finishes first (not one on this thread)
 }
 
 } // namespace network

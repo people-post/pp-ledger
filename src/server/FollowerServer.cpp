@@ -8,28 +8,28 @@
 
 namespace pp {
 
-FollowerServer::FollowerServer(const std::string &name) {
+FollowerServer::FollowerServer(const std::string& name) {
   redirectLogger(name);
   client_.redirectLogger(log().getFullName() + ".Client");
   syncClient_.redirectLogger(log().getFullName() + ".SyncClient");
   fanoutClient_.redirectLogger(log().getFullName() + ".FanoutClient");
 }
 
-void FollowerServer::bindFollower(FollowerCore &core) {
+void FollowerServer::bindFollower(FollowerCore& core) {
   follower_ = &core;
   bindCore(core);
   handleLater(Client::T_REQ_BLOCK_GET,
-              [this](const Client::Request &request, const RequestQueue::Reply &reply) { dBlockGet(request, reply); });
+              [this](const Client::Request& request, const RequestQueue::Reply& reply) { dBlockGet(request, reply); });
   handleLater(Client::T_REQ_TX_ADD,
-              [this](const Client::Request &request, const RequestQueue::Reply &reply) { dTxAdd(request, reply); });
-  handleLater(Client::T_REQ_EQUIVOCATION_ADD, [this](const Client::Request &request, const RequestQueue::Reply &reply) {
+              [this](const Client::Request& request, const RequestQueue::Reply& reply) { dTxAdd(request, reply); });
+  handleLater(Client::T_REQ_EQUIVOCATION_ADD, [this](const Client::Request& request, const RequestQueue::Reply& reply) {
     dEquivocationAdd(request, reply);
   });
 }
 
 // ============ start ============
 
-Service::Roe<void> FollowerServer::startFollowing(const FollowerConfig &config, const IdentityKeyFn &identityKey) {
+Service::Roe<void> FollowerServer::startFollowing(const FollowerConfig& config, const IdentityKeyFn& identityKey) {
   config_ = config;
   if (auto set = setUpstreams(config_.upstreams); !set) {
     return Error(E_CONFIG, set.error().message);
@@ -50,7 +50,7 @@ Service::Roe<void> FollowerServer::startFollowing(const FollowerConfig &config, 
   return {};
 }
 
-Service::Roe<void> FollowerServer::admitUpstream(const Client::BeaconState &state) const {
+Service::Roe<void> FollowerServer::admitUpstream(const Client::BeaconState& state) const {
   if (auto anchored = NetworkAnchor::verifyStatus<Error>(config_.anchor, state); !anchored) {
     return anchored;
   }
@@ -67,14 +67,14 @@ std::optional<std::string> FollowerServer::firstBlockHash() const {
 
 void FollowerServer::initUpstreams() {
   UpstreamSet::Hooks hooks = upstreamHooks(fanoutClient_);
-  hooks.admit = [this](size_t index, const Client::BeaconState &state) {
+  hooks.admit = [this](size_t index, const Client::BeaconState& state) {
     if (auto admitted = admitUpstream(state); !admitted) {
       log().warning << "Disregarding upstream [" << index << "]: " << admitted.error().message;
       return false;
     }
     return true;
   };
-  hooks.learn = [this](size_t index, const Client::BeaconState &state) {
+  hooks.learn = [this](size_t index, const Client::BeaconState& state) {
     const std::string from = "upstream [" + std::to_string(index) + "]'s STATUS";
     if (state.certificate) {
       noteCertificate(*state.certificate, from);
@@ -83,10 +83,10 @@ void FollowerServer::initUpstreams() {
       noteEquivocation(*state.equivocation, from, /*pushUp=*/false);
     }
   };
-  hooks.offerEquivocation = [this](const Client::Equivocation &evidence, const std::string &from) {
+  hooks.offerEquivocation = [this](const Client::Equivocation& evidence, const std::string& from) {
     noteEquivocation(evidence, from, /*pushUp=*/true);
   };
-  hooks.mayFollow = [this](const Client::SignedTip &tip) { return follower().mayFollowTip(tip); };
+  hooks.mayFollow = [this](const Client::SignedTip& tip) { return follower().mayFollowTip(tip); };
   upstreams_ = std::make_unique<UpstreamSet>(config_.upstreams, std::move(hooks));
   upstreams_->redirectLogger(log().getFullName() + ".Upstreams");
 }
@@ -115,9 +115,11 @@ void FollowerServer::applyTimeOffset(int64_t offsetMs) {
   follower().setTimeOffsetMs(offsetMs);
 }
 
-bool FollowerServer::learnUpstreamHints() { return upstreams_ && upstreams_->addHints(follower().getDialHints()) > 0; }
+bool FollowerServer::learnUpstreamHints() {
+  return upstreams_ && upstreams_->addHints(follower().getDialHints()) > 0;
+}
 
-std::string FollowerServer::catchUp(const std::function<bool()> &extraDone) {
+std::string FollowerServer::catchUp(const std::function<bool()>& extraDone) {
   initClockFollower();
   initBlockSync();
   lastSyncResult_.reset();
@@ -146,7 +148,7 @@ void FollowerServer::initBlockSync() {
   hooks.tipHash = [this]() { return follower().getTipHash(); };
   hooks.firstBlockHash = [this]() { return firstBlockHash(); };
   if (const std::string dir = config_.anchor.predecessor_dir; !dir.empty()) {
-    hooks.checkGenesis = [this, dir](const Ledger::ChainNode &genesis) {
+    hooks.checkGenesis = [this, dir](const Ledger::ChainNode& genesis) {
       auto checked = predecessor_check::check(genesis, dir);
       if (checked) {
         log().info << "Re-genesis checked against the old ledger in " << dir;
@@ -154,28 +156,28 @@ void FollowerServer::initBlockSync() {
       return checked;
     };
   }
-  hooks.checkStartingAuthority = [this](uint64_t blockId, const ChainAuthority &authority,
-                                        const Client::Wallet &admin) {
+  hooks.checkStartingAuthority = [this](uint64_t blockId, const ChainAuthority& authority,
+                                        const Client::Wallet& admin) {
     return checkStartingAuthority(blockId, authority, admin);
   };
   hooks.authorityTrail = [this]() -> pp::Roe<AuthorityTrail> {
     auto trail = follower().authorityTrail();
     return trail ? pp::Roe<AuthorityTrail>(trail.value()) : pp::Roe<AuthorityTrail>(pp::Error(trail.error().message));
   };
-  hooks.onTipVerified = [this](const Client::SignedTip &tip) { onSignedTip(tip); };
-  hooks.offerCertificate = [this](const Ledger::Record &record) { noteCertificate(record, "the upstream's STATUS"); };
-  hooks.offerEquivocation = [this](const Client::Equivocation &evidence) {
+  hooks.onTipVerified = [this](const Client::SignedTip& tip) { onSignedTip(tip); };
+  hooks.offerCertificate = [this](const Ledger::Record& record) { noteCertificate(record, "the upstream's STATUS"); };
+  hooks.offerEquivocation = [this](const Client::Equivocation& evidence) {
     noteEquivocation(evidence, "the upstream's STATUS", /*pushUp=*/false);
   };
   hooks.vouchedCutover = [this]() { return follower().vouchedCutover(); };
-  hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
+  hooks.applyBlock = [this](const Ledger::ChainNode& fetched) -> pp::Roe<void> {
     Ledger::ChainNode block = fetched;
     block.hash = follower().calculateHash(block.block);
     auto added = follower().addBlock(block);
     return added ? pp::Roe<void>() : pp::Roe<void>(pp::Error(added.error().message));
   };
   hooks.postToServerThread = [this](std::function<void()> task) { postToServerThread(std::move(task)); };
-  hooks.onFinished = [this](const BlockSync::Result &result) { onBlockSyncFinished(result); };
+  hooks.onFinished = [this](const BlockSync::Result& result) { onBlockSyncFinished(result); };
   UpstreamTipWatch::Hooks watchHooks;
   watchHooks.dialUpstream = [this]() -> pp::Roe<void> {
     auto dial = dialUpstream();
@@ -183,7 +185,7 @@ void FollowerServer::initBlockSync() {
   };
   watchHooks.nextBlockId = hooks.nextBlockId;
   watchHooks.onUpstreamAhead = [this]() { requestSync(); };
-  watchHooks.onSignedTip = [this](const Client::SignedTip &tip) { onSignedTip(tip); };
+  watchHooks.onSignedTip = [this](const Client::SignedTip& tip) { onSignedTip(tip); };
   watchHooks.postToServerThread = hooks.postToServerThread;
   blockSync_ = std::make_unique<BlockSync>(syncClient_, std::move(hooks));
   blockSync_->redirectLogger(log().getFullName() + ".BlockSync");
@@ -191,12 +193,12 @@ void FollowerServer::initBlockSync() {
   tipWatch_->redirectLogger(log().getFullName() + ".TipWatch");
 }
 
-pp::Roe<void> FollowerServer::checkStartingAuthority(uint64_t /*blockId*/, const ChainAuthority & /*authority*/,
-                                                     const Client::Wallet & /*admin*/) const {
+pp::Roe<void> FollowerServer::checkStartingAuthority(uint64_t /*blockId*/, const ChainAuthority& /*authority*/,
+                                                     const Client::Wallet& /*admin*/) const {
   return {};
 }
 
-void FollowerServer::onSignedTip(const Client::SignedTip & /*tip*/) {}
+void FollowerServer::onSignedTip(const Client::SignedTip& /*tip*/) {}
 
 // ============ run ============
 
@@ -216,7 +218,7 @@ void FollowerServer::runLoop() {
       }
       roleDuties();
       serveRequestsFor(std::chrono::milliseconds(100));
-    } catch (const std::exception &e) {
+    } catch (const std::exception& e) {
       log().error << "Exception in the run loop: " << e.what();
       serveRequestsFor(std::chrono::seconds(1));
     }
@@ -226,7 +228,7 @@ void FollowerServer::runLoop() {
 
 void FollowerServer::onStop() {
   // Reply before AMP stops (Server::onStop), while replies can still be sent.
-  for (auto &pending : pendingBlockGets_) {
+  for (auto& pending : pendingBlockGets_) {
     pending.reply(packResponse(Client::E_SERVER_ERROR, "Server stopping"));
   }
   pendingBlockGets_.clear();
@@ -263,7 +265,7 @@ void FollowerServer::trySyncBlocksFromBeacon(bool bypassRateLimit) {
   }
 }
 
-void FollowerServer::onBlockSyncFinished(const BlockSync::Result &result) {
+void FollowerServer::onBlockSyncFinished(const BlockSync::Result& result) {
   lastSyncResult_ = result;
   orderRewindIfDue(); // the sync may have brought a certificate whose cutover is below our tip
   if (result.ok) {
@@ -276,7 +278,7 @@ void FollowerServer::onBlockSyncFinished(const BlockSync::Result &result) {
   resolvePendingBlockGets();
 }
 
-void FollowerServer::fillHealth(Client::NodeHealth &health) const {
+void FollowerServer::fillHealth(Client::NodeHealth& health) const {
   Server::fillHealth(health);
   if (health.signedTipHeight) {
     health.upstreamNextBlockId = *health.signedTipHeight + 1;
@@ -305,7 +307,7 @@ void FollowerServer::fillHealth(Client::NodeHealth &health) const {
 
 // ============ upstreams ============
 
-Client::Roe<void> FollowerServer::dialUpstream(Client &client, size_t index) {
+Client::Roe<void> FollowerServer::dialUpstream(Client& client, size_t index) {
   if (!upstreams_ || index >= upstreams_->all().size()) {
     return Client::Error(Client::E_NOT_CONNECTED, "No upstream [" + std::to_string(index) + "]");
   }
@@ -316,7 +318,7 @@ Client::Roe<void> FollowerServer::dialUpstream() {
   return dialUpstream(client_, upstreams_ ? upstreams_->activeIndex() : 0);
 }
 
-bool FollowerServer::dialUpstreamFor(const RequestQueue::Reply &reply) {
+bool FollowerServer::dialUpstreamFor(const RequestQueue::Reply& reply) {
   if (auto dial = dialUpstream(); !dial) {
     replyWith(reply, Roe<std::string>(Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message)));
     return false;
@@ -324,7 +326,7 @@ bool FollowerServer::dialUpstreamFor(const RequestQueue::Reply &reply) {
   return true;
 }
 
-std::chrono::milliseconds FollowerServer::forwardBudget(const Client::Request &request) {
+std::chrono::milliseconds FollowerServer::forwardBudget(const Client::Request& request) {
   if (request.deadlineMs == 0) {
     return network::NetworkTuning::dataTimeoutFor(network::NetworkTuning::kDefaultRpcTimeout) / 2;
   }
@@ -333,8 +335,8 @@ std::chrono::milliseconds FollowerServer::forwardBudget(const Client::Request &r
   return deadline > margin ? deadline - margin : std::chrono::milliseconds(0);
 }
 
-std::optional<std::chrono::milliseconds> FollowerServer::forwardOrExpire(const Client::Request &request,
-                                                                         const RequestQueue::Reply &reply) {
+std::optional<std::chrono::milliseconds> FollowerServer::forwardOrExpire(const Client::Request& request,
+                                                                         const RequestQueue::Reply& reply) {
   const auto budget = forwardBudget(request);
   if (budget < kMinForward) {
     reply(packError(Client::E_EXPIRED, "No time left to forward the request within its deadline"));
@@ -343,8 +345,8 @@ std::optional<std::chrono::milliseconds> FollowerServer::forwardOrExpire(const C
   return budget;
 }
 
-void FollowerServer::replyUpstreamError(const RequestQueue::Reply &reply, const Client::Error &error,
-                                        const std::string &prefix) {
+void FollowerServer::replyUpstreamError(const RequestQueue::Reply& reply, const Client::Error& error,
+                                        const std::string& prefix) {
   if (Client::isOverloadCode(error.code)) {
     // A busy way up (this node's queue to the upstream is full) says no when: as a busy queue would.
     const bool busy = error.code == Client::E_BUSY || error.code == Client::E_RATE_LIMITED;
@@ -361,8 +363,8 @@ void FollowerServer::replyUpstreamError(const RequestQueue::Reply &reply, const 
   }
 }
 
-std::optional<Chain::CertificateOffer> FollowerServer::noteCertificate(const Ledger::Record &record,
-                                                                       const std::string &from) {
+std::optional<Chain::CertificateOffer> FollowerServer::noteCertificate(const Ledger::Record& record,
+                                                                       const std::string& from) {
   auto offered = follower().noteCertificate(record, from);
   if (offered == Chain::CertificateOffer::Newer) {
     onTrustChanged();
@@ -376,8 +378,8 @@ std::optional<Chain::CertificateOffer> FollowerServer::noteCertificate(const Led
   return offered;
 }
 
-std::optional<Chain::EquivocationOffer> FollowerServer::noteEquivocation(const Client::Equivocation &evidence,
-                                                                         const std::string &from, bool pushUp) {
+std::optional<Chain::EquivocationOffer> FollowerServer::noteEquivocation(const Client::Equivocation& evidence,
+                                                                         const std::string& from, bool pushUp) {
   auto offered = follower().noteEquivocation(evidence, from);
   if (offered == Chain::EquivocationOffer::Newer) {
     onTrustChanged();
@@ -388,21 +390,22 @@ std::optional<Chain::EquivocationOffer> FollowerServer::noteEquivocation(const C
   return offered;
 }
 
-void FollowerServer::pushCertificateUp(const Ledger::Record &record) {
+void FollowerServer::pushCertificateUp(const Ledger::Record& record) {
   for (size_t i = 0; i < upstreams_->all().size(); ++i) {
     if (auto dial = dialUpstream(fanoutClient_, i); !dial) {
       log().warning << "Certificate not passed to upstream [" << i << "]: " << dial.error().message;
       continue;
     }
     fanoutClient_.addTransactionAsync(record, completeOnServerThread<void>([this, i](Client::Roe<void> result) {
-      if (!result) {
-        log().debug << "Upstream [" << i << "] did not take the certificate: " << result.error().message;
-      }
-    }));
+                                        if (!result) {
+                                          log().debug << "Upstream [" << i
+                                                      << "] did not take the certificate: " << result.error().message;
+                                        }
+                                      }));
   }
 }
 
-void FollowerServer::pushEquivocationUp(const Client::Equivocation &evidence) {
+void FollowerServer::pushEquivocationUp(const Client::Equivocation& evidence) {
   // To every upstream: each side of a split runs its own beacon host, and each must halt. Downstreams
   // learn it from this node's STATUS.
   for (size_t i = 0; i < upstreams_->all().size(); ++i) {
@@ -410,19 +413,18 @@ void FollowerServer::pushEquivocationUp(const Client::Equivocation &evidence) {
       log().warning << "Equivocation evidence not passed to upstream [" << i << "]: " << dial.error().message;
       continue;
     }
-    fanoutClient_.addEquivocationAsync(evidence,
-                                       completeOnServerThread<std::string>([this, i](Client::Roe<std::string> result) {
-                                         if (!result) {
-                                           log().warning << "Equivocation evidence not passed to upstream [" << i
-                                                         << "]: " << result.error().message;
-                                         }
-                                       }));
+    fanoutClient_.addEquivocationAsync(
+        evidence, completeOnServerThread<std::string>([this, i](Client::Roe<std::string> result) {
+          if (!result) {
+            log().warning << "Equivocation evidence not passed to upstream [" << i << "]: " << result.error().message;
+          }
+        }));
   }
 }
 
 // ============ requests ============
 
-void FollowerServer::dBlockGet(const Client::Request &request, const RequestQueue::Reply &reply) {
+void FollowerServer::dBlockGet(const Client::Request& request, const RequestQueue::Reply& reply) {
   auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
   if (!idResult) {
     replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Invalid block get payload: " + request.payload)));
@@ -444,7 +446,7 @@ void FollowerServer::dBlockGet(const Client::Request &request, const RequestQueu
 }
 
 void FollowerServer::resolvePendingBlockGets() {
-  for (auto &pending : pendingBlockGets_) {
+  for (auto& pending : pendingBlockGets_) {
     auto result = follower().readBlock(pending.blockId);
     if (result) {
       pending.reply(packResponse(result.value().ltsToString()));
@@ -455,10 +457,11 @@ void FollowerServer::resolvePendingBlockGets() {
   pendingBlockGets_.clear();
 }
 
-void FollowerServer::dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply) {
+void FollowerServer::dTxAdd(const Client::Request& request, const RequestQueue::Reply& reply) {
   auto record = utl::binaryUnpack<Ledger::Record>(request.payload);
   if (!record) {
-    replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Failed to deserialize transaction: " + record.error().message)));
+    replyWith(reply,
+              Roe<std::string>(Error(E_REQUEST, "Failed to deserialize transaction: " + record.error().message)));
     return;
   }
   if (checksTransactions() && record.value().type != Ledger::T_BEACON_CERT) {
@@ -478,8 +481,9 @@ void FollowerServer::dTxAdd(const Client::Request &request, const RequestQueue::
     }
   }
   if (auto dial = dialUpstream(); !dial) {
-    replyWith(reply, kept.empty() ? Roe<std::string>(Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message))
-                                  : Roe<std::string>(kept + "; not forwarded: " + dial.error().message));
+    replyWith(reply, kept.empty()
+                         ? Roe<std::string>(Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message))
+                         : Roe<std::string>(kept + "; not forwarded: " + dial.error().message));
     return;
   }
   const auto budget = forwardOrExpire(request, reply);
@@ -488,19 +492,18 @@ void FollowerServer::dTxAdd(const Client::Request &request, const RequestQueue::
   }
   // Up the tree to the beacon's pool, where the slot leader pulls it: miners never need each other's
   // addresses. The reply text is the beacon's (submitted, or already submitted).
-  client_.requestAsync(
-      Client::T_REQ_TX_ADD, request.payload,
-      completeOnServerThread<std::string>([reply, kept](Client::Roe<std::string> result) {
-        if (result) {
-          reply(packResponse(result.value()));
-        } else {
-          replyUpstreamError(reply, result.error(), kept.empty() ? "" : kept + "; the upstream: ");
-        }
-      }),
-      *budget);
+  client_.requestAsync(Client::T_REQ_TX_ADD, request.payload,
+                       completeOnServerThread<std::string>([reply, kept](Client::Roe<std::string> result) {
+                         if (result) {
+                           reply(packResponse(result.value()));
+                         } else {
+                           replyUpstreamError(reply, result.error(), kept.empty() ? "" : kept + "; the upstream: ");
+                         }
+                       }),
+                       *budget);
 }
 
-void FollowerServer::dEquivocationAdd(const Client::Request &request, const RequestQueue::Reply &reply) {
+void FollowerServer::dEquivocationAdd(const Client::Request& request, const RequestQueue::Reply& reply) {
   Client::Equivocation evidence;
   if (!evidence.ltsFromString(request.payload)) {
     replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Invalid equivocation evidence")));
@@ -520,8 +523,7 @@ void FollowerServer::dEquivocationAdd(const Client::Request &request, const Requ
     return;
   }
   client_.addEquivocationAsync(
-      evidence,
-      completeOnServerThread<std::string>([reply, kept](Client::Roe<std::string> result) {
+      evidence, completeOnServerThread<std::string>([reply, kept](Client::Roe<std::string> result) {
         replyWith(reply, Roe<std::string>(kept + "; upstream: " + (result ? result.value() : result.error().message)));
       }),
       *budget);

@@ -9,7 +9,8 @@ struct TxError : RoeErrorBase {
   using RoeErrorBase::RoeErrorBase;
 };
 
-template <typename T> using Roe = ResultOrError<T, TxError>;
+template <typename T>
+using Roe = ResultOrError<T, TxError>;
 
 } // namespace pp::chain_tx
 

@@ -11,19 +11,20 @@ std::ostream& operator<<(std::ostream& os, const Wallet& wallet) {
   os << "Wallet{balances: {";
   bool first = true;
   for (const auto& [tokenId, balance] : wallet.mBalances) {
-    if (!first) os << ", ";
+    if (!first)
+      os << ", ";
     os << tokenId << ": " << balance;
     first = false;
   }
   os << "}, publicKeys: [";
   bool firstKey = true;
   for (const auto& pk : wallet.publicKeys) {
-    if (!firstKey) os << ", ";
+    if (!firstKey)
+      os << ", ";
     os << utl::toJsonSafeString(pk);
     firstKey = false;
   }
-  os << "], minSignatures: " << (int)wallet.minSignatures
-     << ", keyType: " << (int)wallet.keyType << "}";
+  os << "], minSignatures: " << (int)wallet.minSignatures << ", keyType: " << (int)wallet.keyType << "}";
   return os;
 }
 
@@ -34,12 +35,12 @@ std::ostream& operator<<(std::ostream& os, const UserAccount& account) {
 
 pp::common::Meta Wallet::ltsToMeta() const {
   pp::common::Meta balances;
-  for (const auto &[tokenId, balance] : mBalances) {
+  for (const auto& [tokenId, balance] : mBalances) {
     balances.set(std::to_string(tokenId), static_cast<int64_t>(balance));
   }
   std::vector<pp::common::Meta::Value> keys;
   keys.reserve(publicKeys.size());
-  for (const auto &pk : publicKeys) {
+  for (const auto& pk : publicKeys) {
     // Named local avoids GCC -Wmaybe-uninitialized false positive on
     // std::variant move into vector from a converting temporary.
     std::string safe = utl::toJsonSafeString(pk);
@@ -61,9 +62,9 @@ pp::common::Meta Wallet::ltsToMeta() const {
     j.set("miner", m);
   }
   if (recovery != AccountRecovery{}) {
-    auto keysOf = [](const std::vector<std::string> &list) {
+    auto keysOf = [](const std::vector<std::string>& list) {
       std::vector<pp::common::Meta::Value> out;
-      for (const auto &pk : list) {
+      for (const auto& pk : list) {
         std::string safe = utl::toJsonSafeString(pk);
         out.emplace_back(std::move(safe));
       }
@@ -96,7 +97,7 @@ std::string AccountRecoveryAction::ltsToString() const {
   return oss.str();
 }
 
-bool AccountRecoveryAction::ltsFromString(const std::string &str) {
+bool AccountRecoveryAction::ltsFromString(const std::string& str) {
   std::istringstream iss(str, std::ios::binary);
   InputArchive ar(iss);
   uint32_t version = 0;
@@ -104,7 +105,7 @@ bool AccountRecoveryAction::ltsFromString(const std::string &str) {
   if (version != VERSION) {
     return false;
   }
-  ar & *this;
+  ar&* this;
   return !ar.failed();
 }
 
@@ -123,7 +124,7 @@ bool UserAccount::ltsFromString(const std::string& str) {
   if (version != VERSION) {
     return false;
   }
-  ar & *this;
+  ar&* this;
   if (ar.failed()) {
     return false;
   }

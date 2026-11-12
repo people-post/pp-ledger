@@ -30,10 +30,12 @@ using namespace std::chrono_literals;
 
 namespace {
 
-constexpr const char *kHostProtocol = pp::test::TestAmpHost::kProtocol;
+constexpr const char* kHostProtocol = pp::test::TestAmpHost::kProtocol;
 using Host = pp::test::TestAmpHost;
 
-network::LedgerAmpConfig freshIdentity() { return pp::test::freshAmpIdentity(); }
+network::LedgerAmpConfig freshIdentity() {
+  return pp::test::freshAmpIdentity();
+}
 
 /** A ledger node answering request type 1 with "echo:<payload>". */
 class LedgerNode : public Server {
@@ -49,7 +51,7 @@ protected:
   std::string getLogFileName() const override { return "test.log"; }
   std::string getServerName() const override { return "LedgerNode"; }
   Service::Roe<void> onStart() override {
-    handle(1, [this](const Client::Request &request) -> Roe<std::string> {
+    handle(1, [this](const Client::Request& request) -> Roe<std::string> {
       ++handled;
       return "echo:" + request.payload;
     });
@@ -66,14 +68,14 @@ protected:
   }
 };
 
-std::string request(const std::string &payload) {
+std::string request(const std::string& payload) {
   Client::Request req;
   req.type = 1;
   req.payload = payload;
   return utl::binaryPack(req);
 }
 
-std::string payloadOf(const AmpLedgerTransport::Roe<std::string> &response) {
+std::string payloadOf(const AmpLedgerTransport::Roe<std::string>& response) {
   if (!response) {
     return "error: " + response.error().message;
   }
@@ -97,7 +99,7 @@ protected:
   }
 
   /** Run `node` on the host until it serves; the caller stops it. */
-  std::thread runNode(LedgerNode &node) {
+  std::thread runNode(LedgerNode& node) {
     node.runOnHost(host_.forLedger());
     std::thread thread([this, &node]() { EXPECT_TRUE(node.run(dir_.string()).isOk()); });
     EXPECT_EQ(node.started.get_future().wait_for(10s), std::future_status::ready);
@@ -136,7 +138,7 @@ TEST_F(HostedAmpTest, ANodeServesLedgerRpcOnTheHostsRuntime) {
 
 TEST_F(HostedAmpTest, ANodesClientsCallOutOnTheHostsRuntime) {
   pp::network::AmpLedgerServer::Bind(
-      peer_.links(), [](const std::string &body) { return body; }, {},
+      peer_.links(), [](const std::string& body) { return body; }, {},
       [this](std::function<void()> task) { peer_.post(std::move(task)); });
   LedgerNode node;
   std::thread thread = runNode(node);
@@ -149,9 +151,8 @@ TEST_F(HostedAmpTest, ANodesClientsCallOutOnTheHostsRuntime) {
   EXPECT_EQ(out.roundTrip(body, 5s).value(), body) << "the echo peer returns the request";
 
   std::promise<bool> asyncDone;
-  out.roundTripAsync(body, 5s, [&asyncDone](AmpLedgerTransport::Roe<std::string> response) {
-    asyncDone.set_value(response.isOk());
-  });
+  out.roundTripAsync(
+      body, 5s, [&asyncDone](AmpLedgerTransport::Roe<std::string> response) { asyncDone.set_value(response.isOk()); });
   auto future = asyncDone.get_future();
   ASSERT_EQ(future.wait_for(5s), std::future_status::ready);
   EXPECT_TRUE(future.get());
@@ -211,8 +212,8 @@ TEST(HostedAmpRuntimeTest, WorkQueuedBeforeTheCloseDoesNotRunAfterIt) {
 
   // A call to a peer that never answers: its timeout fires on the io lane after the node closed.
   AmpLedgerTransport transport(*hosted, "nobody");
-  ASSERT_TRUE(transport.registerEndpoint(
-      "nobody", "/ip4/10.4.0.9/udp/9/adp/1.0.0/p2p/" + freshIdentity().local_peer_id));
+  ASSERT_TRUE(
+      transport.registerEndpoint("nobody", "/ip4/10.4.0.9/udp/9/adp/1.0.0/p2p/" + freshIdentity().local_peer_id));
   std::atomic<bool> doneCalled{false};
   transport.roundTripAsync(request("lost"), 300ms, [&](AmpLedgerTransport::Roe<std::string>) { doneCalled = true; });
 
@@ -255,7 +256,7 @@ TEST(LedgerAmpRuntimeTest, ThePumpIsTheOnlyDriver) {
   EXPECT_FALSE(runtime.onIoThread());
 
   const uint64_t refused = runtime.runtime().RefusedDrives();
-  runtime.runtime().Drive();  // a second driver
+  runtime.runtime().Drive(); // a second driver
   EXPECT_EQ(runtime.runtime().RefusedDrives(), refused + 1);
 
   bool inside = false;

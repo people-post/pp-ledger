@@ -11,9 +11,11 @@ using namespace pp;
 
 namespace {
 
-std::string addr(const std::string &peer) { return "/ip4/127.0.0.1/udp/9000/adp/1.0.0/p2p/" + peer; }
+std::string addr(const std::string& peer) {
+  return "/ip4/127.0.0.1/udp/9000/adp/1.0.0/p2p/" + peer;
+}
 
-Client::BeaconState stateAt(uint64_t generation, uint64_t nextBlockId, const std::string &hash = "") {
+Client::BeaconState stateAt(uint64_t generation, uint64_t nextBlockId, const std::string& hash = "") {
   Client::BeaconState state;
   state.nextBlockId = nextBlockId;
   if (generation > 0) {
@@ -29,7 +31,7 @@ Client::BeaconState stateAt(uint64_t generation, uint64_t nextBlockId, const std
 }
 
 using States = std::vector<std::optional<Client::BeaconState>>;
-const auto kAny = [](const Client::SignedTip &) { return true; };
+const auto kAny = [](const Client::SignedTip&) { return true; };
 
 /** Answers STATUS when the test says so; records what the set did. */
 struct Harness {
@@ -37,29 +39,29 @@ struct Harness {
   std::vector<std::string> followed;
   std::vector<std::string> learnt;
   std::vector<std::string> conflicts;
-  std::function<bool(const Client::SignedTip &)> mayFollow = kAny;
-  std::function<void(size_t, const Client::BeaconState &)> onLearn;
+  std::function<bool(const Client::SignedTip&)> mayFollow = kAny;
+  std::function<void(size_t, const Client::BeaconState&)> onLearn;
   std::set<std::string> refused;
   std::unique_ptr<UpstreamSet> set;
 
   explicit Harness(std::vector<std::string> configured) {
     UpstreamSet::Hooks hooks;
-    hooks.fetchStatus = [this](size_t index, const std::string &, UpstreamSet::StatusDone done) {
+    hooks.fetchStatus = [this](size_t index, const std::string&, UpstreamSet::StatusDone done) {
       pending[index] = std::move(done);
     };
-    hooks.admit = [](size_t, const Client::BeaconState &state) { return state.networkId != "other-net"; };
-    hooks.learn = [this](size_t index, const Client::BeaconState &state) {
+    hooks.admit = [](size_t, const Client::BeaconState& state) { return state.networkId != "other-net"; };
+    hooks.learn = [this](size_t index, const Client::BeaconState& state) {
       learnt.push_back(std::to_string(index));
       if (onLearn) {
         onLearn(index, state);
       }
     };
-    hooks.offerEquivocation = [this](const Client::Equivocation &, const std::string &from) {
+    hooks.offerEquivocation = [this](const Client::Equivocation&, const std::string& from) {
       conflicts.push_back(from);
     };
-    hooks.mayFollow = [this](const Client::SignedTip &tip) { return mayFollow(tip); };
-    hooks.adopt = [this](const std::string &multiaddr) { return refused.count(multiaddr) == 0; };
-    hooks.onFollow = [this](const std::string &multiaddr) { followed.push_back(multiaddr); };
+    hooks.mayFollow = [this](const Client::SignedTip& tip) { return mayFollow(tip); };
+    hooks.adopt = [this](const std::string& multiaddr) { return refused.count(multiaddr) == 0; };
+    hooks.onFollow = [this](const std::string& multiaddr) { followed.push_back(multiaddr); };
     set = std::make_unique<UpstreamSet>(std::move(configured), std::move(hooks));
   }
 
@@ -68,7 +70,9 @@ struct Harness {
     pending.erase(index);
     done(std::move(status));
   }
-  void answer(size_t index, const Client::BeaconState &state) { answer(index, Client::Roe<Client::BeaconState>(state)); }
+  void answer(size_t index, const Client::BeaconState& state) {
+    answer(index, Client::Roe<Client::BeaconState>(state));
+  }
   void fail(size_t index) {
     answer(index, Client::Roe<Client::BeaconState>(Client::Error(Client::E_NOT_CONNECTED, "down")));
   }
@@ -87,7 +91,7 @@ TEST(UpstreamSetChooseTest, TheHighestGenerationThenTheLongestChain) {
 
 TEST(UpstreamSetChooseTest, SkipsTheSilentTheAvoidedAndTipsNotWorthFollowing) {
   const States states{std::nullopt, stateAt(3, 10), stateAt(2, 40), stateAt(2, 30)};
-  auto notGeneration3 = [](const Client::SignedTip &tip) { return tip.generation != 3; };
+  auto notGeneration3 = [](const Client::SignedTip& tip) { return tip.generation != 3; };
   EXPECT_EQ(UpstreamSet::choose(states, notGeneration3, {}, 0), std::make_optional<size_t>(2));
   EXPECT_EQ(UpstreamSet::choose(states, notGeneration3, {2}, 0), std::make_optional<size_t>(3));
   EXPECT_EQ(UpstreamSet::choose(states, notGeneration3, {2, 3}, 0), std::nullopt);
@@ -127,8 +131,8 @@ TEST(UpstreamSetTest, WhatOneUpstreamServesCanRuleOutAnother) {
   Harness h({addr("old-beacon"), addr("gateway")});
   bool cutoverHeld = false;
   // The gateway serves a certificate whose cutover rules out the old beacon's tip.
-  h.onLearn = [&](size_t index, const Client::BeaconState &) { cutoverHeld = cutoverHeld || index == 1; };
-  h.mayFollow = [&](const Client::SignedTip &tip) { return !cutoverHeld || tip.height <= 95; }; // cutover 95
+  h.onLearn = [&](size_t index, const Client::BeaconState&) { cutoverHeld = cutoverHeld || index == 1; };
+  h.mayFollow = [&](const Client::SignedTip& tip) { return !cutoverHeld || tip.height <= 95; }; // cutover 95
   h.set->rerank("test");
   h.answer(0, stateAt(1, 100));
   h.answer(1, stateAt(1, 90));
@@ -236,7 +240,7 @@ TEST(UpstreamSetTest, HintsAreAddedOnceAndOnlyWhenValidAndAdopted) {
 
 TEST(UpstreamSetTest, AHintLearntMidRoundIsProbedInTheNextOne) {
   Harness h({addr("a"), addr("b")});
-  h.onLearn = [&](size_t index, const Client::BeaconState &) {
+  h.onLearn = [&](size_t index, const Client::BeaconState&) {
     if (index == 1 && h.set->addHints({addr("gateway")}) > 0) {
       h.set->rerank("a new beacon certificate");
     }

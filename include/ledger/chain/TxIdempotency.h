@@ -20,8 +20,7 @@ namespace pp::chain_tx {
 
 /** Per-record (walletId, idempotentId) for cross-block idempotency scan. */
 using FnIdempotencyKeyForRecord =
-    std::function<Roe<std::optional<std::pair<uint64_t, uint64_t>>>(
-        const Ledger::Record &)>;
+    std::function<Roe<std::optional<std::pair<uint64_t, uint64_t>>>(const Ledger::Record&)>;
 
 /**
  * What the idempotency scan needs of a block — its timestamp, slot and records' (wallet, idempotent
@@ -44,12 +43,12 @@ public:
   };
 
   /** Block `blockId` of `ledger`, read on a miss; null when it cannot be read. */
-  std::shared_ptr<const Block> get(const Ledger &ledger, uint64_t blockId,
-                                   const FnIdempotencyKeyForRecord &fnIdempotencyKeyForRecord);
+  std::shared_ptr<const Block> get(const Ledger& ledger, uint64_t blockId,
+                                   const FnIdempotencyKeyForRecord& fnIdempotencyKeyForRecord);
 
 private:
   std::mutex mu_;
-  const Ledger *ledger_{nullptr};
+  const Ledger* ledger_{nullptr};
   uint64_t revision_{0};
   std::map<uint64_t, std::shared_ptr<const Block>> blocks_;
 };
@@ -58,11 +57,10 @@ private:
  * Whether a record of `fromWalletId` with `idempotentId` is in a block of slot slotMin..slotMax.
  * With `cache`, from what it keeps of each block (the same answer, errors included).
  */
-Roe<void> checkIdempotency(
-    const Ledger &ledger, const consensus::SlotCommittee &consensus,
-    uint64_t idempotentId, uint64_t fromWalletId, uint64_t slotMin,
-    uint64_t slotMax, const FnIdempotencyKeyForRecord &fnIdempotencyKeyForRecord,
-    IdempotencyScanCache *cache = nullptr);
+Roe<void> checkIdempotency(const Ledger& ledger, const consensus::SlotCommittee& consensus, uint64_t idempotentId,
+                           uint64_t fromWalletId, uint64_t slotMin, uint64_t slotMax,
+                           const FnIdempotencyKeyForRecord& fnIdempotencyKeyForRecord,
+                           IdempotencyScanCache* cache = nullptr);
 
 /**
  * `requireNonZeroId`: in strict (Full) admission, reject idempotentId == 0
@@ -71,14 +69,12 @@ Roe<void> checkIdempotency(
  * 0 would otherwise bypass cross-block replay protection entirely. Types
  * with no fund movement (e.g. T_CONFIG) may keep the default.
  */
-Roe<void> validateIdempotencyRules(
-    const Ledger &ledger, const consensus::SlotCommittee &consensus,
-    const std::optional<BlockChainConfig> &optChainConfig,
-    uint64_t idempotentId, uint64_t fromWalletId, int64_t validationTsMin,
-    int64_t validationTsMax, uint64_t effectiveSlot,
-    chain_block::BlockAdmissionMode admissionMode,
-    const FnIdempotencyKeyForRecord &fnIdempotencyKeyForRecord,
-    bool requireNonZeroId = false, IdempotencyScanCache *cache = nullptr);
+Roe<void> validateIdempotencyRules(const Ledger& ledger, const consensus::SlotCommittee& consensus,
+                                   const std::optional<BlockChainConfig>& optChainConfig, uint64_t idempotentId,
+                                   uint64_t fromWalletId, int64_t validationTsMin, int64_t validationTsMax,
+                                   uint64_t effectiveSlot, chain_block::BlockAdmissionMode admissionMode,
+                                   const FnIdempotencyKeyForRecord& fnIdempotencyKeyForRecord,
+                                   bool requireNonZeroId = false, IdempotencyScanCache* cache = nullptr);
 
 } // namespace pp::chain_tx
 

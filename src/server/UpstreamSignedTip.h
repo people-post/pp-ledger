@@ -21,7 +21,7 @@ public:
     Conflict, ///< same generation and height, another block: ignored here (equivocation evidence)
   };
 
-  Offer offer(const Client::SignedTip &tip) {
+  Offer offer(const Client::SignedTip& tip) {
     if (!latest_ || tip.height > latest_->height ||
         (tip.height == latest_->height && tip.generation > latest_->generation)) {
       latest_ = tip;
@@ -34,7 +34,7 @@ public:
     return tip.blockHash == latest_->blockHash ? Offer::Same : Offer::Conflict;
   }
 
-  const std::optional<Client::SignedTip> &latest() const { return latest_; }
+  const std::optional<Client::SignedTip>& latest() const { return latest_; }
   /** Forget the held tip (it no longer verifies, e.g. past a certificate's cutover). */
   void reset() { latest_.reset(); }
 

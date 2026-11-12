@@ -12,8 +12,7 @@ namespace consensus {
 
 SlotCommittee::SlotCommittee() {}
 
-bool SlotCommittee::isSlotLeader(uint64_t slot,
-                             uint64_t stakeholderId) const {
+bool SlotCommittee::isSlotLeader(uint64_t slot, uint64_t stakeholderId) const {
   auto result = getSlotLeader(slot);
   if (!result.isOk()) {
     return false;
@@ -36,7 +35,9 @@ int64_t SlotCommittee::deliveryWindowMs(const uint64_t slotDurationSeconds) {
   return std::min<int64_t>(static_cast<int64_t>(slotDurationSeconds) * 1000 / 3, kMaxWindowMs);
 }
 
-int64_t SlotCommittee::deliveryWindowMs() const { return deliveryWindowMs(config_.slotDuration); }
+int64_t SlotCommittee::deliveryWindowMs() const {
+  return deliveryWindowMs(config_.slotDuration);
+}
 
 bool SlotCommittee::isSlotSealTime(uint64_t slot) const {
   const int64_t now = getTimestampMs();
@@ -74,8 +75,7 @@ int64_t SlotCommittee::getTimestampMs() const {
     return *clockOverride_ * 1000;
   }
   const auto now = std::chrono::system_clock::now();
-  const int64_t localMs =
-      std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+  const int64_t localMs = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
   return localMs + config_.timeOffsetMs;
 }
 
@@ -143,18 +143,19 @@ uint64_t SlotCommittee::getStake(uint64_t stakeholderId) const {
 }
 
 uint64_t SlotCommittee::getTotalStake() const {
-  return std::accumulate(
-      cache_.mStakeholders.begin(), cache_.mStakeholders.end(), uint64_t(0),
-      [](uint64_t sum, const auto &pair) { return sum + pair.second; });
+  return std::accumulate(cache_.mStakeholders.begin(), cache_.mStakeholders.end(), uint64_t(0),
+                         [](uint64_t sum, const auto& pair) { return sum + pair.second; });
 }
 
-size_t SlotCommittee::getStakeholderCount() const { return cache_.mStakeholders.size(); }
+size_t SlotCommittee::getStakeholderCount() const {
+  return cache_.mStakeholders.size();
+}
 
 std::vector<Stakeholder> SlotCommittee::getStakeholders() const {
   std::vector<Stakeholder> result;
   result.reserve(cache_.mStakeholders.size());
 
-  for (const auto &[id, stake] : cache_.mStakeholders) {
+  for (const auto& [id, stake] : cache_.mStakeholders) {
     result.emplace_back();
     result.back().id = id;
     result.back().stake = stake;
@@ -191,8 +192,7 @@ void SlotCommittee::setSlotTiming(int64_t genesisTime, uint64_t slotDuration, ui
 }
 
 SlotCommittee::TipState SlotCommittee::saveTipState() const {
-  return TipState{config_, cache_.mStakeholders, cache_.lastStakeUpdateEpoch,
-                  epochSeed_, epochSeedEpoch_};
+  return TipState{config_, cache_.mStakeholders, cache_.lastStakeUpdateEpoch, epochSeed_, epochSeedEpoch_};
 }
 
 void SlotCommittee::restoreTipState(TipState state) {
@@ -211,17 +211,17 @@ void SlotCommittee::forceSlotLeader(uint64_t slot, uint64_t stakeholderId) {
   forcedLeaders_[slot] = stakeholderId;
 }
 
-void SlotCommittee::clearForcedSlotLeaders() { forcedLeaders_.clear(); }
-
-bool SlotCommittee::hasEpochSeedFor(uint64_t epoch) const {
-  return epochSeed_.size() == utl::SHA256_DIGEST_SIZE &&
-         epochSeedEpoch_ == epoch;
+void SlotCommittee::clearForcedSlotLeaders() {
+  forcedLeaders_.clear();
 }
 
-void SlotCommittee::setEpochSeed(uint64_t epoch, const std::string &seed32) {
+bool SlotCommittee::hasEpochSeedFor(uint64_t epoch) const {
+  return epochSeed_.size() == utl::SHA256_DIGEST_SIZE && epochSeedEpoch_ == epoch;
+}
+
+void SlotCommittee::setEpochSeed(uint64_t epoch, const std::string& seed32) {
   if (seed32.size() != utl::SHA256_DIGEST_SIZE) {
-    log().error << "setEpochSeed: seed must be "
-                << utl::SHA256_DIGEST_SIZE << " bytes";
+    log().error << "setEpochSeed: seed must be " << utl::SHA256_DIGEST_SIZE << " bytes";
     throw std::invalid_argument("epoch seed must be 32 bytes");
   }
   epochSeed_ = seed32;
@@ -237,8 +237,7 @@ void SlotCommittee::setStakeholders(const std::vector<Stakeholder>& stakeholders
   setStakeholders(stakeholders, getCurrentEpoch());
 }
 
-void SlotCommittee::setStakeholders(const std::vector<Stakeholder>& stakeholders,
-                                uint64_t forEpoch) {
+void SlotCommittee::setStakeholders(const std::vector<Stakeholder>& stakeholders, uint64_t forEpoch) {
   cache_.mStakeholders.clear();
   for (const auto& stakeholder : stakeholders) {
     cache_.mStakeholders[stakeholder.id] = stakeholder.stake;
@@ -250,21 +249,18 @@ std::vector<uint64_t> SlotCommittee::getEligibleLeaderPool() const {
   if (cache_.mStakeholders.empty()) {
     return {};
   }
-  std::vector<std::pair<uint64_t, uint64_t>> byStake(cache_.mStakeholders.begin(),
-                                                     cache_.mStakeholders.end());
-  byStake.erase(
-      std::remove_if(byStake.begin(), byStake.end(),
-                     [](const auto& p) { return p.second == 0; }),
-      byStake.end());
+  std::vector<std::pair<uint64_t, uint64_t>> byStake(cache_.mStakeholders.begin(), cache_.mStakeholders.end());
+  byStake.erase(std::remove_if(byStake.begin(), byStake.end(), [](const auto& p) { return p.second == 0; }),
+                byStake.end());
   if (byStake.empty()) {
     return {};
   }
   // Sort by stake descending, then by id ascending for deterministic tie-break
-  std::sort(byStake.begin(), byStake.end(),
-            [](const auto& a, const auto& b) {
-              if (a.second != b.second) return a.second > b.second;
-              return a.first < b.first;
-            });
+  std::sort(byStake.begin(), byStake.end(), [](const auto& a, const auto& b) {
+    if (a.second != b.second)
+      return a.second > b.second;
+    return a.first < b.first;
+  });
   size_t n = std::min(kMaxLeaderPoolSize, byStake.size());
   std::vector<uint64_t> pool;
   pool.reserve(n);
@@ -293,15 +289,13 @@ uint64_t SlotCommittee::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
   // First 8 bytes of raw SHA-256 as big-endian u64; equal weight in pool.
   uint64_t hashValue = 0;
   for (size_t i = 0; i < 8; ++i) {
-    hashValue = (hashValue << 8) |
-                static_cast<uint64_t>(static_cast<unsigned char>(slotHash[i]));
+    hashValue = (hashValue << 8) | static_cast<uint64_t>(static_cast<unsigned char>(slotHash[i]));
   }
   size_t index = static_cast<size_t>(hashValue % pool.size());
   return pool[index];
 }
 
-std::string SlotCommittee::hashSlotElection(uint64_t slot, uint64_t epoch,
-                                            const std::string &epochSeed) const {
+std::string SlotCommittee::hashSlotElection(uint64_t slot, uint64_t epoch, const std::string& epochSeed) const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
   const std::string domain = "pp-ledger/slot-committee/v2";
@@ -311,8 +305,7 @@ std::string SlotCommittee::hashSlotElection(uint64_t slot, uint64_t epoch,
   return utl::sha256Raw(oss.str());
 }
 
-bool SlotCommittee::validateSlotLeader(uint64_t slotLeader,
-                                   uint64_t slot) const {
+bool SlotCommittee::validateSlotLeader(uint64_t slotLeader, uint64_t slot) const {
   auto result = getSlotLeader(slot);
   if (!result.isOk()) {
     return false;

@@ -47,7 +47,7 @@ public:
   };
 
   /** "beacon", "relay", "miner"; none for anything else. */
-  static std::optional<Role> roleNamed(const std::string &name);
+  static std::optional<Role> roleNamed(const std::string& name);
   static std::string nameOf(Role role);
 
   explicit RoleRunner(Options options);

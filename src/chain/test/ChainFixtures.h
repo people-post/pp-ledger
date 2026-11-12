@@ -22,22 +22,14 @@
 
 namespace pp::chain_test {
 
-
 constexpr uint64_t BYTES_PER_KIB = 1024ULL;
 
-inline uint64_t getFeeCoefficient(const std::vector<uint16_t> &coefficients,
-                           size_t index) {
-  return index < coefficients.size()
-             ? static_cast<uint64_t>(coefficients[index])
-             : 0ULL;
+inline uint64_t getFeeCoefficient(const std::vector<uint16_t>& coefficients, size_t index) {
+  return index < coefficients.size() ? static_cast<uint64_t>(coefficients[index]) : 0ULL;
 }
 
-inline uint64_t
-calculateMinimumFeeFromNonFreeMetaSize(const Chain::BlockChainConfig &config,
-                                       uint64_t nonFreeBytes) {
-  const uint64_t nonFreeSizeKiB =
-      nonFreeBytes == 0 ? 0ULL
-                        : (nonFreeBytes + BYTES_PER_KIB - 1) / BYTES_PER_KIB;
+inline uint64_t calculateMinimumFeeFromNonFreeMetaSize(const Chain::BlockChainConfig& config, uint64_t nonFreeBytes) {
+  const uint64_t nonFreeSizeKiB = nonFreeBytes == 0 ? 0ULL : (nonFreeBytes + BYTES_PER_KIB - 1) / BYTES_PER_KIB;
 
   const uint64_t a = getFeeCoefficient(config.minFeeCoefficients, 0);
   const uint64_t b = getFeeCoefficient(config.minFeeCoefficients, 1);
@@ -72,8 +64,7 @@ inline utl::MlDsaKeyPair makeKeyPair() {
   return result.value();
 }
 
-inline Client::UserAccount makeUserAccount(const std::string &publicKey,
-                                    int64_t balance) {
+inline Client::UserAccount makeUserAccount(const std::string& publicKey, int64_t balance) {
   Client::UserAccount account;
   account.wallet.publicKeys = {publicKey};
   account.wallet.minSignatures = 1;
@@ -83,8 +74,7 @@ inline Client::UserAccount makeUserAccount(const std::string &publicKey,
   return account;
 }
 
-inline std::string signMessage(const utl::MlDsaKeyPair &keyPair,
-                        const std::string &message) {
+inline std::string signMessage(const utl::MlDsaKeyPair& keyPair, const std::string& message) {
   auto result = utl::mlDsaSign(keyPair.privateKey, message);
   EXPECT_TRUE(result.isOk());
   if (!result.isOk()) {
@@ -94,9 +84,8 @@ inline std::string signMessage(const utl::MlDsaKeyPair &keyPair,
 }
 
 template <typename TxT>
-inline Ledger::Record makeRecord(uint16_t type, const TxT &tx,
-                          const utl::MlDsaKeyPair &signer,
-                          const std::string &networkId = {}) {
+inline Ledger::Record makeRecord(uint16_t type, const TxT& tx, const utl::MlDsaKeyPair& signer,
+                                 const std::string& networkId = {}) {
   Ledger::Record rec;
   rec.type = type;
   rec.data = utl::binaryPack(tx);
@@ -105,19 +94,19 @@ inline Ledger::Record makeRecord(uint16_t type, const TxT &tx,
 }
 
 /** The generation-1 beacon signing key of every test chain (tests sign tips with it). */
-inline const utl::MlDsaKeyPair &testBeaconKey() {
+inline const utl::MlDsaKeyPair& testBeaconKey() {
   static const utl::MlDsaKeyPair key = makeKeyPair();
   return key;
 }
 
 /** The fixture's recovery set: one key (1-of-1). */
-inline const utl::MlDsaKeyPair &testRecoveryKey() {
+inline const utl::MlDsaKeyPair& testRecoveryKey() {
   static const utl::MlDsaKeyPair key = makeKeyPair();
   return key;
 }
 
 /** The secret of the test beacon's seed hash chain (64 epochs from epoch 0). */
-inline const std::string &testBeaconSeedSecret() {
+inline const std::string& testBeaconSeedSecret() {
   static const std::string secret(32, '\x5a');
   return secret;
 }
@@ -131,8 +120,8 @@ inline std::string testBeaconReveal(uint64_t epoch) {
 }
 
 /** A T_BEACON_SEED for `epoch` carrying `reveal`, signed by `signer`. */
-inline Ledger::Record makeBeaconSeedRecord(uint64_t epoch, const std::string &reveal,
-                                           const utl::MlDsaKeyPair &signer, const std::string &networkId) {
+inline Ledger::Record makeBeaconSeedRecord(uint64_t epoch, const std::string& reveal, const utl::MlDsaKeyPair& signer,
+                                           const std::string& networkId) {
   Ledger::TxBeaconSeed tx;
   tx.epoch = epoch;
   tx.reveal = reveal;
@@ -140,7 +129,7 @@ inline Ledger::Record makeBeaconSeedRecord(uint64_t epoch, const std::string &re
 }
 
 /** The test beacon's signed reveal for `epoch`. */
-inline Ledger::Record makeBeaconSeedRecord(uint64_t epoch, const std::string &networkId) {
+inline Ledger::Record makeBeaconSeedRecord(uint64_t epoch, const std::string& networkId) {
   return makeBeaconSeedRecord(epoch, testBeaconReveal(epoch), testBeaconKey(), networkId);
 }
 
@@ -148,7 +137,7 @@ inline Ledger::Record makeBeaconSeedRecord(uint64_t epoch, const std::string &ne
  * A valid genesis authority for `networkId`: a 1-of-1 recovery set (testRecoveryKey()) and
  * testBeaconKey(), with a seed chain of 64 epochs from epoch 0 (testBeaconSeedSecret()).
  */
-inline Chain::ChainAuthority makeTestAuthority(const std::string &networkId) {
+inline Chain::ChainAuthority makeTestAuthority(const std::string& networkId) {
   Chain::ChainAuthority authority;
   authority.recovery.publicKeys = {testRecoveryKey().publicKey};
   authority.recovery.minSignatures = 1;
@@ -171,13 +160,13 @@ constexpr uint64_t kTestMinerId = AccountBuffer::ID_FIRST_ISSUED;
  * producer's signatures). The genesis builders set the genesis miner's; a test registering other
  * miners adds theirs.
  */
-inline std::map<uint64_t, utl::MlDsaKeyPair> &testLeaderKeys() {
+inline std::map<uint64_t, utl::MlDsaKeyPair>& testLeaderKeys() {
   static std::map<uint64_t, utl::MlDsaKeyPair> keys;
   return keys;
 }
 
 /** `block` (sealed) signed by its slot leader, if the fixture holds the leader's key. */
-inline void signAsLeader(Ledger::ChainNode &block, const std::string &networkId) {
+inline void signAsLeader(Ledger::ChainNode& block, const std::string& networkId) {
   auto it = testLeaderKeys().find(block.block.slotLeader);
   if (it == testLeaderKeys().end() || block.block.slotLeader == 0) {
     return;
@@ -188,20 +177,17 @@ inline void signAsLeader(Ledger::ChainNode &block, const std::string &networkId)
 constexpr int64_t kTestMinerStake = 1000000;
 
 /** The genesis block before sealing; `tweakMeta` edits the genesis meta (e.g. a bad authority). */
-inline Ledger::ChainNode buildUnsealedGenesis(const Chain::BlockChainConfig &chainConfig,
-                                       const utl::MlDsaKeyPair &genesisKey,
-                                       const utl::MlDsaKeyPair &feeKey,
-                                       const utl::MlDsaKeyPair &reserveKey,
-                                       const utl::MlDsaKeyPair &recycleKey,
-                                       const utl::MlDsaKeyPair *minerKey,
-                                       const utl::MlDsaKeyPair *registrarKey,
-                                       const std::function<void(Chain::GenesisAccountMeta &)> &tweakMeta) {
+inline Ledger::ChainNode buildUnsealedGenesis(const Chain::BlockChainConfig& chainConfig,
+                                              const utl::MlDsaKeyPair& genesisKey, const utl::MlDsaKeyPair& feeKey,
+                                              const utl::MlDsaKeyPair& reserveKey, const utl::MlDsaKeyPair& recycleKey,
+                                              const utl::MlDsaKeyPair* minerKey, const utl::MlDsaKeyPair* registrarKey,
+                                              const std::function<void(Chain::GenesisAccountMeta&)>& tweakMeta) {
   // Genesis miner kTestMinerId signs with `minerKey` (default: the reserve key
   // pair, so tests signing as the slot leader keep using one key). The
   // registrar defaults to the recycle key pair.
-  const utl::MlDsaKeyPair &minerSigner = minerKey ? *minerKey : reserveKey;
+  const utl::MlDsaKeyPair& minerSigner = minerKey ? *minerKey : reserveKey;
   testLeaderKeys()[kTestMinerId] = minerSigner;
-  const utl::MlDsaKeyPair &registrarSigner = registrarKey ? *registrarKey : recycleKey;
+  const utl::MlDsaKeyPair& registrarSigner = registrarKey ? *registrarKey : recycleKey;
   Chain::GenesisAccountMeta gm;
   gm.config = chainConfig;
   gm.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
@@ -225,17 +211,15 @@ inline Ledger::ChainNode buildUnsealedGenesis(const Chain::BlockChainConfig &cha
   Ledger::TxGenesis checkpointTx;
   checkpointTx.fee = 0;
   checkpointTx.meta = gm.ltsToString();
-  genesis.block.records.push_back(
-      makeRecord(Ledger::T_GENESIS, checkpointTx, genesisKey,
-                 chainConfig.networkId));
+  genesis.block.records.push_back(makeRecord(Ledger::T_GENESIS, checkpointTx, genesisKey, chainConfig.networkId));
 
-  auto minFee = [&](const Client::UserAccount &account) {
+  auto minFee = [&](const Client::UserAccount& account) {
     const uint64_t nonFree = account.meta.size() > chainConfig.freeCustomMetaSize
                                  ? static_cast<uint64_t>(account.meta.size()) - chainConfig.freeCustomMetaSize
                                  : 0ULL;
     return calculateMinimumFeeFromNonFreeMetaSize(chainConfig, nonFree);
   };
-  auto newAccountTx = [&](uint64_t toId, const Client::UserAccount &account) {
+  auto newAccountTx = [&](uint64_t toId, const Client::UserAccount& account) {
     Ledger::TxNewUser tx;
     tx.fromWalletId = AccountBuffer::ID_GENESIS;
     tx.toWalletId = toId;
@@ -250,34 +234,29 @@ inline Ledger::ChainNode buildUnsealedGenesis(const Chain::BlockChainConfig &cha
   const Ledger::TxNewUser feeTx = newAccountTx(AccountBuffer::ID_FEE, makeUserAccount(feeKey.publicKey, 0));
   const Ledger::TxNewUser registrarTx =
       newAccountTx(AccountBuffer::ID_REGISTRAR, makeUserAccount(registrarSigner.publicKey, 0));
-  const Ledger::TxNewUser recycleTx =
-      newAccountTx(AccountBuffer::ID_RECYCLE, makeUserAccount(recycleKey.publicKey, 0));
+  const Ledger::TxNewUser recycleTx = newAccountTx(AccountBuffer::ID_RECYCLE, makeUserAccount(recycleKey.publicKey, 0));
   Client::UserAccount minerAccount = makeUserAccount(minerSigner.publicKey, kTestMinerStake);
-  minerAccount.wallet.miner.registered = true;  // genesis miners are registered from block 0
+  minerAccount.wallet.miner.registered = true; // genesis miners are registered from block 0
   const Ledger::TxNewUser minerTx = newAccountTx(kTestMinerId, minerAccount);
 
   const uint64_t reserveFee = minFee(makeUserAccount(reserveKey.publicKey, 0));
-  const int64_t reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) -
-                                static_cast<int64_t>(feeTx.fee + registrarTx.fee + recycleTx.fee + minerTx.fee +
-                                                     reserveFee) -
-                                kTestMinerStake;
+  const int64_t reserveAmount =
+      static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) -
+      static_cast<int64_t>(feeTx.fee + registrarTx.fee + recycleTx.fee + minerTx.fee + reserveFee) - kTestMinerStake;
   const Ledger::TxNewUser reserveTx =
       newAccountTx(AccountBuffer::ID_RESERVE, makeUserAccount(reserveKey.publicKey, reserveAmount));
 
-  for (const auto *tx : {&feeTx, &reserveTx, &registrarTx, &recycleTx, &minerTx}) {
+  for (const auto* tx : {&feeTx, &reserveTx, &registrarTx, &recycleTx, &minerTx}) {
     genesis.block.records.push_back(makeRecord(Ledger::T_NEW_USER, *tx, genesisKey, chainConfig.networkId));
   }
   return genesis;
 }
 
-inline Ledger::ChainNode makeGenesisBlock(Chain &validator,
-                                   const Chain::BlockChainConfig &chainConfig,
-                                   const utl::MlDsaKeyPair &genesisKey,
-                                   const utl::MlDsaKeyPair &feeKey,
-                                   const utl::MlDsaKeyPair &reserveKey,
-                                   const utl::MlDsaKeyPair &recycleKey,
-                                   const utl::MlDsaKeyPair *minerKey = nullptr,
-                                   const utl::MlDsaKeyPair *registrarKey = nullptr) {
+inline Ledger::ChainNode makeGenesisBlock(Chain& validator, const Chain::BlockChainConfig& chainConfig,
+                                          const utl::MlDsaKeyPair& genesisKey, const utl::MlDsaKeyPair& feeKey,
+                                          const utl::MlDsaKeyPair& reserveKey, const utl::MlDsaKeyPair& recycleKey,
+                                          const utl::MlDsaKeyPair* minerKey = nullptr,
+                                          const utl::MlDsaKeyPair* registrarKey = nullptr) {
   Ledger::ChainNode genesis =
       buildUnsealedGenesis(chainConfig, genesisKey, feeKey, reserveKey, recycleKey, minerKey, registrarKey, {});
   auto sealResult = validator.sealBlock(genesis);
@@ -285,35 +264,27 @@ inline Ledger::ChainNode makeGenesisBlock(Chain &validator,
   return genesis;
 }
 
-inline Ledger::ChainNode makeNextBlockAtSlot(
-    Chain &validator, const Ledger::ChainNode &previous, uint64_t slot,
-    const std::vector<Ledger::Record> &records) {
+inline Ledger::ChainNode makeNextBlockAtSlot(Chain& validator, const Ledger::ChainNode& previous, uint64_t slot,
+                                             const std::vector<Ledger::Record>& records) {
   const uint64_t epoch = validator.getEpochFromSlot(slot);
   // The block's epoch committee, as admission derives it (a new epoch snapshots the tip bank).
   validator.refreshStakeholders(slot);
   auto seedRoe = validator.ensureEpochSeed(epoch);
   EXPECT_TRUE(seedRoe.isOk()) << (seedRoe.isOk() ? "" : seedRoe.error().message);
   auto leaderResult = validator.getSlotLeader(slot);
-  EXPECT_TRUE(leaderResult.isOk())
-      << (leaderResult.isOk() ? "" : leaderResult.error().message);
-  auto block = validator.linkNextBlock(
-      previous, slot, leaderResult.isOk() ? leaderResult.value() : 0,
-      validator.getSlotEndTime(slot), records);
+  EXPECT_TRUE(leaderResult.isOk()) << (leaderResult.isOk() ? "" : leaderResult.error().message);
+  auto block = validator.linkNextBlock(previous, slot, leaderResult.isOk() ? leaderResult.value() : 0,
+                                       validator.getSlotEndTime(slot), records);
   auto sealResult = validator.sealBlock(block);
-  EXPECT_TRUE(sealResult.isOk())
-      << (sealResult.isOk() ? "" : sealResult.error().message);
+  EXPECT_TRUE(sealResult.isOk()) << (sealResult.isOk() ? "" : sealResult.error().message);
   signAsLeader(block, validator.getNetworkId());
   return block;
 }
 
-inline Ledger::ChainNode makeNextBlock(
-    Chain &validator, const Ledger::ChainNode &previous,
-    const std::vector<Ledger::Record> &records) {
-  return makeNextBlockAtSlot(validator, previous, previous.block.slot + 1,
-                             records);
+inline Ledger::ChainNode makeNextBlock(Chain& validator, const Ledger::ChainNode& previous,
+                                       const std::vector<Ledger::Record>& records) {
+  return makeNextBlockAtSlot(validator, previous, previous.block.slot + 1, records);
 }
-
-
 
 struct ComposeHarness {
   Chain producer;
@@ -327,9 +298,9 @@ struct ComposeHarness {
   std::filesystem::path peerDir;
   Ledger::ChainNode genesis;
   /** Edits the genesis meta before SetUp seals it (e.g. another authority). */
-  std::function<void(Chain::GenesisAccountMeta &)> tweakGenesisMeta;
+  std::function<void(Chain::GenesisAccountMeta&)> tweakGenesisMeta;
 
-  void SetUp(const std::function<void(Chain::BlockChainConfig &)> &tweakConfig = {}) {
+  void SetUp(const std::function<void(Chain::BlockChainConfig&)>& tweakConfig = {}) {
     chainConfig = makeChainConfig(/*genesisTime=*/0);
     chainConfig.slotDuration = 5;
     chainConfig.slotsPerEpoch = 10;
@@ -377,8 +348,7 @@ struct ComposeHarness {
                                      tweakGenesisMeta);
       ASSERT_TRUE(producer.sealBlock(genesis).isOk());
     } else {
-      genesis = makeGenesisBlock(producer, chainConfig, genesisKey, feeKey,
-                                 reserveKey, recycleKey);
+      genesis = makeGenesisBlock(producer, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
     }
     ASSERT_TRUE(producer.addBlock(genesis).isOk());
 
@@ -397,6 +367,5 @@ struct ComposeHarness {
     std::filesystem::remove_all(peerDir, ec);
   }
 };
-
 
 } // namespace pp::chain_test

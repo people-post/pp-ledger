@@ -29,7 +29,7 @@ public:
     /** The upstream has blocks we lack: request a sync. */
     std::function<void()> onUpstreamAhead;
     /** Optional: the signed tip the upstream sent with its reply. */
-    std::function<void(const Client::SignedTip &)> onSignedTip;
+    std::function<void(const Client::SignedTip&)> onSignedTip;
     /** Run a task on the server thread (Server::postToServerThread). */
     std::function<void(std::function<void()>)> postToServerThread;
   };
@@ -39,8 +39,8 @@ public:
     std::chrono::milliseconds maxBackoff{30000};
   };
 
-  UpstreamTipWatch(Client &client, Hooks hooks);
-  UpstreamTipWatch(Client &client, Hooks hooks, Options options);
+  UpstreamTipWatch(Client& client, Hooks hooks);
+  UpstreamTipWatch(Client& client, Hooks hooks, Options options);
 
   /** Run loop: arm a wait unless one is out or a failure is backing off. */
   void maintain();
@@ -49,7 +49,7 @@ public:
 private:
   void onReply(Client::Roe<Client::TipReply> result);
 
-  Client &client_;
+  Client& client_;
   Hooks hooks_;
   Options options_;
   /** Lets late network callbacks detect that this object is gone. */

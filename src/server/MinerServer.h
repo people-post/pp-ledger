@@ -18,15 +18,13 @@ class MinerServer : public FollowerServer {
 public:
   MinerServer();
 
-  Service::Roe<void> run(const std::string &workDir) override {
-    return Server::run(workDir);
-  }
+  Service::Roe<void> run(const std::string& workDir) override { return Server::run(workDir); }
 
 protected:
   std::string getSignatureFileName() const override { return FILE_SIGNATURE; }
   std::string getLogFileName() const override { return FILE_LOG; }
   std::string getServerName() const override { return "MinerServer"; }
-  void fillHealth(Client::NodeHealth &health) const override;
+  void fillHealth(Client::NodeHealth& health) const override;
   Service::Roe<void> onStart() override;
 
   /** Renews the registration; leads its slots. */
@@ -34,8 +32,8 @@ protected:
   /** The anchored genesis, when the miner starts there (chooseStartingBlock). */
   std::optional<std::string> firstBlockHash() const override;
   /** The synced starting block agrees with the replayed proof (an anchored checkpoint start). */
-  pp::Roe<void> checkStartingAuthority(uint64_t blockId, const ChainAuthority &authority,
-                                       const Client::Wallet &admin) const override;
+  pp::Roe<void> checkStartingAuthority(uint64_t blockId, const ChainAuthority& authority,
+                                       const Client::Wallet& admin) const override;
   void onSynced() override { warnIfNotRegisteredMiner(); }
   /** A produced block awaits its broadcast: a synced block would be refused. */
   bool syncHeld() const override;
@@ -53,7 +51,7 @@ private:
     std::vector<std::string> keys;
 
     RunFileConfig() : FollowerConfig(Client::DEFAULT_MINER_PORT) {}
-    Roe<void> fromJson(const pp::common::Object &jd);
+    Roe<void> fromJson(const pp::common::Object& jd);
     /** A template: what is unknown stands as a placeholder. */
     pp::common::Object toJson() const;
   };
@@ -75,7 +73,7 @@ private:
   /** Re-register with the upstream every REGISTER_RENEW_INTERVAL so the beacon keeps our record. */
   void renewRegistrationPeriodically();
   /** Our registration, signed with all our keys for `networkId` (the beacon verifies it). */
-  Roe<Client::MinerInfo> signedRegistration(const std::string &networkId) const;
+  Roe<Client::MinerInfo> signedRegistration(const std::string& networkId) const;
   Roe<Client::BeaconState> connectToBeacon();
   void initHandlers();
   void handleSlotLeaderRole();
@@ -83,7 +81,7 @@ private:
   void startBroadcast(const Ledger::ChainNode& block);
   void onBroadcastResult(uint64_t broadcastId, size_t upstream, Client::Roe<Client::TipReply> result);
   /** True when `reply` carries a signed tip, valid here, for exactly `block` (beacon-authority ba4). */
-  bool signedTipCovers(const Client::TipReply &reply, const Ledger::ChainNode &block) const;
+  bool signedTipCovers(const Client::TipReply& reply, const Ledger::ChainNode& block) const;
   /** First upstream accepted it: commit our seal. */
   void commitProducedBlock(const Ledger::ChainNode& block);
   Roe<void> verifyGenesisAnchor();
@@ -92,11 +90,11 @@ private:
    * checkpoint's authority and admin set must be the ones the upstream's authority proof reaches
    * from it, else the miner starts at genesis, pinned by hash (beacon-authority ba5b).
    */
-  Roe<uint64_t> chooseStartingBlock(const Client::BeaconState &state);
+  Roe<uint64_t> chooseStartingBlock(const Client::BeaconState& state);
   /** Replay the upstream's authority proof from the anchored genesis to `checkpointId` and check the checkpoint agrees. */
   Roe<AuthorityTrail> replayAuthorityTo(uint64_t checkpointId);
 
-  Roe<std::string> hStatus(const Client::Request &request);
+  Roe<std::string> hStatus(const Client::Request& request);
 
   Miner miner_;
 

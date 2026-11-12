@@ -45,11 +45,11 @@ public:
   uint64_t getBlockCount() const override;
   uint64_t countSizeFromBlockId(uint64_t blockId) const override;
 
-  Roe<void> init(const InitConfig &config);
-  Roe<void> mount(const MountConfig &config);
+  Roe<void> init(const InitConfig& config);
+  Roe<void> mount(const MountConfig& config);
 
   Roe<std::string> readBlock(uint64_t index) const override;
-  Roe<uint64_t> appendBlock(const std::string &block) override;
+  Roe<uint64_t> appendBlock(const std::string& block) override;
   Roe<void> rewindTo(uint64_t index) override;
   /** Commit each volume holding uncommitted blocks, in volume order. */
   Roe<void> commit() override;
@@ -59,7 +59,7 @@ public:
   size_t getVolumeCount() const { return volumeIdOrder_.size(); }
 
 private:
-  static constexpr const char *VOLUMES_INDEX_FILENAME = "volumes_idx.dat";
+  static constexpr const char* VOLUMES_INDEX_FILENAME = "volumes_idx.dat";
 
   struct Config {
     std::string volumesDir;
@@ -82,9 +82,9 @@ private:
 
     IndexFileHeader() = default;
 
-    template <typename Archive> void serialize(Archive &ar) {
-      ar & magic & version & reserved & headerSize & maxFileCount &
-          maxFileSize & maxVolumes;
+    template <typename Archive>
+    void serialize(Archive& ar) {
+      ar & magic & version & reserved & headerSize & maxFileCount & maxFileSize & maxVolumes;
     }
   };
 
@@ -92,7 +92,8 @@ private:
     uint32_t volumeId{0};
     uint64_t startBlockId{0};
 
-    template <typename Archive> void serialize(Archive &ar) {
+    template <typename Archive>
+    void serialize(Archive& ar) {
       ar & volumeId & startBlockId;
     }
   };
@@ -109,17 +110,17 @@ private:
   std::vector<uint32_t> volumeIdOrder_;
   uint64_t totalBlockCount_{0};
 
-  static std::string getVolumesIndexFilePath(const std::string &volumesDir);
+  static std::string getVolumesIndexFilePath(const std::string& volumesDir);
   std::string getVolumePath(uint32_t volumeId) const;
   std::pair<uint32_t, uint64_t> findBlockVolume(uint64_t blockId) const;
 
-  FileDirStore *getActiveVolume(uint64_t dataSize);
-  FileDirStore *createVolume(uint32_t volumeId, uint64_t startBlockId);
+  FileDirStore* getActiveVolume(uint64_t dataSize);
+  FileDirStore* createVolume(uint32_t volumeId, uint64_t startBlockId);
 
   bool loadIndex();
   bool saveIndex();
-  bool writeIndexHeader(std::ostream &os);
-  bool readIndexHeader(std::istream &is);
+  bool writeIndexHeader(std::ostream& os);
+  bool readIndexHeader(std::istream& is);
 
   Roe<void> openExistingVolumes();
   void recalculateTotalBlockCount();

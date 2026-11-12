@@ -10,6 +10,6 @@
 #include <httplib.h>
 
 /** Register /api/chain/ on `svr`, answered by the node `node` reads. */
-void registerChainRoutes(httplib::Server &svr, pp::Client &node);
+void registerChainRoutes(httplib::Server& svr, pp::Client& node);
 
 #endif

@@ -4,7 +4,7 @@
 
 namespace pp {
 
-CertificateStore::CertificateStore(Chain &chain, std::string path) : chain_(chain), path_(std::move(path)) {
+CertificateStore::CertificateStore(Chain& chain, std::string path) : chain_(chain), path_(std::move(path)) {
   redirectLogger("CertificateStore");
 }
 
@@ -41,7 +41,7 @@ void CertificateStore::retryPending() {
   offerStored(record);
 }
 
-void CertificateStore::offerStored(const Ledger::Record &record) {
+void CertificateStore::offerStored(const Ledger::Record& record) {
   auto offered = chain_.offerCertificate(record);
   if (!offered) {
     log().warning << "Dropping the stored beacon certificate: " << offered.error().message;
@@ -52,7 +52,7 @@ void CertificateStore::offerStored(const Ledger::Record &record) {
   }
 }
 
-CertificateStore::Roe<Chain::CertificateOffer> CertificateStore::offer(const Ledger::Record &record) {
+CertificateStore::Roe<Chain::CertificateOffer> CertificateStore::offer(const Ledger::Record& record) {
   auto offered = chain_.offerCertificate(record);
   if (!offered) {
     return Error(offered.error().code, offered.error().message);
@@ -75,7 +75,7 @@ void CertificateStore::refresh() {
   }
 }
 
-std::optional<Chain::CertificateOffer> CertificateStore::note(const Ledger::Record &record, const std::string &from) {
+std::optional<Chain::CertificateOffer> CertificateStore::note(const Ledger::Record& record, const std::string& from) {
   auto offered = offer(record);
   if (offered) {
     return offered.value();
@@ -87,7 +87,7 @@ std::optional<Chain::CertificateOffer> CertificateStore::note(const Ledger::Reco
   return std::nullopt;
 }
 
-CertificateStore::Roe<void> CertificateStore::persist(const Ledger::Record &record) {
+CertificateStore::Roe<void> CertificateStore::persist(const Ledger::Record& record) {
   if (auto written = node_file::replace(path_, utl::binaryPack(record)); !written) {
     return Error(E_IO, written.error().message);
   }

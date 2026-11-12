@@ -11,15 +11,15 @@
 
 namespace pp::chain_tx {
 
-Roe<void> validateRecoveryKeys(const std::vector<std::string> &keys, uint8_t minSignatures, std::string_view what) {
-  auto invalid = [what](const std::string &why) {
+Roe<void> validateRecoveryKeys(const std::vector<std::string>& keys, uint8_t minSignatures, std::string_view what) {
+  auto invalid = [what](const std::string& why) {
     return TxError(chain_err::E_TX_VALIDATION, std::string(what) + ": " + why);
   };
   if (keys.empty() || keys.size() > kMaxSignatureCount) {
     return invalid("1 to " + std::to_string(kMaxSignatureCount) + " keys");
   }
   std::set<std::string> seen;
-  for (const auto &key : keys) {
+  for (const auto& key : keys) {
     if (key.size() != utl::kMlDsaPublicKeyBytes) {
       return invalid("a key is not an ML-DSA-65 public key");
     }
@@ -33,12 +33,12 @@ Roe<void> validateRecoveryKeys(const std::vector<std::string> &keys, uint8_t min
   return {};
 }
 
-Roe<void> validateNewDomain(const std::string &domain, uint64_t accountId, const AccountBuffer &bank,
-                            const AccountBuffer *committed) {
+Roe<void> validateNewDomain(const std::string& domain, uint64_t accountId, const AccountBuffer& bank,
+                            const AccountBuffer* committed) {
   if (auto valid = chain_domain::validateFor(domain, accountId); !valid) {
     return valid;
   }
-  for (const AccountBuffer *held : {&bank, committed}) {
+  for (const AccountBuffer* held : {&bank, committed}) {
     if (!held) {
       continue;
     }
@@ -50,11 +50,11 @@ Roe<void> validateNewDomain(const std::string &domain, uint64_t accountId, const
   return {};
 }
 
-uint64_t minRecoveryDelaySeconds(const BlockChainConfig &config) {
+uint64_t minRecoveryDelaySeconds(const BlockChainConfig& config) {
   return std::max<uint64_t>(1, config.slotDuration * config.slotsPerEpoch / 2);
 }
 
-uint64_t recoveryApplyEpoch(const BlockChainConfig &config, uint64_t slot, uint64_t delaySeconds) {
+uint64_t recoveryApplyEpoch(const BlockChainConfig& config, uint64_t slot, uint64_t delaySeconds) {
   const uint64_t slotDuration = std::max<uint64_t>(1, config.slotDuration);
   const uint64_t slotsPerEpoch = std::max<uint64_t>(1, config.slotsPerEpoch);
   const uint64_t delaySlots = delaySeconds / slotDuration + (delaySeconds % slotDuration != 0 ? 1 : 0);
@@ -62,8 +62,8 @@ uint64_t recoveryApplyEpoch(const BlockChainConfig &config, uint64_t slot, uint6
   return earliest / slotsPerEpoch + (earliest % slotsPerEpoch != 0 ? 1 : 0);
 }
 
-Roe<void> validateRecoverySet(const Client::AccountRecovery &recovery, uint64_t accountId,
-                              const std::optional<BlockChainConfig> &config) {
+Roe<void> validateRecoverySet(const Client::AccountRecovery& recovery, uint64_t accountId,
+                              const std::optional<BlockChainConfig>& config) {
   if (recovery.pending || !recovery.nextPublicKeys.empty() || recovery.nextMinSignatures != 0 ||
       recovery.applyEpoch != 0 || recovery.announcedAt != 0) {
     return TxError(chain_err::E_TX_VALIDATION, "A recovery set is named without an announcement (that is the chain's)");
@@ -88,39 +88,30 @@ Roe<void> validateRecoverySet(const Client::AccountRecovery &recovery, uint64_t 
   return validateRecoveryKeys(recovery.publicKeys, recovery.minSignatures, "Recovery set");
 }
 
-Roe<void> validateUserWalletBasics(const Crypto &crypto,
-                                   const Client::Wallet &wallet) {
+Roe<void> validateUserWalletBasics(const Crypto& crypto, const Client::Wallet& wallet) {
   if (!crypto.isSupported(wallet.keyType)) {
-    return TxError(chain_err::E_TX_VALIDATION,
-                   "Unsupported key type: " +
-                       std::to_string(int(wallet.keyType)));
+    return TxError(chain_err::E_TX_VALIDATION, "Unsupported key type: " + std::to_string(int(wallet.keyType)));
   }
   if (wallet.publicKeys.empty()) {
-    return TxError(chain_err::E_TX_VALIDATION,
-                   "User account must have at least one public key");
+    return TxError(chain_err::E_TX_VALIDATION, "User account must have at least one public key");
   }
   if (wallet.minSignatures < 1) {
-    return TxError(chain_err::E_TX_VALIDATION,
-                   "User account must require at least one signature");
+    return TxError(chain_err::E_TX_VALIDATION, "User account must require at least one signature");
   }
   return {};
 }
 
-Roe<std::string>
-validateAndCanonicalizeAttachment(const std::string &raw,
-                                  const FnPublisherExists &publisherExists,
-                                  std::string_view errorPrefix) {
+Roe<std::string> validateAndCanonicalizeAttachment(const std::string& raw, const FnPublisherExists& publisherExists,
+                                                   std::string_view errorPrefix) {
   auto parsed = AccountAttachment::parseAndValidate(raw, publisherExists);
   if (!parsed) {
-    return TxError(chain_err::E_TX_VALIDATION,
-                   std::string(errorPrefix) + parsed.error().message);
+    return TxError(chain_err::E_TX_VALIDATION, std::string(errorPrefix) + parsed.error().message);
   }
   return parsed->ltsToString();
 }
 
-FnPublisherExists makeWorkingSetPublisherExists(
-    const AccountBuffer &working, const AccountBuffer *committedOrNull,
-    uint64_t selfAccountId) {
+FnPublisherExists makeWorkingSetPublisherExists(const AccountBuffer& working, const AccountBuffer* committedOrNull,
+                                                uint64_t selfAccountId) {
   return [&working, committedOrNull, selfAccountId](uint64_t id) {
     if (id == selfAccountId) {
       return true;
@@ -132,14 +123,14 @@ FnPublisherExists makeWorkingSetPublisherExists(
   };
 }
 
-Roe<Client::UserAccount> loadAndValidateUserAccountMeta(
-    const std::string &serializedMeta, const Crypto &crypto,
-    const AccountBuffer &working, const AccountBuffer *committedOrNull,
-    uint64_t selfAccountId, std::string_view deserializeErrorMsg, bool requireKnownPublishers) {
+Roe<Client::UserAccount> loadAndValidateUserAccountMeta(const std::string& serializedMeta, const Crypto& crypto,
+                                                        const AccountBuffer& working,
+                                                        const AccountBuffer* committedOrNull, uint64_t selfAccountId,
+                                                        std::string_view deserializeErrorMsg,
+                                                        bool requireKnownPublishers) {
   Client::UserAccount userAccount;
   if (!userAccount.ltsFromString(serializedMeta)) {
-    return TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                   std::string(deserializeErrorMsg));
+    return TxError(chain_err::E_INTERNAL_DESERIALIZE, std::string(deserializeErrorMsg));
   }
 
   const FnPublisherExists anyPublisher = [](uint64_t) { return true; };
@@ -152,14 +143,13 @@ Roe<Client::UserAccount> loadAndValidateUserAccountMeta(
   }
   userAccount.meta = attachmentRoe.value();
 
-  if (auto walletOk = validateUserWalletBasics(crypto, userAccount.wallet);
-      !walletOk) {
+  if (auto walletOk = validateUserWalletBasics(crypto, userAccount.wallet); !walletOk) {
     return walletOk.error();
   }
   return userAccount;
 }
 
-Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet) {
+Roe<void> validateGenesisWalletShape(const Client::Wallet& wallet) {
   if (wallet.miner != Client::MinerState{}) {
     return TxError(chain_err::E_TX_VALIDATION, "The genesis account cannot be a miner");
   }
@@ -169,12 +159,10 @@ Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet) {
     }
   }
   if (wallet.publicKeys.size() < 3) {
-    return TxError(chain_err::E_TX_VALIDATION,
-                   "Genesis account must have at least 3 public keys");
+    return TxError(chain_err::E_TX_VALIDATION, "Genesis account must have at least 3 public keys");
   }
   if (wallet.minSignatures < 2) {
-    return TxError(chain_err::E_TX_VALIDATION,
-                   "Genesis account must have at least 2 signatures");
+    return TxError(chain_err::E_TX_VALIDATION, "Genesis account must have at least 2 signatures");
   }
   // Genesis has no account recovery: its keys change only by T_CONFIG and the genesis recovery set in
   // the chain authority (T_RECOVERY). Refused on every path that writes the genesis wallet, whoever
@@ -188,7 +176,7 @@ Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet) {
 
 namespace {
 // An empty anchor means no beacon contribution; the other two fields are then ignored.
-Roe<void> validateSeedAnchor(const BeaconCertificate &cert) {
+Roe<void> validateSeedAnchor(const BeaconCertificate& cert) {
   if (cert.seedAnchor.empty()) {
     return {};
   }
@@ -203,7 +191,7 @@ Roe<void> validateSeedAnchor(const BeaconCertificate &cert) {
 }
 } // namespace
 
-std::optional<std::string> renewalChangedWalletField(const Client::Wallet &carried, const Client::Wallet &held) {
+std::optional<std::string> renewalChangedWalletField(const Client::Wallet& carried, const Client::Wallet& held) {
   if (carried.publicKeys != held.publicKeys || carried.minSignatures != held.minSignatures ||
       carried.keyType != held.keyType) {
     return std::string("keys");
@@ -228,22 +216,21 @@ std::optional<std::string> renewalChangedWalletField(const Client::Wallet &carri
   return std::nullopt;
 }
 
-Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client::Wallet &adminWallet,
-                                   const std::string &networkId) {
-  auto invalid = [](const std::string &what) { return TxError(chain_err::E_TX_VALIDATION, what); };
-  auto isAdminKey = [&](const std::string &key) {
-    return std::find(adminWallet.publicKeys.begin(), adminWallet.publicKeys.end(), key) !=
-           adminWallet.publicKeys.end();
+Roe<void> validateGenesisAuthority(const ChainAuthority& authority, const Client::Wallet& adminWallet,
+                                   const std::string& networkId) {
+  auto invalid = [](const std::string& what) { return TxError(chain_err::E_TX_VALIDATION, what); };
+  auto isAdminKey = [&](const std::string& key) {
+    return std::find(adminWallet.publicKeys.begin(), adminWallet.publicKeys.end(), key) != adminWallet.publicKeys.end();
   };
   if (authority.hasPendingRecovery) {
     return invalid("Genesis cannot carry a pending recovery");
   }
-  const RecoverySet &recovery = authority.recovery;
+  const RecoverySet& recovery = authority.recovery;
   if (recovery.publicKeys.empty()) {
     return invalid("Recovery set needs at least one public key");
   }
   std::set<std::string> seen;
-  for (const auto &key : recovery.publicKeys) {
+  for (const auto& key : recovery.publicKeys) {
     if (key.size() != utl::kMlDsaPublicKeyBytes) {
       return invalid("Recovery set has a malformed public key");
     }
@@ -260,7 +247,7 @@ Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client
   if (recovery.delayEpochs == 0) {
     return invalid("Recovery delayEpochs must be at least 1");
   }
-  const BeaconCertificate &beacon = authority.beacon;
+  const BeaconCertificate& beacon = authority.beacon;
   if (beacon.generation != 1) {
     return invalid("The genesis beacon certificate must be generation 1");
   }
@@ -285,23 +272,22 @@ Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client
   return {};
 }
 
-Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const ChainAuthority &current,
-                                        const Client::Wallet &adminWallet, const std::string &networkId,
+Roe<void> validateNextBeaconCertificate(const BeaconCertificate& next, const ChainAuthority& current,
+                                        const Client::Wallet& adminWallet, const std::string& networkId,
                                         std::optional<uint64_t> commitBlockId) {
-  auto invalid = [](const std::string &what) { return TxError(chain_err::E_TX_VALIDATION, what); };
+  auto invalid = [](const std::string& what) { return TxError(chain_err::E_TX_VALIDATION, what); };
   if (next.networkId != networkId) {
     return invalid("Beacon certificate networkId does not match the chain");
   }
   if (commitBlockId.has_value() ? next.generation != current.beacon.generation + 1
                                 : next.generation <= current.beacon.generation) {
-    return invalid("Beacon certificate must be generation " +
-                   std::string(commitBlockId.has_value() ? "" : "above ") +
+    return invalid("Beacon certificate must be generation " + std::string(commitBlockId.has_value() ? "" : "above ") +
                    std::to_string(current.beacon.generation + (commitBlockId.has_value() ? 1 : 0)));
   }
   if (next.publicKey.size() != utl::kMlDsaPublicKeyBytes) {
     return invalid("Beacon certificate has a malformed public key");
   }
-  const auto &recoveryKeys = current.recovery.publicKeys;
+  const auto& recoveryKeys = current.recovery.publicKeys;
   if (next.publicKey == current.beacon.publicKey ||
       std::find(adminWallet.publicKeys.begin(), adminWallet.publicKeys.end(), next.publicKey) !=
           adminWallet.publicKeys.end() ||
@@ -315,8 +301,9 @@ Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const Cha
     return anchor;
   }
   if (!(next.hasCutover() ? next.cutoverHash.size() == utl::SHA256_DIGEST_SIZE : next.cutoverHash.empty())) {
-    return invalid("Beacon certificate cutoverHash must be the 32-byte hash of the cutover block, and "
-                   "empty with no cutover");
+    return invalid(
+        "Beacon certificate cutoverHash must be the 32-byte hash of the cutover block, and "
+        "empty with no cutover");
   }
   if (next.cutoverHeight < current.beacon.cutoverHeight) {
     return invalid("Beacon certificate cutoverHeight must not go back");
@@ -324,9 +311,9 @@ Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const Cha
   // The block that committed the generation in force (the one after its cutover) stays: cutting it
   // would leave a chain whose own certificate is gone (beacon-authority bp2).
   if (next.hasCutover() && current.beacon.generation > 1 && next.cutoverHeight <= current.beacon.cutoverHeight) {
-    return invalid("Beacon certificate cutoverHeight " + std::to_string(next.cutoverHeight) +
-                   " would drop block " + std::to_string(current.beacon.cutoverHeight + 1) +
-                   ", which committed generation " + std::to_string(current.beacon.generation));
+    return invalid("Beacon certificate cutoverHeight " + std::to_string(next.cutoverHeight) + " would drop block " +
+                   std::to_string(current.beacon.cutoverHeight + 1) + ", which committed generation " +
+                   std::to_string(current.beacon.generation));
   }
   if (commitBlockId.has_value() && *commitBlockId - 1 > next.cutoverHeight) {
     return invalid("Beacon certificate cutoverHeight " + std::to_string(next.cutoverHeight) +
@@ -343,14 +330,14 @@ Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const Cha
   return {};
 }
 
-Roe<void> validateCertificateHints(const BeaconCertificate &cert) {
+Roe<void> validateCertificateHints(const BeaconCertificate& cert) {
   constexpr size_t kMaxHints = 8;
   constexpr size_t kMaxHintBytes = 256;
   if (cert.dialHints.size() > kMaxHints) {
     return TxError(chain_err::E_TX_VALIDATION,
                    "Beacon certificate carries more than " + std::to_string(kMaxHints) + " dial hints");
   }
-  for (const auto &hint : cert.dialHints) {
+  for (const auto& hint : cert.dialHints) {
     if (hint.empty() || hint.size() > kMaxHintBytes) {
       return TxError(chain_err::E_TX_VALIDATION, "Beacon certificate dial hint is empty or too long");
     }
@@ -358,10 +345,10 @@ Roe<void> validateCertificateHints(const BeaconCertificate &cert) {
   return {};
 }
 
-Roe<void> validateCutoverBlock(const BeaconCertificate &cert, const std::string &cutoverBlockHash) {
+Roe<void> validateCutoverBlock(const BeaconCertificate& cert, const std::string& cutoverBlockHash) {
   if (cert.hasCutover() && cert.cutoverHash != cutoverBlockHash) {
-    return TxError(chain_err::E_TX_VALIDATION, "Beacon certificate cutoverHash is not the hash of block " +
-                                                   std::to_string(cert.cutoverHeight));
+    return TxError(chain_err::E_TX_VALIDATION,
+                   "Beacon certificate cutoverHash is not the hash of block " + std::to_string(cert.cutoverHeight));
   }
   return {};
 }
@@ -371,21 +358,20 @@ BeaconCertificate certificateInForce(BeaconCertificate cert, uint64_t commitBloc
   return cert;
 }
 
-Roe<void> requireAdminSetNotFrozen(const ChainAuthority &authority, std::string_view what,
+Roe<void> requireAdminSetNotFrozen(const ChainAuthority& authority, std::string_view what,
                                    std::optional<uint64_t> epoch) {
   if (!authority.hasPendingRecovery || (epoch && *epoch >= authority.pendingRecovery.applyEpoch)) {
     return {};
   }
-  return TxError(chain_err::E_TX_VALIDATION,
-                 std::string(what) + " refused: a recovery announced at block " +
-                     std::to_string(authority.pendingRecovery.announcedAt) +
-                     " freezes the admin set until it applies at epoch " +
-                     std::to_string(authority.pendingRecovery.applyEpoch));
+  return TxError(chain_err::E_TX_VALIDATION, std::string(what) + " refused: a recovery announced at block " +
+                                                 std::to_string(authority.pendingRecovery.announcedAt) +
+                                                 " freezes the admin set until it applies at epoch " +
+                                                 std::to_string(authority.pendingRecovery.applyEpoch));
 }
 
-Roe<void> validateRecoveryAnnouncement(const RecoveryAnnouncement &announcement, const ChainAuthority &current,
-                                       const std::string &networkId) {
-  auto invalid = [](const std::string &what) { return TxError(chain_err::E_TX_VALIDATION, what); };
+Roe<void> validateRecoveryAnnouncement(const RecoveryAnnouncement& announcement, const ChainAuthority& current,
+                                       const std::string& networkId) {
+  auto invalid = [](const std::string& what) { return TxError(chain_err::E_TX_VALIDATION, what); };
   if (announcement.networkId != networkId) {
     return invalid("Recovery announcement networkId does not match the chain");
   }
@@ -393,16 +379,16 @@ Roe<void> validateRecoveryAnnouncement(const RecoveryAnnouncement &announcement,
     return invalid("A recovery is already pending (applies at epoch " +
                    std::to_string(current.pendingRecovery.applyEpoch) + ")");
   }
-  const auto &keys = announcement.adminPublicKeys;
+  const auto& keys = announcement.adminPublicKeys;
   if (keys.size() < 3 || keys.size() > kMaxSignatureCount) {
     return invalid("The new admin set must have between 3 and " + std::to_string(kMaxSignatureCount) + " keys");
   }
   if (announcement.adminMinSignatures < 2 || announcement.adminMinSignatures > keys.size()) {
     return invalid("The new admin set's minSignatures must be between 2 and its key count");
   }
-  const auto &recoveryKeys = current.recovery.publicKeys;
+  const auto& recoveryKeys = current.recovery.publicKeys;
   std::set<std::string> seen;
-  for (const auto &key : keys) {
+  for (const auto& key : keys) {
     if (key.size() != utl::kMlDsaPublicKeyBytes) {
       return invalid("The new admin set has a malformed public key");
     }
@@ -417,13 +403,13 @@ Roe<void> validateRecoveryAnnouncement(const RecoveryAnnouncement &announcement,
   return {};
 }
 
-Client::Wallet adminWalletAfterRecovery(Client::Wallet admin, const RecoveryAnnouncement &announcement) {
+Client::Wallet adminWalletAfterRecovery(Client::Wallet admin, const RecoveryAnnouncement& announcement) {
   admin.publicKeys = announcement.adminPublicKeys;
   admin.minSignatures = announcement.adminMinSignatures;
   return admin;
 }
 
-void advanceAuthorityToEpoch(ChainAuthority &authority, Client::Wallet &admin, uint64_t epoch) {
+void advanceAuthorityToEpoch(ChainAuthority& authority, Client::Wallet& admin, uint64_t epoch) {
   if (!authority.hasPendingRecovery || epoch < authority.pendingRecovery.applyEpoch) {
     return;
   }
@@ -432,8 +418,8 @@ void advanceAuthorityToEpoch(ChainAuthority &authority, Client::Wallet &admin, u
   authority.pendingRecovery = {};
 }
 
-Roe<void> verifyRecoverySigned(const Ledger::Record &record, const RecoverySet &recovery,
-                               const std::string &networkId, const Crypto &crypto, logging::Logger &logger) {
+Roe<void> verifyRecoverySigned(const Ledger::Record& record, const RecoverySet& recovery, const std::string& networkId,
+                               const Crypto& crypto, logging::Logger& logger) {
   // The recovery set is no account: check its keys the way an account's are checked.
   AccountBuffer::Account signer;
   signer.id = AccountBuffer::ID_GENESIS;
@@ -443,8 +429,8 @@ Roe<void> verifyRecoverySigned(const Ledger::Record &record, const RecoverySet &
   return verifySignaturesAgainstAccount(record.signingMessage(networkId), record.signatures, signer, crypto, logger);
 }
 
-Roe<void> verifyBeaconSigned(const Ledger::Record &record, const BeaconCertificate &cert,
-                             const std::string &networkId, const Crypto &crypto, logging::Logger &logger) {
+Roe<void> verifyBeaconSigned(const Ledger::Record& record, const BeaconCertificate& cert, const std::string& networkId,
+                             const Crypto& crypto, logging::Logger& logger) {
   // The beacon key alone signs: a second signature would make the record's bytes malleable.
   if (record.signatures.size() != 1) {
     return TxError(chain_err::E_TX_SIGNATURE, "A beacon record carries exactly one signature");
@@ -457,9 +443,8 @@ Roe<void> verifyBeaconSigned(const Ledger::Record &record, const BeaconCertifica
   return verifySignaturesAgainstAccount(record.signingMessage(networkId), record.signatures, signer, crypto, logger);
 }
 
-Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,
-                         uint64_t blockId, const Client::Wallet &wallet,
-                         const std::string &attachment, std::string_view addFailurePrefix) {
+Roe<void> replaceAccount(AccountBuffer& bank, uint64_t accountId, uint64_t blockId, const Client::Wallet& wallet,
+                         const std::string& attachment, std::string_view addFailurePrefix) {
   bank.remove(accountId);
 
   AccountBuffer::Account account;
@@ -469,21 +454,20 @@ Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,
   account.attachmentHash = AccountBuffer::attachmentHashOf(attachment);
   auto addResult = bank.add(account);
   if (!addResult) {
-    return TxError(chain_err::E_INTERNAL_BUFFER,
-                   std::string(addFailurePrefix) + addResult.error().message);
+    return TxError(chain_err::E_INTERNAL_BUFFER, std::string(addFailurePrefix) + addResult.error().message);
   }
   return {};
 }
 
-Roe<void> replaceGenesisAccount(AccountBuffer &bank, uint64_t blockId,
-                                const Client::Wallet &wallet, const std::string &attachment) {
+Roe<void> replaceGenesisAccount(AccountBuffer& bank, uint64_t blockId, const Client::Wallet& wallet,
+                                const std::string& attachment) {
   return replaceAccount(bank, AccountBuffer::ID_GENESIS, blockId, wallet, attachment,
                         "Failed to add updated genesis account: ");
 }
 
-Roe<void> applyTransferToHeldAccounts(AccountBuffer &bank, uint64_t fromId, uint64_t toId, uint64_t tokenId,
+Roe<void> applyTransferToHeldAccounts(AccountBuffer& bank, uint64_t fromId, uint64_t toId, uint64_t tokenId,
                                       uint64_t amount, uint64_t fee) {
-  const auto leg = [](const AccountBuffer::Roe<void> &result, const std::string &what) -> Roe<void> {
+  const auto leg = [](const AccountBuffer::Roe<void>& result, const std::string& what) -> Roe<void> {
     if (!result) {
       return TxError(chain_err::E_TX_TRANSFER, what + ": " + result.error().message);
     }
@@ -494,8 +478,8 @@ Roe<void> applyTransferToHeldAccounts(AccountBuffer &bank, uint64_t fromId, uint
       return paid;
     }
     if (fee > 0) {
-      if (auto paid = leg(bank.withdrawBalance(fromId, AccountBuffer::ID_GENESIS, static_cast<int64_t>(fee)),
-                          "Payer fee");
+      if (auto paid =
+              leg(bank.withdrawBalance(fromId, AccountBuffer::ID_GENESIS, static_cast<int64_t>(fee)), "Payer fee");
           !paid) {
         return paid;
       }
@@ -509,45 +493,36 @@ Roe<void> applyTransferToHeldAccounts(AccountBuffer &bank, uint64_t fromId, uint
   return creditFeeToFeeAccount(bank, fee, "Fee: ");
 }
 
-Roe<void> creditFeeToFeeAccount(AccountBuffer &bank, uint64_t fee,
-                                std::string_view failurePrefix) {
+Roe<void> creditFeeToFeeAccount(AccountBuffer& bank, uint64_t fee, std::string_view failurePrefix) {
   if (fee == 0 || !bank.hasAccount(AccountBuffer::ID_FEE)) {
     return {};
   }
-  auto depositResult = bank.depositBalance(AccountBuffer::ID_FEE,
-                                           AccountBuffer::ID_GENESIS,
-                                           static_cast<int64_t>(fee));
+  auto depositResult = bank.depositBalance(AccountBuffer::ID_FEE, AccountBuffer::ID_GENESIS, static_cast<int64_t>(fee));
   if (!depositResult) {
-    return TxError(chain_err::E_TX_TRANSFER,
-                   std::string(failurePrefix) + depositResult.error().message);
+    return TxError(chain_err::E_TX_TRANSFER, std::string(failurePrefix) + depositResult.error().message);
   }
   return {};
 }
 
-Roe<void> mapBufferError(const AccountBuffer::Roe<void> &result) {
+Roe<void> mapBufferError(const AccountBuffer::Roe<void>& result) {
   if (!result) {
     return TxError(result.error().code, result.error().message);
   }
   return {};
 }
 
-Roe<void> seedCommittedAccount(AccountBuffer &working,
-                               const AccountBuffer &committed,
-                               uint64_t accountId) {
-  return mapBufferError(
-      working.seedFromCommittedIfMissing(committed, accountId));
+Roe<void> seedCommittedAccount(AccountBuffer& working, const AccountBuffer& committed, uint64_t accountId) {
+  return mapBufferError(working.seedFromCommittedIfMissing(committed, accountId));
 }
 
-Roe<void> seedFeeAccountIfNeeded(AccountBuffer &working,
-                                 const AccountBuffer &committed, uint64_t fee) {
+Roe<void> seedFeeAccountIfNeeded(AccountBuffer& working, const AccountBuffer& committed, uint64_t fee) {
   if (fee == 0) {
     return {};
   }
   return seedCommittedAccount(working, committed, AccountBuffer::ID_FEE);
 }
 
-Roe<size_t> billableUserCustomMetaSize(const BlockChainConfig &config,
-                                       const std::string &serializedUserAccount) {
+Roe<size_t> billableUserCustomMetaSize(const BlockChainConfig& config, const std::string& serializedUserAccount) {
   if (serializedUserAccount.size() <= config.freeCustomMetaSize) {
     return 0;
   }

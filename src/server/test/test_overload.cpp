@@ -54,7 +54,7 @@ struct ScriptedNode {
   std::vector<Client::Request> got;
 
   std::unique_ptr<ILedgerTransport> transport() {
-    return std::make_unique<InProcessLedgerTransport>([this](const std::string &body) {
+    return std::make_unique<InProcessLedgerTransport>([this](const std::string& body) {
       auto request = utl::binaryUnpack<Client::Request>(body);
       got.push_back(request ? request.value() : Client::Request{});
       return replies[std::min(got.size(), replies.size()) - 1];
@@ -62,7 +62,7 @@ struct ScriptedNode {
   }
 };
 
-std::string reply(uint16_t code, const std::string &payload, uint32_t retryAfterMs = 0) {
+std::string reply(uint16_t code, const std::string& payload, uint32_t retryAfterMs = 0) {
   Client::Response r;
   r.errorCode = code;
   r.payload = payload;
@@ -78,10 +78,9 @@ Ledger::Record someRecord() {
   tx.toWalletId = (1ULL << 30) + 2;
   tx.amount = 1;
   tx.idempotentId = 9;
-  tx.validationTsMax = std::chrono::duration_cast<std::chrono::seconds>(
-                           std::chrono::system_clock::now().time_since_epoch())
-                           .count() +
-                       3600;
+  tx.validationTsMax =
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() +
+      3600;
   record.data = utl::binaryPack(tx);
   record.signatures = {"sig"};
   return record;
@@ -181,13 +180,13 @@ TEST(OverloadTest, ARequestThatWaitedCarriesWhatIsLeftOfItsDeadline) {
 // lr8: whatever went wrong upstream, a relay's client gets an answer it can act on — a code to retry
 // on, with when — not a bare failure it would take as final.
 TEST(OverloadTest, ARelayAnswersForItsUpstreamInCodes) {
-  auto answer = [](const Client::Error &upstream) {
+  auto answer = [](const Client::Error& upstream) {
     Client::Response out;
-    Peek::replyUpstreamError(
-        [&out](std::string packed) { out = utl::binaryUnpack<Client::Response>(packed).value(); }, upstream, "");
+    Peek::replyUpstreamError([&out](std::string packed) { out = utl::binaryUnpack<Client::Response>(packed).value(); },
+                             upstream, "");
     return out;
   };
-  auto error = [](int32_t code, const char *message, uint32_t retryAfterMs = 0) {
+  auto error = [](int32_t code, const char* message, uint32_t retryAfterMs = 0) {
     Client::Error e(code, message);
     e.retryAfterMs = retryAfterMs;
     return e;

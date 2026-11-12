@@ -20,17 +20,16 @@ namespace op = pp::operation;
 namespace {
 
 int64_t nowSeconds() {
-  return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
-      .count();
+  return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-int fail(const std::string &message) {
+int fail(const std::string& message) {
   std::cerr << "Error: " << message << "\n";
   return 1;
 }
 
 /** An ML-DSA-65 public key given as hex or as a .pub file; empty when it is neither. */
-std::string readPublicKey(const std::string &arg) {
+std::string readPublicKey(const std::string& arg) {
   std::string hex = arg;
   if (std::ifstream file(arg); file) {
     std::ostringstream text;
@@ -45,9 +44,9 @@ std::string readPublicKey(const std::string &arg) {
   return key.size() == pp::utl::kMlDsaPublicKeyBytes ? key : std::string{};
 }
 
-pp::Roe<std::vector<std::string>> readPublicKeys(const std::vector<std::string> &args, const std::string &option) {
+pp::Roe<std::vector<std::string>> readPublicKeys(const std::vector<std::string>& args, const std::string& option) {
   std::vector<std::string> keys;
-  for (const auto &arg : args) {
+  for (const auto& arg : args) {
     std::string key = readPublicKey(arg);
     if (key.empty()) {
       return pp::Error(option + " " + arg + ": not an ML-DSA-65 public key (hex or a .pub file)");
@@ -57,16 +56,16 @@ pp::Roe<std::vector<std::string>> readPublicKeys(const std::vector<std::string> 
   return keys;
 }
 
-std::string shortHex(const std::string &raw) {
+std::string shortHex(const std::string& raw) {
   const std::string hex = pp::utl::hexEncode(raw);
   return hex.size() > 16 ? hex.substr(0, 16) + "…" : hex;
 }
 
-void print(const op::Operation &operation) {
+void print(const op::Operation& operation) {
   auto summary = op::summarize(operation);
   if (summary) {
     std::cout << summary.value().title << "\n";
-    for (const auto &[label, value] : summary.value().lines) {
+    for (const auto& [label, value] : summary.value().lines) {
       std::cout << "  " << label << ": " << value << "\n";
     }
   } else {
@@ -93,7 +92,7 @@ void print(const op::Operation &operation) {
     std::cout << " (a key set)";
   }
   std::cout << "\n";
-  for (const auto &key : operation.signers.publicKeys) {
+  for (const auto& key : operation.signers.publicKeys) {
     const bool signedIt = std::find(check.signedBy.begin(), check.signedBy.end(), key) != check.signedBy.end();
     std::cout << "  " << (signedIt ? "[signed] " : "[ ]      ") << op::fingerprint(key) << "\n";
   }
@@ -108,7 +107,7 @@ void print(const op::Operation &operation) {
 }
 
 /** A batch's payments: a CSV of `to,amount[,token]` lines ('#' starts a comment). */
-pp::Roe<std::vector<op::Payment>> readPayments(const std::string &path) {
+pp::Roe<std::vector<op::Payment>> readPayments(const std::string& path) {
   std::ifstream in(path);
   if (!in) {
     return pp::Error("cannot open " + path);
@@ -138,7 +137,7 @@ pp::Roe<std::vector<op::Payment>> readPayments(const std::string &path) {
   return payments;
 }
 
-pp::Roe<op::Operation> loadChecked(const std::string &path) {
+pp::Roe<op::Operation> loadChecked(const std::string& path) {
   auto operation = op::load(path);
   if (!operation) {
     return pp::Error(path + ": " + operation.error().message);
@@ -148,7 +147,7 @@ pp::Roe<op::Operation> loadChecked(const std::string &path) {
 
 } // namespace
 
-OpCommands::OpCommands(CLI::App &app) {
+OpCommands::OpCommands(CLI::App& app) {
   op_ = app.add_subcommand("op", "Operation files: transactions several people sign, passed around as files");
   op_->require_subcommand(1);
 
@@ -191,8 +190,7 @@ OpCommands::OpCommands(CLI::App &app) {
   newAccount_.cmd->add_option("--id", accountId_, "The new account's id")->required();
   newAccount_.cmd->add_option("--account-key", accountKeys_, "The new account's public key (hex or .pub; repeat)")
       ->required();
-  newAccount_.cmd->add_option("--account-min-signatures", accountMinSignatures_,
-                              "Signatures the new account needs")
+  newAccount_.cmd->add_option("--account-min-signatures", accountMinSignatures_, "Signatures the new account needs")
       ->default_val(1);
   newAccount_.cmd->add_option("--amount", amount_, "Initial balance, paid by --from")->required();
   newAccount_.cmd->add_option("--domain", domain_,
@@ -207,28 +205,29 @@ OpCommands::OpCommands(CLI::App &app) {
       ->default_val(1);
   addCreateOptions(updateKeys_, true);
 
-  setRecovery_.cmd = op_->add_subcommand(
-      "set-recovery", "Set an account's recovery set and delay: its keys name the first, then only the set changes "
-                      "itself (reads the account from the node)");
+  setRecovery_.cmd =
+      op_->add_subcommand("set-recovery",
+                          "Set an account's recovery set and delay: its keys name the first, then only the set changes "
+                          "itself (reads the account from the node)");
   setRecovery_.cmd->add_option("--account", from_, "The account")->required();
-  auto *recoveryKey =
+  auto* recoveryKey =
       setRecovery_.cmd->add_option("--recovery-key", recoveryKeys_, "A key of the recovery set (hex or .pub; repeat)");
-  setRecovery_.cmd->add_option("--recovery-min-signatures", recoveryMinSignatures_,
-                               "Signatures of the set it takes to act")
+  setRecovery_.cmd
+      ->add_option("--recovery-min-signatures", recoveryMinSignatures_, "Signatures of the set it takes to act")
       ->default_val(1);
   setRecovery_.cmd->add_option("--delay-seconds", recoveryDelaySeconds_,
                                "From an announcement to the earliest its keys take over (at least half an epoch)");
-  auto *none = setRecovery_.cmd->add_flag("--none", noRecovery_, "Remove the recovery set (signed by the set)");
+  auto* none = setRecovery_.cmd->add_flag("--none", noRecovery_, "Remove the recovery set (signed by the set)");
   recoveryKey->excludes(none);
   addCreateOptions(setRecovery_, true);
 
   recover_.cmd = op_->add_subcommand(
-      "recover", "Announce an account's new keys, signed by its recovery set: the account is frozen until they "
-                 "take over at the first epoch start after its delay");
+      "recover",
+      "Announce an account's new keys, signed by its recovery set: the account is frozen until they "
+      "take over at the first epoch start after its delay");
   recover_.cmd->add_option("--account", from_, "The account to recover (pays the fee)")->required();
   recover_.cmd->add_option("--new-key", newKeys_, "A key of the new set (hex or .pub; repeat)")->required();
-  recover_.cmd->add_option("--new-min-signatures", newMinSignatures_, "Signatures the new set needs")
-      ->default_val(1);
+  recover_.cmd->add_option("--new-min-signatures", newMinSignatures_, "Signatures the new set needs")->default_val(1);
   addCreateOptions(recover_, true);
 
   withdrawRecovery_.cmd = op_->add_subcommand(
@@ -242,13 +241,13 @@ OpCommands::OpCommands(CLI::App &app) {
   assignDomain_.cmd->add_option("--domain", domain_, "The domain (a symbol: ACME)")->required();
   addCreateOptions(assignDomain_, true);
 
-  wrap_.cmd = op_->add_subcommand(
-      "wrap", "Make an operation of a transaction file (mk-beacon-cert, mk-recovery, mk-tx …)");
+  wrap_.cmd =
+      op_->add_subcommand("wrap", "Make an operation of a transaction file (mk-beacon-cert, mk-recovery, mk-tx …)");
   wrap_.cmd->add_option("file", file_, "Transaction file (its signatures are dropped)")->required();
   addCreateOptions(wrap_, false);
 }
 
-void OpCommands::addCreateOptions(Create &create, bool withFee) {
+void OpCommands::addCreateOptions(Create& create, bool withFee) {
   create.cmd->add_option("-o,--output", create.output, "Operation file to write")->required();
   create.cmd->add_option("--valid-for", create.validFor, "Seconds the transaction stays valid (the chain caps it)")
       ->default_val(86400);
@@ -266,14 +265,16 @@ void OpCommands::addCreateOptions(Create &create, bool withFee) {
   }
 }
 
-bool OpCommands::parsed() const { return op_->parsed(); }
+bool OpCommands::parsed() const {
+  return op_->parsed();
+}
 
-bool OpCommands::signedByRecoverySet(const Create &create, bool hasRecoverySet) const {
+bool OpCommands::signedByRecoverySet(const Create& create, bool hasRecoverySet) const {
   return &create == &recover_ || &create == &withdrawRecovery_ || (&create == &setRecovery_ && hasRecoverySet);
 }
 
-const OpCommands::Create *OpCommands::parsedCreate() const {
-  for (const Create *create : {&transfer_, &batch_, &mint_, &newAccount_, &updateKeys_, &setRecovery_,
+const OpCommands::Create* OpCommands::parsedCreate() const {
+  for (const Create* create : {&transfer_, &batch_, &mint_, &newAccount_, &updateKeys_, &setRecovery_,
                                &withdrawRecovery_, &recover_, &assignDomain_, &wrap_}) {
     if (create->cmd->parsed()) {
       return create;
@@ -282,19 +283,21 @@ const OpCommands::Create *OpCommands::parsedCreate() const {
   return nullptr;
 }
 
-bool OpCommands::isSubmit() const { return submit_->parsed(); }
+bool OpCommands::isSubmit() const {
+  return submit_->parsed();
+}
 
 bool OpCommands::needsNode() const {
   if (submit_->parsed()) {
     return true;
   }
-  const Create *create = parsedCreate();
+  const Create* create = parsedCreate();
   // An account's update carries its balances as they are: always read from the node.
   const bool update = create == &updateKeys_ || create == &setRecovery_;
   return create && (update || create->networkId.empty() || create->signerKeys.empty());
 }
 
-int OpCommands::run(pp::Client *client) {
+int OpCommands::run(pp::Client* client) {
   if (show_->parsed()) {
     auto operation = loadChecked(file_);
     if (!operation) {
@@ -322,15 +325,14 @@ int OpCommands::run(pp::Client *client) {
       return fail(saved.error().message);
     }
     const auto check = op::check(operation.value());
-    std::cout << "Signed with " << op::fingerprint(signedBy.value()) << " into " << out << ": "
-              << check.signedBy.size() << " of " << check.needed << " signatures"
-              << (check.complete() ? " — complete" : "") << "\n";
+    std::cout << "Signed with " << op::fingerprint(signedBy.value()) << " into " << out << ": " << check.signedBy.size()
+              << " of " << check.needed << " signatures" << (check.complete() ? " — complete" : "") << "\n";
     return 0;
   }
 
   if (merge_->parsed()) {
     std::vector<op::Operation> copies;
-    for (const auto &file : files_) {
+    for (const auto& file : files_) {
       auto operation = loadChecked(file);
       if (!operation) {
         return fail(operation.error().message);
@@ -401,13 +403,13 @@ int OpCommands::run(pp::Client *client) {
     return 0;
   }
 
-  if (const Create *create = parsedCreate()) {
+  if (const Create* create = parsedCreate()) {
     return runCreate(*create, client);
   }
   return fail("unknown op command");
 }
 
-int OpCommands::runCreate(const Create &create, pp::Client *client) {
+int OpCommands::runCreate(const Create& create, pp::Client* client) {
   // The transaction a wrap carries decides its signers' account; the others are built from options.
   pp::Ledger::Record wrapped;
   std::optional<uint64_t> account;
@@ -484,7 +486,7 @@ int OpCommands::runCreate(const Create &create, pp::Client *client) {
       common.signers.minSignatures = onChain.value().wallet.minSignatures;
       if (signedByRecoverySet(create, onChain.value().wallet.recovery.hasSet())) {
         // Signed by the account's recovery set, not its keys.
-        const auto &recovery = onChain.value().wallet.recovery;
+        const auto& recovery = onChain.value().wallet.recovery;
         if (!recovery.hasSet()) {
           return fail("account " + std::to_string(*account) + " has no recovery set");
         }
@@ -492,9 +494,8 @@ int OpCommands::runCreate(const Create &create, pp::Client *client) {
         common.signers.minSignatures = recovery.minSignatures;
       }
       if (create.minSignatures != 0 && create.minSignatures != common.signers.minSignatures) {
-        return fail("account " + std::to_string(*account) + " needs " +
-                    std::to_string(common.signers.minSignatures) + " signatures, not " +
-                    std::to_string(create.minSignatures));
+        return fail("account " + std::to_string(*account) + " needs " + std::to_string(common.signers.minSignatures) +
+                    " signatures, not " + std::to_string(create.minSignatures));
       }
     }
   }
@@ -542,8 +543,7 @@ int OpCommands::runCreate(const Create &create, pp::Client *client) {
     } else if (noRecovery_) {
       return fail("account " + std::to_string(from_) + " has no recovery set");
     } else {
-      built = op::setRecovery(common, current.value(), keys, recoveryMinSignatures_, recoveryDelaySeconds_,
-                              create.fee);
+      built = op::setRecovery(common, current.value(), keys, recoveryMinSignatures_, recoveryDelaySeconds_, create.fee);
     }
   } else if (&create == &recover_) {
     auto keys = readPublicKeys(newKeys_, "--new-key");

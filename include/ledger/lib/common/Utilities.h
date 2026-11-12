@@ -32,7 +32,7 @@ std::string formatTimestampLocal(int64_t unixSeconds);
  * @param value Output parameter for the parsed value
  * @return true if parsing succeeded, false otherwise
  */
-bool parseInt(const std::string &str, int &value);
+bool parseInt(const std::string& str, int& value);
 
 /**
  * Parse a 64-bit signed integer from a string
@@ -40,7 +40,7 @@ bool parseInt(const std::string &str, int &value);
  * @param value Output parameter for the parsed value
  * @return true if parsing succeeded, false otherwise
  */
-bool parseInt64(const std::string &str, int64_t &value);
+bool parseInt64(const std::string& str, int64_t& value);
 
 /**
  * Parse a 64-bit unsigned integer from a string
@@ -48,7 +48,7 @@ bool parseInt64(const std::string &str, int64_t &value);
  * @param value Output parameter for the parsed value
  * @return true if parsing succeeded, false otherwise
  */
-bool parseUInt64(const std::string &str, uint64_t &value);
+bool parseUInt64(const std::string& str, uint64_t& value);
 
 /**
  * Parse a port number from a string (validates range 0-65535)
@@ -56,7 +56,7 @@ bool parseUInt64(const std::string &str, uint64_t &value);
  * @param port Output parameter for the parsed port
  * @return true if parsing succeeded and port is in valid range, false otherwise
  */
-bool parsePort(const std::string &str, uint16_t &port);
+bool parsePort(const std::string& str, uint16_t& port);
 
 /**
  * Parse a host:port string into separate host and port components
@@ -65,7 +65,7 @@ bool parsePort(const std::string &str, uint16_t &port);
  * @param port Output parameter for the port part
  * @return true if parsing succeeded, false otherwise
  */
-bool parseHostPort(const std::string &hostPort, std::string &host, uint16_t &port);
+bool parseHostPort(const std::string& hostPort, std::string& host, uint16_t& port);
 
 /**
  * Join a vector of streamable values with a delimiter
@@ -74,7 +74,7 @@ bool parseHostPort(const std::string &hostPort, std::string &host, uint16_t &por
  * @return Joined string
  */
 template <typename T>
-std::string join(const std::vector<T> &values, const std::string &delimiter) {
+std::string join(const std::vector<T>& values, const std::string& delimiter) {
   if (values.empty()) {
     return "";
   }
@@ -91,12 +91,12 @@ std::string join(const std::vector<T> &values, const std::string &delimiter) {
  * Load and parse a JSON configuration file (must be a JSON object).
  * Integers are i64; use Object::getNonNegInt for ports/ids.
  */
-pp::Roe<pp::common::Object> loadJsonFile(const std::string &configPath);
+pp::Roe<pp::common::Object> loadJsonFile(const std::string& configPath);
 
 /**
  * Parse a JSON request string that must be an object with a "type" field.
  */
-pp::Roe<pp::common::Object> parseJsonRequest(const std::string &request);
+pp::Roe<pp::common::Object> parseJsonRequest(const std::string& request);
 
 /**
  * Compute SHA-256 hash using Libsodium
@@ -104,13 +104,13 @@ pp::Roe<pp::common::Object> parseJsonRequest(const std::string &request);
  * @return Hexadecimal string representation of the SHA-256 hash
  * @throws std::runtime_error if hash computation fails
  */
-std::string sha256(const std::string &input);
+std::string sha256(const std::string& input);
 
 /**
  * Compute SHA-256 digest as raw 32 bytes (not hex-encoded).
  * Prefer this for consensus / wire hash fields.
  */
-std::string sha256Raw(const std::string &input);
+std::string sha256Raw(const std::string& input);
 
 /** SHA-256 digest length in bytes. */
 constexpr size_t SHA256_DIGEST_SIZE = 32;
@@ -125,14 +125,14 @@ inline std::string zeroHash() {
  * @param data Raw bytes
  * @return Lowercase hex string (two chars per byte)
  */
-std::string hexEncode(const std::string &data);
+std::string hexEncode(const std::string& data);
 
 /**
  * Decode hex string back to binary
  * @param hex Hex string (even length, 0-9a-fA-F)
  * @return Decoded bytes, or empty string if input is invalid
  */
-std::string hexDecode(const std::string &hex);
+std::string hexDecode(const std::string& hex);
 
 /**
  * Return a string safe for JSON (UTF-8). If input contains non-UTF-8 bytes,
@@ -140,14 +140,14 @@ std::string hexDecode(const std::string &hex);
  * @param s Arbitrary string (may be binary)
  * @return UTF-8-safe string
  */
-std::string toJsonSafeString(const std::string &s);
+std::string toJsonSafeString(const std::string& s);
 
 /**
  * Reverse of toJsonSafeString: if string starts with "0x", hex-decode the rest.
  * @param s String from JSON (either plain or "0x" + hex)
  * @return Decoded binary or original string
  */
-std::string fromJsonSafeString(const std::string &s);
+std::string fromJsonSafeString(const std::string& s);
 
 /**
  * Write a string to a non-existent file
@@ -157,7 +157,7 @@ std::string fromJsonSafeString(const std::string &s);
  * @param content String content to write to the file
  * @return Roe<void> indicating success or error
  */
-pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &content);
+pp::Roe<void> writeToNewFile(const std::string& filePath, const std::string& content);
 
 // --- ML-DSA-65 (raw binary: 1952-byte public key, 4032-byte private key, 3309-byte signature)
 
@@ -187,7 +187,7 @@ pp::Roe<MlDsaKeyPair> mlDsaGenerate();
  * @param message Message to sign (arbitrary bytes)
  * @return Roe<std::string>: signature (kMlDsaSignatureBytes), or error
  */
-pp::Roe<std::string> mlDsaSign(const std::string &privateKey, const std::string &message);
+pp::Roe<std::string> mlDsaSign(const std::string& privateKey, const std::string& message);
 
 /**
  * Verify an ML-DSA-65 signature
@@ -196,17 +196,16 @@ pp::Roe<std::string> mlDsaSign(const std::string &privateKey, const std::string 
  * @param signature Raw signature (kMlDsaSignatureBytes)
  * @return true if signature is valid, false if invalid or bad key/signature format
  */
-bool mlDsaVerify(const std::string &publicKey, const std::string &message,
-                 const std::string &signature);
+bool mlDsaVerify(const std::string& publicKey, const std::string& message, const std::string& signature);
 
 /**
  * Check if a string is a plausible ML-DSA-65 public key.
  * Accepts raw kMlDsaPublicKeyBytes, or hex (optionally with "0x" prefix).
  */
-bool isValidMlDsaPublicKey(const std::string &str);
+bool isValidMlDsaPublicKey(const std::string& str);
 
 /** Alias for isValidMlDsaPublicKey (e.g. for config validation). */
-inline bool isValidPublicKey(const std::string &str) {
+inline bool isValidPublicKey(const std::string& str) {
   return isValidMlDsaPublicKey(str);
 }
 
@@ -219,8 +218,7 @@ inline bool isValidPublicKey(const std::string &str) {
  * @param baseDir Base directory for resolving relative paths (e.g. config file directory)
  * @return Roe<std::string>: raw private key, or error
  */
-pp::Roe<std::string> readPrivateKey(const std::string& keyOrPath,
-                                    const std::string& baseDir);
+pp::Roe<std::string> readPrivateKey(const std::string& keyOrPath, const std::string& baseDir);
 
 } // namespace utl
 } // namespace pp

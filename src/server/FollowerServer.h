@@ -33,23 +33,23 @@ namespace pp {
 class FollowerServer : public Server {
 protected:
   /** `name`: this server's logger (its clients log under it). */
-  explicit FollowerServer(const std::string &name);
+  explicit FollowerServer(const std::string& name);
 
   /**
    * In the role's constructor: the core it follows with (bindCore), and the requests every follower
    * serves (BLOCK_GET past the tip, TX_ADD, EQUIVOCATION_ADD).
    */
-  void bindFollower(FollowerCore &core);
-  FollowerCore &follower() { return *follower_; }
-  const FollowerCore &follower() const { return *follower_; }
+  void bindFollower(FollowerCore& core);
+  FollowerCore& follower() { return *follower_; }
+  const FollowerCore& follower() const { return *follower_; }
 
   // ----------------- start (onStart) -------------------------------------
   /**
    * The upstreams `config` names (setUpstreams, UpstreamSet), then the AMP server with `identityKey`
    * on its port, serving its allowedPeers (and the upstreams). Keeps `config` (followerConfig).
    */
-  Roe<void> startFollowing(const FollowerConfig &config, const IdentityKeyFn &identityKey);
-  const FollowerConfig &followerConfig() const { return config_; }
+  Roe<void> startFollowing(const FollowerConfig& config, const IdentityKeyFn& identityKey);
+  const FollowerConfig& followerConfig() const { return config_; }
   /** The offset to the beacon's clock (beacon ms = local ms + offset), through the upstream followed, else another. */
   Roe<int64_t> calibrateTimeToBeacon();
   /** Use a new offset to the beacon's clock: the slot clock, and CALIBRATION replies. */
@@ -60,7 +60,7 @@ protected:
    * Once the core is open: the clock follower, BlockSync and the tip watch, then the initial
    * catch-up (runStartupSync; `extraDone`: what else to wait for). Empty on success, else why not.
    */
-  std::string catchUp(const std::function<bool()> &extraDone = {});
+  std::string catchUp(const std::function<bool()>& extraDone = {});
 
   // ----------------- run -------------------------------------
   /** Follows (rewinds, syncs, tip watch, upstreams, clock), runs roleDuties, serves requests. */
@@ -70,7 +70,7 @@ protected:
   /** Replies to block gets still waiting, then stops (Server::onStop). */
   void onStop() override;
   /** Sync state and readiness: synced, not halted, within kReadyLagBlocks of the upstream's signed tip. */
-  void fillHealth(Client::NodeHealth &health) const override;
+  void fillHealth(Client::NodeHealth& health) const override;
   int64_t clockOffsetMs() const override { return timeOffsetToBeaconMs_; }
 
   // ----------------- role hooks -------------------------------------
@@ -80,10 +80,10 @@ protected:
    */
   virtual std::optional<std::string> firstBlockHash() const;
   /** The block a sync starts from carries the authority the node expects (BlockSync::Hooks::checkStartingAuthority). */
-  virtual pp::Roe<void> checkStartingAuthority(uint64_t blockId, const ChainAuthority &authority,
-                                               const Client::Wallet &admin) const;
+  virtual pp::Roe<void> checkStartingAuthority(uint64_t blockId, const ChainAuthority& authority,
+                                               const Client::Wallet& admin) const;
   /** A signed tip heard from the upstream (a sync, the tip watch). */
-  virtual void onSignedTip(const Client::SignedTip &tip);
+  virtual void onSignedTip(const Client::SignedTip& tip);
   /** A newer certificate or equivocation evidence was kept: what verified before may not now. */
   virtual void onTrustChanged() {}
   /** A sync finished well. */
@@ -104,37 +104,37 @@ protected:
    * Whether an upstream serving `state` may be followed: the network anchor (network id, trusted
    * checkpoint) and the network of the chain held.
    */
-  Roe<void> admitUpstream(const Client::BeaconState &state) const;
+  Roe<void> admitUpstream(const Client::BeaconState& state) const;
   /** Point `client` at upstream `index` (UpstreamSet::dialKey). */
-  Client::Roe<void> dialUpstream(Client &client, size_t index);
+  Client::Roe<void> dialUpstream(Client& client, size_t index);
   /** Point client_ at the upstream followed now. */
   Client::Roe<void> dialUpstream();
   /** Point client_ at the upstream for a forwarded request; replies with the error if it cannot. */
-  bool dialUpstreamFor(const RequestQueue::Reply &reply);
+  bool dialUpstreamFor(const RequestQueue::Reply& reply);
   /**
    * What forwarding `request` may wait (LR006): the client's remaining deadline less a margin, so
    * this node answers before the client gives up; half the default timeout when the client sent
    * none. Below kMinForward the request is not forwarded (forwardOrExpire).
    */
-  static std::chrono::milliseconds forwardBudget(const Client::Request &request);
+  static std::chrono::milliseconds forwardBudget(const Client::Request& request);
   static constexpr std::chrono::milliseconds kMinForward{250};
   /** The budget to forward `request` with, or none after replying E_EXPIRED (no time left). */
-  static std::optional<std::chrono::milliseconds> forwardOrExpire(const Client::Request &request,
-                                                                   const RequestQueue::Reply &reply);
+  static std::optional<std::chrono::milliseconds> forwardOrExpire(const Client::Request& request,
+                                                                  const RequestQueue::Reply& reply);
   /**
    * Reply with an upstream's error (LR007): its overload code passed on; no answer in time as
    * E_UPSTREAM_TIMEOUT (it may have taken the request); unreachable as E_BUSY; else the message.
    */
-  static void replyUpstreamError(const RequestQueue::Reply &reply, const Client::Error &error,
-                                 const std::string &prefix = "");
+  static void replyUpstreamError(const RequestQueue::Reply& reply, const Client::Error& error,
+                                 const std::string& prefix = "");
   /**
    * A beacon certificate (STATUS, TX_ADD; ba5c): offer it. A new one goes to every upstream, its
    * dial hints become upstreams and the upstreams are ranked again (bp2b). None when refused.
    */
-  std::optional<Chain::CertificateOffer> noteCertificate(const Ledger::Record &record, const std::string &from);
+  std::optional<Chain::CertificateOffer> noteCertificate(const Ledger::Record& record, const std::string& from);
   /** Equivocation evidence (ba6): offer it; a new one goes to every upstream when `pushUp`. None when refused. */
-  std::optional<Chain::EquivocationOffer> noteEquivocation(const Client::Equivocation &evidence,
-                                                           const std::string &from, bool pushUp);
+  std::optional<Chain::EquivocationOffer> noteEquivocation(const Client::Equivocation& evidence,
+                                                           const std::string& from, bool pushUp);
   /** Start a sync (at most one per slot unless `bypassRateLimit`). */
   void trySyncBlocksFromBeacon(bool bypassRateLimit = false);
   /** A sync is wanted at the next turn of the run loop. */
@@ -157,24 +157,24 @@ private:
   void initUpstreams();
   void initClockFollower();
   void initBlockSync();
-  void onBlockSyncFinished(const BlockSync::Result &result);
+  void onBlockSyncFinished(const BlockSync::Result& result);
   /** A sync at each new epoch (the stakeholders), or when the role wants one (syncDue); rate-limited. */
   void syncBlocksPeriodically();
   /** A new certificate, to every upstream (TX_ADD): one behind a stood-down beacon learns it here. */
-  void pushCertificateUp(const Ledger::Record &record);
+  void pushCertificateUp(const Ledger::Record& record);
   /** Kept evidence, to every upstream (fire and forget): each beacon host must halt. */
-  void pushEquivocationUp(const Client::Equivocation &evidence);
+  void pushEquivocationUp(const Client::Equivocation& evidence);
 
   /** BLOCK_GET: what this node holds now; past its tip, after the next sync. */
-  void dBlockGet(const Client::Request &request, const RequestQueue::Reply &reply);
+  void dBlockGet(const Client::Request& request, const RequestQueue::Reply& reply);
   /** After a sync: answer block gets that were waiting for it. */
   void resolvePendingBlockGets();
   /** TX_ADD: up the tree to the beacon's pool (a beacon certificate is kept here first, ba5c). */
-  void dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply);
+  void dTxAdd(const Client::Request& request, const RequestQueue::Reply& reply);
   /** EQUIVOCATION_ADD (ba6): keep the evidence if it verifies, and pass it up. */
-  void dEquivocationAdd(const Client::Request &request, const RequestQueue::Reply &reply);
+  void dEquivocationAdd(const Client::Request& request, const RequestQueue::Reply& reply);
 
-  FollowerCore *follower_{nullptr};
+  FollowerCore* follower_{nullptr};
   FollowerConfig config_;
   /** beacon ms = local ms + offset; 0 until calibrated. */
   int64_t timeOffsetToBeaconMs_{0};

@@ -20,25 +20,29 @@ using pp::common::Value;
 namespace {
 
 // 64-bit amounts and account ids do not survive a JSON number: decimal strings.
-std::string dec(uint64_t v) { return std::to_string(v); }
-std::string dec(int64_t v) { return std::to_string(v); }
+std::string dec(uint64_t v) {
+  return std::to_string(v);
+}
+std::string dec(int64_t v) {
+  return std::to_string(v);
+}
 
 constexpr uint64_t kDefaultBlocks = 20;
 constexpr uint64_t kMaxBlocks = 100;
 
-void sendJson(httplib::Response &res, const Object &o, int status = 200) {
+void sendJson(httplib::Response& res, const Object& o, int status = 200) {
   auto json = pp::common::io::valueToJsonString(Value(std::make_shared<Object>(o)), -1);
   res.status = status;
   res.set_content(json ? json.value() : std::string("{\"error\":\"unprintable\"}"), "application/json");
 }
 
-void sendError(httplib::Response &res, int status, const std::string &message) {
+void sendError(httplib::Response& res, int status, const std::string& message) {
   Object o;
   o.set("error", message);
   sendJson(res, o, status);
 }
 
-std::optional<uint64_t> parseU64(const std::string &s) {
+std::optional<uint64_t> parseU64(const std::string& s) {
   uint64_t v = 0;
   auto [end, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
   if (ec != std::errc() || end != s.data() + s.size() || s.empty()) {
@@ -47,10 +51,12 @@ std::optional<uint64_t> parseU64(const std::string &s) {
   return v;
 }
 
-std::string hex(const std::string &raw) { return pp::utl::hexEncode(raw); }
+std::string hex(const std::string& raw) {
+  return pp::utl::hexEncode(raw);
+}
 
 /** The node's state as a service follows it. */
-Object statusJson(const pp::Client::BeaconState &state) {
+Object statusJson(const pp::Client::BeaconState& state) {
   Object o;
   o.set("networkId", state.networkId);
   o.set("nextBlockId", dec(state.nextBlockId));
@@ -87,8 +93,8 @@ Object statusJson(const pp::Client::BeaconState &state) {
  * T_NEW_USER) and accounts ended (T_END_USER: their balances go to the recycle account). Renewals
  * and fees move only the native token's balance by fees; other records move no balance.
  */
-Object blockJson(const pp::Ledger::ChainNode &node) {
-  const auto &b = node.block;
+Object blockJson(const pp::Ledger::ChainNode& node) {
+  const auto& b = node.block;
   Object o;
   o.set("height", dec(b.index));
   o.set("hash", hex(node.hash));
@@ -99,9 +105,8 @@ Object blockJson(const pp::Ledger::ChainNode &node) {
   std::vector<Value> transfers;
   std::vector<Value> ended;
   for (size_t i = 0; i < b.records.size(); ++i) {
-    const auto &record = b.records[i];
-    auto transfer = [&](const char *type, uint64_t tokenId, uint64_t from, uint64_t to, uint64_t amount,
-                        uint64_t fee) {
+    const auto& record = b.records[i];
+    auto transfer = [&](const char* type, uint64_t tokenId, uint64_t from, uint64_t to, uint64_t amount, uint64_t fee) {
       Object t;
       t.set("index", dec(static_cast<uint64_t>(i)));
       t.set("type", std::string(type));
@@ -114,12 +119,12 @@ Object blockJson(const pp::Ledger::ChainNode &node) {
     };
     if (record.type == pp::Ledger::T_DEFAULT) {
       if (auto tx = pp::utl::binaryUnpack<pp::Ledger::TxDefault>(record.data)) {
-        const auto &d = tx.value();
+        const auto& d = tx.value();
         transfer("transfer", d.tokenId, d.fromWalletId, d.toWalletId, d.amount, d.fee);
       }
     } else if (record.type == pp::Ledger::T_NEW_USER) {
       if (auto tx = pp::utl::binaryUnpack<pp::Ledger::TxNewUser>(record.data)) {
-        const auto &d = tx.value();
+        const auto& d = tx.value();
         transfer("new-account", 0, d.fromWalletId, d.toWalletId, d.amount, d.fee);
       }
     } else if (record.type == pp::Ledger::T_END_USER) {
@@ -138,10 +143,10 @@ Object blockJson(const pp::Ledger::ChainNode &node) {
 
 } // namespace
 
-void registerChainRoutes(httplib::Server &svr, pp::Client &node) {
+void registerChainRoutes(httplib::Server& svr, pp::Client& node) {
   // The routes run on the server's worker threads; the client takes one call at a time.
   static std::mutex calls;
-  svr.Get("/api/chain/status", [&node](const httplib::Request &, httplib::Response &res) {
+  svr.Get("/api/chain/status", [&node](const httplib::Request&, httplib::Response& res) {
     std::lock_guard lock(calls);
     auto state = node.fetchBeaconState();
     if (!state) {
@@ -151,7 +156,7 @@ void registerChainRoutes(httplib::Server &svr, pp::Client &node) {
   });
 
   // Blocks [from, from + limit) the node holds, oldest first, with its state when asked.
-  svr.Get("/api/chain/blocks", [&node](const httplib::Request &req, httplib::Response &res) {
+  svr.Get("/api/chain/blocks", [&node](const httplib::Request& req, httplib::Response& res) {
     auto from = parseU64(req.get_param_value("from"));
     const std::string limitParam = req.get_param_value("limit");
     auto limit = limitParam.empty() ? std::optional<uint64_t>(kDefaultBlocks) : parseU64(limitParam);
@@ -180,7 +185,7 @@ void registerChainRoutes(httplib::Server &svr, pp::Client &node) {
   });
 
   // An account's balances in the node's tip state.
-  svr.Get(R"(/api/chain/accounts/(\d+))", [&node](const httplib::Request &req, httplib::Response &res) {
+  svr.Get(R"(/api/chain/accounts/(\d+))", [&node](const httplib::Request& req, httplib::Response& res) {
     auto id = parseU64(req.matches[1]);
     if (!id) {
       return sendError(res, 400, "Not an account id");
@@ -191,7 +196,7 @@ void registerChainRoutes(httplib::Server &svr, pp::Client &node) {
       return sendError(res, 404, account.error().message);
     }
     Object balances;
-    for (const auto &[token, amount] : account.value().wallet.mBalances) {
+    for (const auto& [token, amount] : account.value().wallet.mBalances) {
       balances.set(dec(token), dec(amount));
     }
     Object o;

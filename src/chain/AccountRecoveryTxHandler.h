@@ -15,28 +15,24 @@ namespace pp {
  */
 class AccountRecoveryTxHandler final : public ITxHandler {
 public:
-  chain_tx::Roe<uint64_t>
-  getSignerAccountId(const Ledger::TypedTx &tx, uint64_t slotLeaderId) const override;
+  chain_tx::Roe<uint64_t> getSignerAccountId(const Ledger::TypedTx& tx, uint64_t slotLeaderId) const override;
 
-  chain_tx::Roe<bool>
-  matchesWalletForIndex(const Ledger::TypedTx &tx, uint64_t walletId) const override;
+  chain_tx::Roe<bool> matchesWalletForIndex(const Ledger::TypedTx& tx, uint64_t walletId) const override;
 
-  chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
-  getIdempotencyKey(const Ledger::TypedTx &tx) const override;
+  chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>> getIdempotencyKey(
+      const Ledger::TypedTx& tx) const override;
 
-  chain_tx::Roe<void>
-  applyBuffer(const Ledger::TypedTx &tx, AccountBuffer &bank,
-              const BufferApplyContext &c) const override;
+  chain_tx::Roe<void> applyBuffer(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                  const BufferApplyContext& c) const override;
 
-  chain_tx::Roe<void>
-  applyBlock(const Ledger::TypedTx &tx, AccountBuffer &bank,
-             const BlockApplyContext &c) const override;
+  chain_tx::Roe<void> applyBlock(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                 const BlockApplyContext& c) const override;
 
   /** The action a T_ACCOUNT_RECOVERY carries: a known kind, its keys checked for an announcement. */
-  static chain_tx::Roe<AccountRecoveryAction> decodeAction(const Ledger::TxAccountRecovery &tx);
+  static chain_tx::Roe<AccountRecoveryAction> decodeAction(const Ledger::TxAccountRecovery& tx);
 
 private:
-  chain_tx::Roe<void> apply(const Ledger::TxAccountRecovery &tx, const TxContext &ctx, AccountBuffer &bank,
+  chain_tx::Roe<void> apply(const Ledger::TxAccountRecovery& tx, const TxContext& ctx, AccountBuffer& bank,
                             uint64_t blockId, uint64_t slot, chain_block::BlockAdmissionMode admissionMode) const;
 };
 

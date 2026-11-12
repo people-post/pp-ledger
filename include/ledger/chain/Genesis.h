@@ -53,7 +53,7 @@ struct Miner {
 /** The provisional system names (projects/domains DN006): PPL, RSV, REG, FEE, RCY. */
 SystemNames defaultSystemNames();
 /** Each name 1–3 capital letters (or none), no two the same. */
-pp::Roe<void> checkNames(const SystemNames &names);
+pp::Roe<void> checkNames(const SystemNames& names);
 
 /** Everything block 0 says. */
 struct Plan {
@@ -68,20 +68,20 @@ struct Plan {
 
 /** What a new network starts with unless its plan says otherwise (pp-beacon --init, the Genesis app). */
 namespace defaults {
-inline constexpr uint64_t kSlotDuration = 7;                                       ///< seconds
-inline constexpr uint64_t kSlotsPerEpoch = 24ULL * 3600;                           ///< 7 days of 7 s slots
-inline constexpr uint64_t kMaxCustomMetaSize = 1ULL * 1024 * 1024;                 ///< 1 MiB
+inline constexpr uint64_t kSlotDuration = 7;                       ///< seconds
+inline constexpr uint64_t kSlotsPerEpoch = 24ULL * 3600;           ///< 7 days of 7 s slots
+inline constexpr uint64_t kMaxCustomMetaSize = 1ULL * 1024 * 1024; ///< 1 MiB
 inline constexpr uint64_t kMaxTransactionsPerBlock = 10ULL * 1024;
-inline constexpr uint64_t kMaxBlockBytes = 4ULL * 1024 * 1024;                     ///< 4 MiB (B034)
-inline constexpr uint16_t kMinFeeCoefficients[3] = {1, 1, 1};                     ///< a + b·KiB + c·KiB²
+inline constexpr uint64_t kMaxBlockBytes = 4ULL * 1024 * 1024; ///< 4 MiB (B034)
+inline constexpr uint16_t kMinFeeCoefficients[3] = {1, 1, 1};  ///< a + b·KiB + c·KiB²
 inline constexpr uint64_t kFreeCustomMetaSize = 1024;
 inline constexpr uint64_t kCheckpointMinBlocks = 1ULL << 20;
 inline constexpr uint64_t kCheckpointMinAgeSeconds = 365ULL * 24 * 3600;
 inline constexpr uint64_t kMaxValidationTimespanSeconds = 86400;
-inline constexpr uint64_t kMinerDueSeconds = 86400;                                ///< a day of slots
+inline constexpr uint64_t kMinerDueSeconds = 86400; ///< a day of slots
 inline constexpr uint64_t kMinerMaxMissedSlots = 3;
-inline constexpr uint64_t kRecoveryDelaySeconds = 30ULL * 24 * 60 * 60;            ///< about a month
-inline constexpr uint64_t kFinalitySeconds = 24ULL * 3600;                         ///< a day (FN001)
+inline constexpr uint64_t kRecoveryDelaySeconds = 30ULL * 24 * 60 * 60; ///< about a month
+inline constexpr uint64_t kFinalitySeconds = 24ULL * 3600;              ///< a day (FN001)
 /** Genesis miners without a stake share 1/kGenesisMinerStakeShare of the supply. */
 inline constexpr uint64_t kGenesisMinerStakeShare = 10;
 } // namespace defaults
@@ -90,26 +90,26 @@ inline constexpr uint64_t kGenesisMinerStakeShare = 10;
  * The default config of network `networkId`: the defaults above; heartbeats every epoch, miners due
  * after a day of slots, no minting until a config update allows it, no flat new-account fee.
  */
-BlockChainConfig defaultConfig(const std::string &networkId);
+BlockChainConfig defaultConfig(const std::string& networkId);
 /** About kRecoveryDelaySeconds of `config`'s epochs, at least 1. */
-uint64_t defaultRecoveryDelayEpochs(const BlockChainConfig &config);
+uint64_t defaultRecoveryDelayEpochs(const BlockChainConfig& config);
 /** Each of `withoutStake` genesis miners' default stake. */
 uint64_t defaultMinerStake(size_t withoutStake);
 
 /** An account of `keys` holding `balance` of the native token. */
-UserAccount accountOf(const AccountKeys &keys, int64_t balance, const std::string &meta);
+UserAccount accountOf(const AccountKeys& keys, int64_t balance, const std::string& meta);
 
 /** Every system account has well-formed keys; the genesis (admin) account is M-of-N. */
-pp::Roe<void> checkKeys(const SystemKeys &keys);
+pp::Roe<void> checkKeys(const SystemKeys& keys);
 
 /**
  * Block 0's records, unsigned: T_GENESIS (config, admin account, authority), then the fee, reserve,
  * registrar and recycle accounts, then the miners. The reserve holds the supply less the others'
  * stakes and fees. Every record is signed by the genesis account's keys.
  */
-pp::Roe<std::vector<Ledger::Record>> records(const Plan &plan);
+pp::Roe<std::vector<Ledger::Record>> records(const Plan& plan);
 
 /** The genesis meta of a genesis record (T_GENESIS). */
-pp::Roe<GenesisAccountMeta> metaOf(const Ledger::Record &genesisRecord);
+pp::Roe<GenesisAccountMeta> metaOf(const Ledger::Record& genesisRecord);
 
 } // namespace pp::chain_genesis

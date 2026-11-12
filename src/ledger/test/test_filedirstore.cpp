@@ -12,37 +12,37 @@
 
 class FileDirStoreTest : public ::testing::Test {
 protected:
-    std::string testDir;
-    pp::FileDirStore fileDirStore;
-    pp::FileDirStore::InitConfig config;
-    
-    void SetUp() override {
-        fileDirStore.redirectLogger("filedirstore");
-        testDir = pp::test::uniqueTempPath("pp-ledger-filedirstore-test").string();
-        
-        // Clean up test directory
-        std::error_code ec;
-        std::filesystem::remove_all(testDir, ec);
-        // Don't create the directory here - let init() do it
-        
-        config = pp::FileDirStore::InitConfig();
-        config.dirPath = testDir;
-        config.maxFileCount = 5;
-        config.maxFileSize = 1024 * 1024; // 1MB per file
-    }
-    
-    void TearDown() override {
-        // Close open FileStore handles before deleting the directory (Windows).
-        fileDirStore.close();
-        std::error_code ec;
-        std::filesystem::remove_all(testDir, ec);
-    }
-    
-    // Helper to create test block data
-    std::string createTestBlock(uint64_t index, size_t size = 100) {
-        std::string data(size, 'A' + (index % 26));
-        return data;
-    }
+  std::string testDir;
+  pp::FileDirStore fileDirStore;
+  pp::FileDirStore::InitConfig config;
+
+  void SetUp() override {
+    fileDirStore.redirectLogger("filedirstore");
+    testDir = pp::test::uniqueTempPath("pp-ledger-filedirstore-test").string();
+
+    // Clean up test directory
+    std::error_code ec;
+    std::filesystem::remove_all(testDir, ec);
+    // Don't create the directory here - let init() do it
+
+    config = pp::FileDirStore::InitConfig();
+    config.dirPath = testDir;
+    config.maxFileCount = 5;
+    config.maxFileSize = 1024 * 1024; // 1MB per file
+  }
+
+  void TearDown() override {
+    // Close open FileStore handles before deleting the directory (Windows).
+    fileDirStore.close();
+    std::error_code ec;
+    std::filesystem::remove_all(testDir, ec);
+  }
+
+  // Helper to create test block data
+  std::string createTestBlock(uint64_t index, size_t size = 100) {
+    std::string data(size, 'A' + (index % 26));
+    return data;
+  }
 };
 
 // ============================================================================
@@ -50,58 +50,58 @@ protected:
 // ============================================================================
 
 TEST_F(FileDirStoreTest, InitializesSuccessfully) {
-    auto result = fileDirStore.init(config);
-    EXPECT_TRUE(result.isOk());
-    
-    // Directory should exist
-    EXPECT_TRUE(std::filesystem::exists(testDir));
-    EXPECT_EQ(fileDirStore.getBlockCount(), 0);
-    
-    // Should fail to init again on existing directory
-    pp::FileDirStore fileDirStore2;
-    auto result2 = fileDirStore2.init(config);
-    EXPECT_TRUE(result2.isError());
+  auto result = fileDirStore.init(config);
+  EXPECT_TRUE(result.isOk());
+
+  // Directory should exist
+  EXPECT_TRUE(std::filesystem::exists(testDir));
+  EXPECT_EQ(fileDirStore.getBlockCount(), 0);
+
+  // Should fail to init again on existing directory
+  pp::FileDirStore fileDirStore2;
+  auto result2 = fileDirStore2.init(config);
+  EXPECT_TRUE(result2.isError());
 }
 
 TEST_F(FileDirStoreTest, FailsWithInvalidConfig) {
-    pp::FileDirStore::InitConfig invalidConfig;
-    invalidConfig.dirPath = testDir;
-    invalidConfig.maxFileCount = 0; // Invalid
-    invalidConfig.maxFileSize = 1024 * 1024;
-    
-    auto result = fileDirStore.init(invalidConfig);
-    EXPECT_TRUE(result.isError());
+  pp::FileDirStore::InitConfig invalidConfig;
+  invalidConfig.dirPath = testDir;
+  invalidConfig.maxFileCount = 0; // Invalid
+  invalidConfig.maxFileSize = 1024 * 1024;
+
+  auto result = fileDirStore.init(invalidConfig);
+  EXPECT_TRUE(result.isError());
 }
 
 TEST_F(FileDirStoreTest, FailsWithSmallFileSize) {
-    pp::FileDirStore::InitConfig smallConfig;
-    smallConfig.dirPath = testDir;
-    smallConfig.maxFileCount = 5;
-    smallConfig.maxFileSize = 100; // Too small (must be at least 1MB)
-    
-    auto result = fileDirStore.init(smallConfig);
-    EXPECT_TRUE(result.isError());
+  pp::FileDirStore::InitConfig smallConfig;
+  smallConfig.dirPath = testDir;
+  smallConfig.maxFileCount = 5;
+  smallConfig.maxFileSize = 100; // Too small (must be at least 1MB)
+
+  auto result = fileDirStore.init(smallConfig);
+  EXPECT_TRUE(result.isError());
 }
 
 TEST_F(FileDirStoreTest, LoadsExistingIndex) {
-    // First initialization and add blocks
-    fileDirStore.init(config);
-    auto block1 = createTestBlock(0);
-    auto result1 = fileDirStore.appendBlock(block1);
-    ASSERT_TRUE(result1.isOk());
-    
-    // Mount existing directory - should load existing index
-    ASSERT_TRUE(fileDirStore.commit().isOk()); // a restart sees committed blocks only
-    pp::FileDirStore fileDirStore2;
-    fileDirStore2.redirectLogger("filedirstore2");
-    auto result = fileDirStore2.mount(config.dirPath);
-    EXPECT_TRUE(result.isOk());
-    
-    // Should have the block
-    EXPECT_EQ(fileDirStore2.getBlockCount(), 1);
-    auto readResult = fileDirStore2.readBlock(0);
-    ASSERT_TRUE(readResult.isOk());
-    EXPECT_EQ(readResult.value(), block1);
+  // First initialization and add blocks
+  fileDirStore.init(config);
+  auto block1 = createTestBlock(0);
+  auto result1 = fileDirStore.appendBlock(block1);
+  ASSERT_TRUE(result1.isOk());
+
+  // Mount existing directory - should load existing index
+  ASSERT_TRUE(fileDirStore.commit().isOk()); // a restart sees committed blocks only
+  pp::FileDirStore fileDirStore2;
+  fileDirStore2.redirectLogger("filedirstore2");
+  auto result = fileDirStore2.mount(config.dirPath);
+  EXPECT_TRUE(result.isOk());
+
+  // Should have the block
+  EXPECT_EQ(fileDirStore2.getBlockCount(), 1);
+  auto readResult = fileDirStore2.readBlock(0);
+  ASSERT_TRUE(readResult.isOk());
+  EXPECT_EQ(readResult.value(), block1);
 }
 
 // ============================================================================
@@ -109,94 +109,94 @@ TEST_F(FileDirStoreTest, LoadsExistingIndex) {
 // ============================================================================
 
 TEST_F(FileDirStoreTest, WritesSingleBlock) {
-    fileDirStore.init(config);
-    
-    std::string blockData = "Test block data";
-    auto result = fileDirStore.appendBlock(blockData);
-    
-    ASSERT_TRUE(result.isOk());
-    EXPECT_EQ(result.value(), 0);
-    EXPECT_EQ(fileDirStore.getBlockCount(), 1);
+  fileDirStore.init(config);
+
+  std::string blockData = "Test block data";
+  auto result = fileDirStore.appendBlock(blockData);
+
+  ASSERT_TRUE(result.isOk());
+  EXPECT_EQ(result.value(), 0);
+  EXPECT_EQ(fileDirStore.getBlockCount(), 1);
 }
 
 TEST_F(FileDirStoreTest, WritesMultipleBlocks) {
-    fileDirStore.init(config);
-    
-    const size_t numBlocks = 10;
-    std::vector<std::string> blockData;
-    
-    for (size_t i = 0; i < numBlocks; i++) {
-        std::string data = createTestBlock(i);
-        blockData.push_back(data);
-        auto result = fileDirStore.appendBlock(data);
-        ASSERT_TRUE(result.isOk()) << "Failed to add block " << i;
-        EXPECT_EQ(result.value(), i);
-    }
-    
-    EXPECT_EQ(fileDirStore.getBlockCount(), numBlocks);
-    
-    // Verify all blocks can be read back
-    for (size_t i = 0; i < numBlocks; i++) {
-        auto readResult = fileDirStore.readBlock(i);
-        ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i;
-        EXPECT_EQ(readResult.value(), blockData[i]);
-    }
+  fileDirStore.init(config);
+
+  const size_t numBlocks = 10;
+  std::vector<std::string> blockData;
+
+  for (size_t i = 0; i < numBlocks; i++) {
+    std::string data = createTestBlock(i);
+    blockData.push_back(data);
+    auto result = fileDirStore.appendBlock(data);
+    ASSERT_TRUE(result.isOk()) << "Failed to add block " << i;
+    EXPECT_EQ(result.value(), i);
+  }
+
+  EXPECT_EQ(fileDirStore.getBlockCount(), numBlocks);
+
+  // Verify all blocks can be read back
+  for (size_t i = 0; i < numBlocks; i++) {
+    auto readResult = fileDirStore.readBlock(i);
+    ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i;
+    EXPECT_EQ(readResult.value(), blockData[i]);
+  }
 }
 
 TEST_F(FileDirStoreTest, CreatesNewFileWhenMaxSizeReached) {
-    // Use small max file size to trigger file rollover
-    config.maxFileSize = 1024 * 1024; // 1MB
-    fileDirStore.init(config);
-    
-    // Add blocks with large data to trigger file rollover
-    // Each block will be ~200KB, so we should get ~5 blocks per file
-    std::string largeData(200 * 1024, 'X'); // 200KB per block
-    
-    const size_t numBlocks = 15; // Enough to trigger multiple files
-    
-    for (size_t i = 0; i < numBlocks; i++) {
-        auto result = fileDirStore.appendBlock(largeData);
-        ASSERT_TRUE(result.isOk()) << "Failed to add block " << i;
+  // Use small max file size to trigger file rollover
+  config.maxFileSize = 1024 * 1024; // 1MB
+  fileDirStore.init(config);
+
+  // Add blocks with large data to trigger file rollover
+  // Each block will be ~200KB, so we should get ~5 blocks per file
+  std::string largeData(200 * 1024, 'X'); // 200KB per block
+
+  const size_t numBlocks = 15; // Enough to trigger multiple files
+
+  for (size_t i = 0; i < numBlocks; i++) {
+    auto result = fileDirStore.appendBlock(largeData);
+    ASSERT_TRUE(result.isOk()) << "Failed to add block " << i;
+  }
+
+  EXPECT_EQ(fileDirStore.getBlockCount(), numBlocks);
+
+  // Verify index file exists
+  std::string indexFile = testDir + "/idx.dat";
+  EXPECT_TRUE(std::filesystem::exists(indexFile));
+
+  // Verify multiple block files exist
+  size_t fileCount = 0;
+  for (const auto& entry : std::filesystem::directory_iterator(testDir)) {
+    if (entry.path().extension() == ".dat" && entry.path().filename() != "idx.dat") {
+      fileCount++;
     }
-    
-    EXPECT_EQ(fileDirStore.getBlockCount(), numBlocks);
-    
-    // Verify index file exists
-    std::string indexFile = testDir + "/idx.dat";
-    EXPECT_TRUE(std::filesystem::exists(indexFile));
-    
-    // Verify multiple block files exist
-    size_t fileCount = 0;
-    for (const auto& entry : std::filesystem::directory_iterator(testDir)) {
-        if (entry.path().extension() == ".dat" && entry.path().filename() != "idx.dat") {
-            fileCount++;
-        }
-    }
-    EXPECT_GT(fileCount, 1); // Should have multiple files
+  }
+  EXPECT_GT(fileCount, 1); // Should have multiple files
 }
 
 TEST_F(FileDirStoreTest, StopsAtMaxFileCount) {
-    config.maxFileCount = 3;
-    config.maxFileSize = 1024 * 1024; // 1MB
-    fileDirStore.init(config);
-    
-    // Add blocks until we reach max file count
-    std::string largeData(200 * 1024, 'X'); // 200KB per block
-    
-    size_t blocksAdded = 0;
-    for (size_t i = 0; i < 20; i++) { // Try to add more than max files allow
-        auto result = fileDirStore.appendBlock(largeData);
-        if (result.isOk()) {
-            blocksAdded++;
-        } else {
-            // Should fail when max file count is reached
-            break;
-        }
+  config.maxFileCount = 3;
+  config.maxFileSize = 1024 * 1024; // 1MB
+  fileDirStore.init(config);
+
+  // Add blocks until we reach max file count
+  std::string largeData(200 * 1024, 'X'); // 200KB per block
+
+  size_t blocksAdded = 0;
+  for (size_t i = 0; i < 20; i++) { // Try to add more than max files allow
+    auto result = fileDirStore.appendBlock(largeData);
+    if (result.isOk()) {
+      blocksAdded++;
+    } else {
+      // Should fail when max file count is reached
+      break;
     }
-    
-    // Should have added some blocks but stopped at max file count
-    EXPECT_GT(blocksAdded, 0);
-    EXPECT_LE(blocksAdded, config.maxFileCount * 5); // Rough estimate
+  }
+
+  // Should have added some blocks but stopped at max file count
+  EXPECT_GT(blocksAdded, 0);
+  EXPECT_LE(blocksAdded, config.maxFileCount * 5); // Rough estimate
 }
 
 // ============================================================================
@@ -204,42 +204,42 @@ TEST_F(FileDirStoreTest, StopsAtMaxFileCount) {
 // ============================================================================
 
 TEST_F(FileDirStoreTest, ReadsBlockAcrossFiles) {
-    config.maxFileSize = 1024 * 1024; // 1MB
-    fileDirStore.init(config);
-    
-    // Add blocks that will span multiple files
-    std::string largeData(200 * 1024, 'X');
-    const size_t numBlocks = 10;
-    
-    std::vector<std::string> blockData;
-    for (size_t i = 0; i < numBlocks; i++) {
-        std::string data = largeData + std::to_string(i);
-        blockData.push_back(data);
-        auto result = fileDirStore.appendBlock(data);
-        ASSERT_TRUE(result.isOk());
-    }
-    
-    // Read blocks from different files
-    for (size_t i = 0; i < numBlocks; i++) {
-        auto readResult = fileDirStore.readBlock(i);
-        ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i;
-        EXPECT_EQ(readResult.value(), blockData[i]);
-    }
+  config.maxFileSize = 1024 * 1024; // 1MB
+  fileDirStore.init(config);
+
+  // Add blocks that will span multiple files
+  std::string largeData(200 * 1024, 'X');
+  const size_t numBlocks = 10;
+
+  std::vector<std::string> blockData;
+  for (size_t i = 0; i < numBlocks; i++) {
+    std::string data = largeData + std::to_string(i);
+    blockData.push_back(data);
+    auto result = fileDirStore.appendBlock(data);
+    ASSERT_TRUE(result.isOk());
+  }
+
+  // Read blocks from different files
+  for (size_t i = 0; i < numBlocks; i++) {
+    auto readResult = fileDirStore.readBlock(i);
+    ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i;
+    EXPECT_EQ(readResult.value(), blockData[i]);
+  }
 }
 
 TEST_F(FileDirStoreTest, ReadBlockOutOfRange) {
-    fileDirStore.init(config);
-    
-    // Try to read from empty store
-    auto result = fileDirStore.readBlock(0);
-    EXPECT_TRUE(result.isError());
-    
-    // Add one block
-    fileDirStore.appendBlock("test");
-    
-    // Try to read out of range
-    auto result2 = fileDirStore.readBlock(1);
-    EXPECT_TRUE(result2.isError());
+  fileDirStore.init(config);
+
+  // Try to read from empty store
+  auto result = fileDirStore.readBlock(0);
+  EXPECT_TRUE(result.isError());
+
+  // Add one block
+  fileDirStore.appendBlock("test");
+
+  // Try to read out of range
+  auto result2 = fileDirStore.readBlock(1);
+  EXPECT_TRUE(result2.isError());
 }
 
 // ============================================================================
@@ -247,31 +247,31 @@ TEST_F(FileDirStoreTest, ReadBlockOutOfRange) {
 // ============================================================================
 
 TEST_F(FileDirStoreTest, CanFitChecksCorrectly) {
-    fileDirStore.init(config);
-    
-    // Should be able to fit data in first file
-    EXPECT_TRUE(fileDirStore.canFit(100));
-    EXPECT_TRUE(fileDirStore.canFit(config.maxFileSize / 2));
-    
-    // Should not be able to fit data larger than file size
-    EXPECT_FALSE(fileDirStore.canFit(config.maxFileSize + 1));
+  fileDirStore.init(config);
+
+  // Should be able to fit data in first file
+  EXPECT_TRUE(fileDirStore.canFit(100));
+  EXPECT_TRUE(fileDirStore.canFit(config.maxFileSize / 2));
+
+  // Should not be able to fit data larger than file size
+  EXPECT_FALSE(fileDirStore.canFit(config.maxFileSize + 1));
 }
 
 TEST_F(FileDirStoreTest, CanFitRespectsMaxFileCount) {
-    config.maxFileCount = 2;
-    fileDirStore.init(config);
-    
-    // Fill up files
-    std::string largeData(200 * 1024, 'X');
-    for (size_t i = 0; i < 10; i++) {
-        auto result = fileDirStore.appendBlock(largeData);
-        if (!result.isOk()) {
-            break;
-        }
+  config.maxFileCount = 2;
+  fileDirStore.init(config);
+
+  // Fill up files
+  std::string largeData(200 * 1024, 'X');
+  for (size_t i = 0; i < 10; i++) {
+    auto result = fileDirStore.appendBlock(largeData);
+    if (!result.isOk()) {
+      break;
     }
-    
-    // Once max file count is reached, canFit should return false
-    EXPECT_FALSE(fileDirStore.canFit(100));
+  }
+
+  // Once max file count is reached, canFit should return false
+  EXPECT_FALSE(fileDirStore.canFit(100));
 }
 
 // ============================================================================
@@ -279,55 +279,55 @@ TEST_F(FileDirStoreTest, CanFitRespectsMaxFileCount) {
 // ============================================================================
 
 TEST_F(FileDirStoreTest, RewindToIndex) {
-    fileDirStore.init(config);
-    
-    // Add multiple blocks
-    const size_t numBlocks = 10;
-    for (size_t i = 0; i < numBlocks; i++) {
-        auto result = fileDirStore.appendBlock(createTestBlock(i));
-        ASSERT_TRUE(result.isOk());
-    }
-    
-    EXPECT_EQ(fileDirStore.getBlockCount(), numBlocks);
-    
-    // Rewind to middle
-    auto rewindResult = fileDirStore.rewindTo(5);
-    ASSERT_TRUE(rewindResult.isOk());
-    EXPECT_EQ(fileDirStore.getBlockCount(), 5);
-    
-    // Verify blocks before rewind point are still readable
-    for (size_t i = 0; i < 5; i++) {
-        auto readResult = fileDirStore.readBlock(i);
-        ASSERT_TRUE(readResult.isOk());
-    }
-    
-    // Verify blocks after rewind point are gone
-    auto readResult = fileDirStore.readBlock(5);
-    EXPECT_TRUE(readResult.isError());
+  fileDirStore.init(config);
+
+  // Add multiple blocks
+  const size_t numBlocks = 10;
+  for (size_t i = 0; i < numBlocks; i++) {
+    auto result = fileDirStore.appendBlock(createTestBlock(i));
+    ASSERT_TRUE(result.isOk());
+  }
+
+  EXPECT_EQ(fileDirStore.getBlockCount(), numBlocks);
+
+  // Rewind to middle
+  auto rewindResult = fileDirStore.rewindTo(5);
+  ASSERT_TRUE(rewindResult.isOk());
+  EXPECT_EQ(fileDirStore.getBlockCount(), 5);
+
+  // Verify blocks before rewind point are still readable
+  for (size_t i = 0; i < 5; i++) {
+    auto readResult = fileDirStore.readBlock(i);
+    ASSERT_TRUE(readResult.isOk());
+  }
+
+  // Verify blocks after rewind point are gone
+  auto readResult = fileDirStore.readBlock(5);
+  EXPECT_TRUE(readResult.isError());
 }
 
 TEST_F(FileDirStoreTest, RewindToZero) {
-    fileDirStore.init(config);
-    
-    // Add blocks
-    for (size_t i = 0; i < 5; i++) {
-        fileDirStore.appendBlock(createTestBlock(i));
-    }
-    
-    // Rewind to zero
-    auto rewindResult = fileDirStore.rewindTo(0);
-    ASSERT_TRUE(rewindResult.isOk());
-    EXPECT_EQ(fileDirStore.getBlockCount(), 0);
+  fileDirStore.init(config);
+
+  // Add blocks
+  for (size_t i = 0; i < 5; i++) {
+    fileDirStore.appendBlock(createTestBlock(i));
+  }
+
+  // Rewind to zero
+  auto rewindResult = fileDirStore.rewindTo(0);
+  ASSERT_TRUE(rewindResult.isOk());
+  EXPECT_EQ(fileDirStore.getBlockCount(), 0);
 }
 
 TEST_F(FileDirStoreTest, RewindOutOfRange) {
-    fileDirStore.init(config);
-    
-    fileDirStore.appendBlock("test");
-    
-    // Try to rewind beyond block count
-    auto rewindResult = fileDirStore.rewindTo(10);
-    EXPECT_TRUE(rewindResult.isError());
+  fileDirStore.init(config);
+
+  fileDirStore.appendBlock("test");
+
+  // Try to rewind beyond block count
+  auto rewindResult = fileDirStore.rewindTo(10);
+  EXPECT_TRUE(rewindResult.isError());
 }
 
 // ============================================================================
@@ -335,101 +335,98 @@ TEST_F(FileDirStoreTest, RewindOutOfRange) {
 // ============================================================================
 
 TEST_F(FileDirStoreTest, CountSizeFromBlockIdEmptyStore) {
-    fileDirStore.init(config);
-    // blockId >= getBlockCount() returns 0
-    EXPECT_EQ(fileDirStore.countSizeFromBlockId(0), 0);
-    EXPECT_EQ(fileDirStore.countSizeFromBlockId(1), 0);
+  fileDirStore.init(config);
+  // blockId >= getBlockCount() returns 0
+  EXPECT_EQ(fileDirStore.countSizeFromBlockId(0), 0);
+  EXPECT_EQ(fileDirStore.countSizeFromBlockId(1), 0);
 }
 
 TEST_F(FileDirStoreTest, CountSizeFromBlockIdSingleBlock) {
-    fileDirStore.init(config);
-    std::string blockData = "hello";
-    auto appendResult = fileDirStore.appendBlock(blockData);
-    ASSERT_TRUE(appendResult.isOk());
-    EXPECT_EQ(fileDirStore.countSizeFromBlockId(0), blockData.size());
-    EXPECT_EQ(fileDirStore.countSizeFromBlockId(1), 0);
-    EXPECT_EQ(fileDirStore.countSizeFromBlockId(100), 0);
+  fileDirStore.init(config);
+  std::string blockData = "hello";
+  auto appendResult = fileDirStore.appendBlock(blockData);
+  ASSERT_TRUE(appendResult.isOk());
+  EXPECT_EQ(fileDirStore.countSizeFromBlockId(0), blockData.size());
+  EXPECT_EQ(fileDirStore.countSizeFromBlockId(1), 0);
+  EXPECT_EQ(fileDirStore.countSizeFromBlockId(100), 0);
 }
 
 TEST_F(FileDirStoreTest, CountSizeFromBlockIdMultipleBlocksOneFile) {
-    fileDirStore.init(config);
-    const size_t numBlocks = 10;
-    std::vector<std::string> blockData;
-    uint64_t expectedTotal = 0;
-    for (size_t i = 0; i < numBlocks; i++) {
-        size_t sz = 50 + (i % 20); // varying sizes: 50, 51, ..., 69, 50, ...
-        std::string data(sz, 'A' + static_cast<char>(i % 26));
-        blockData.push_back(data);
-        expectedTotal += data.size();
-        auto result = fileDirStore.appendBlock(data);
-        ASSERT_TRUE(result.isOk());
+  fileDirStore.init(config);
+  const size_t numBlocks = 10;
+  std::vector<std::string> blockData;
+  uint64_t expectedTotal = 0;
+  for (size_t i = 0; i < numBlocks; i++) {
+    size_t sz = 50 + (i % 20); // varying sizes: 50, 51, ..., 69, 50, ...
+    std::string data(sz, 'A' + static_cast<char>(i % 26));
+    blockData.push_back(data);
+    expectedTotal += data.size();
+    auto result = fileDirStore.appendBlock(data);
+    ASSERT_TRUE(result.isOk());
+  }
+  // From block 0: sum of all block sizes
+  EXPECT_EQ(fileDirStore.countSizeFromBlockId(0), expectedTotal);
+  // From block k: sum of blocks k..numBlocks-1
+  for (size_t k = 0; k < numBlocks; k++) {
+    uint64_t expected = 0;
+    for (size_t i = k; i < numBlocks; i++) {
+      expected += blockData[i].size();
     }
-    // From block 0: sum of all block sizes
-    EXPECT_EQ(fileDirStore.countSizeFromBlockId(0), expectedTotal);
-    // From block k: sum of blocks k..numBlocks-1
-    for (size_t k = 0; k < numBlocks; k++) {
-        uint64_t expected = 0;
-        for (size_t i = k; i < numBlocks; i++) {
-            expected += blockData[i].size();
-        }
-        EXPECT_EQ(fileDirStore.countSizeFromBlockId(k), expected)
-            << "k=" << k;
-    }
-    // Past end
-    EXPECT_EQ(fileDirStore.countSizeFromBlockId(numBlocks), 0);
-    EXPECT_EQ(fileDirStore.countSizeFromBlockId(numBlocks + 1), 0);
+    EXPECT_EQ(fileDirStore.countSizeFromBlockId(k), expected) << "k=" << k;
+  }
+  // Past end
+  EXPECT_EQ(fileDirStore.countSizeFromBlockId(numBlocks), 0);
+  EXPECT_EQ(fileDirStore.countSizeFromBlockId(numBlocks + 1), 0);
 }
 
 TEST_F(FileDirStoreTest, CountSizeFromBlockIdAcrossMultipleFiles) {
-    config.maxFileSize = 1024 * 1024; // 1MB
-    fileDirStore.init(config);
-    // Blocks large enough to span multiple files (~200KB each)
-    const size_t blockPayloadSize = 200 * 1024;
-    const size_t numBlocks = 10;
-    std::vector<std::string> blockData;
-    uint64_t expectedTotal = 0;
-    for (size_t i = 0; i < numBlocks; i++) {
-        std::string data(blockPayloadSize, 'A' + static_cast<char>(i % 26));
-        blockData.push_back(data);
-        expectedTotal += data.size();
-        auto result = fileDirStore.appendBlock(data);
-        ASSERT_TRUE(result.isOk());
+  config.maxFileSize = 1024 * 1024; // 1MB
+  fileDirStore.init(config);
+  // Blocks large enough to span multiple files (~200KB each)
+  const size_t blockPayloadSize = 200 * 1024;
+  const size_t numBlocks = 10;
+  std::vector<std::string> blockData;
+  uint64_t expectedTotal = 0;
+  for (size_t i = 0; i < numBlocks; i++) {
+    std::string data(blockPayloadSize, 'A' + static_cast<char>(i % 26));
+    blockData.push_back(data);
+    expectedTotal += data.size();
+    auto result = fileDirStore.appendBlock(data);
+    ASSERT_TRUE(result.isOk());
+  }
+  EXPECT_EQ(fileDirStore.getBlockCount(), numBlocks);
+  // From block 0: all data
+  EXPECT_EQ(fileDirStore.countSizeFromBlockId(0), expectedTotal);
+  // From block k: sum from k to end
+  for (size_t k = 0; k < numBlocks; k++) {
+    uint64_t expected = 0;
+    for (size_t i = k; i < numBlocks; i++) {
+      expected += blockData[i].size();
     }
-    EXPECT_EQ(fileDirStore.getBlockCount(), numBlocks);
-    // From block 0: all data
-    EXPECT_EQ(fileDirStore.countSizeFromBlockId(0), expectedTotal);
-    // From block k: sum from k to end
-    for (size_t k = 0; k < numBlocks; k++) {
-        uint64_t expected = 0;
-        for (size_t i = k; i < numBlocks; i++) {
-            expected += blockData[i].size();
-        }
-        EXPECT_EQ(fileDirStore.countSizeFromBlockId(k), expected)
-            << "k=" << k;
-    }
-    EXPECT_EQ(fileDirStore.countSizeFromBlockId(numBlocks), 0);
+    EXPECT_EQ(fileDirStore.countSizeFromBlockId(k), expected) << "k=" << k;
+  }
+  EXPECT_EQ(fileDirStore.countSizeFromBlockId(numBlocks), 0);
 }
 
 TEST_F(FileDirStoreTest, CountSizeFromBlockIdAfterMount) {
-    fileDirStore.init(config);
-    std::vector<std::string> blockData;
-    const size_t numBlocks = 5;
-    uint64_t expectedTotal = 0;
-    for (size_t i = 0; i < numBlocks; i++) {
-        std::string data = createTestBlock(i, 80);
-        blockData.push_back(data);
-        expectedTotal += data.size();
-        fileDirStore.appendBlock(data);
-    }
-    ASSERT_TRUE(fileDirStore.commit().isOk()); // a restart sees committed blocks only
-    pp::FileDirStore fileDirStore2;
-    fileDirStore2.redirectLogger("filedirstore2");
-    auto mountResult = fileDirStore2.mount(config.dirPath);
-    ASSERT_TRUE(mountResult.isOk());
-    EXPECT_EQ(fileDirStore2.countSizeFromBlockId(0), expectedTotal);
-    EXPECT_EQ(fileDirStore2.countSizeFromBlockId(3),
-              blockData[3].size() + blockData[4].size());
-    EXPECT_EQ(fileDirStore2.countSizeFromBlockId(5), 0);
+  fileDirStore.init(config);
+  std::vector<std::string> blockData;
+  const size_t numBlocks = 5;
+  uint64_t expectedTotal = 0;
+  for (size_t i = 0; i < numBlocks; i++) {
+    std::string data = createTestBlock(i, 80);
+    blockData.push_back(data);
+    expectedTotal += data.size();
+    fileDirStore.appendBlock(data);
+  }
+  ASSERT_TRUE(fileDirStore.commit().isOk()); // a restart sees committed blocks only
+  pp::FileDirStore fileDirStore2;
+  fileDirStore2.redirectLogger("filedirstore2");
+  auto mountResult = fileDirStore2.mount(config.dirPath);
+  ASSERT_TRUE(mountResult.isOk());
+  EXPECT_EQ(fileDirStore2.countSizeFromBlockId(0), expectedTotal);
+  EXPECT_EQ(fileDirStore2.countSizeFromBlockId(3), blockData[3].size() + blockData[4].size());
+  EXPECT_EQ(fileDirStore2.countSizeFromBlockId(5), 0);
 }
 
 // ============================================================================
@@ -437,62 +434,62 @@ TEST_F(FileDirStoreTest, CountSizeFromBlockIdAfterMount) {
 // ============================================================================
 
 TEST_F(FileDirStoreTest, PersistsAcrossRestarts) {
-    // First session
-    fileDirStore.init(config);
-    const size_t numBlocks = 5;
-    std::vector<std::string> blockData;
-    
-    for (size_t i = 0; i < numBlocks; i++) {
-        std::string data = createTestBlock(i);
-        blockData.push_back(data);
-        fileDirStore.appendBlock(data);
-    }
-    
-    // Second session - mount existing directory
-    ASSERT_TRUE(fileDirStore.commit().isOk()); // a restart sees committed blocks only
-    pp::FileDirStore fileDirStore2;
-    fileDirStore2.redirectLogger("filedirstore2");
-    fileDirStore2.mount(config.dirPath);
-    
-    EXPECT_EQ(fileDirStore2.getBlockCount(), numBlocks);
-    
-    // Verify all blocks are readable
-    for (size_t i = 0; i < numBlocks; i++) {
-        auto readResult = fileDirStore2.readBlock(i);
-        ASSERT_TRUE(readResult.isOk());
-        EXPECT_EQ(readResult.value(), blockData[i]);
-    }
+  // First session
+  fileDirStore.init(config);
+  const size_t numBlocks = 5;
+  std::vector<std::string> blockData;
+
+  for (size_t i = 0; i < numBlocks; i++) {
+    std::string data = createTestBlock(i);
+    blockData.push_back(data);
+    fileDirStore.appendBlock(data);
+  }
+
+  // Second session - mount existing directory
+  ASSERT_TRUE(fileDirStore.commit().isOk()); // a restart sees committed blocks only
+  pp::FileDirStore fileDirStore2;
+  fileDirStore2.redirectLogger("filedirstore2");
+  fileDirStore2.mount(config.dirPath);
+
+  EXPECT_EQ(fileDirStore2.getBlockCount(), numBlocks);
+
+  // Verify all blocks are readable
+  for (size_t i = 0; i < numBlocks; i++) {
+    auto readResult = fileDirStore2.readBlock(i);
+    ASSERT_TRUE(readResult.isOk());
+    EXPECT_EQ(readResult.value(), blockData[i]);
+  }
 }
 
 TEST_F(FileDirStoreTest, PersistsMultipleFiles) {
-    config.maxFileSize = 1024 * 1024; // 1MB
-    fileDirStore.init(config);
-    
-    // Add blocks that span multiple files
-    std::string largeData(200 * 1024, 'X');
-    const size_t numBlocks = 10;
-    std::vector<std::string> blockData;
-    
-    for (size_t i = 0; i < numBlocks; i++) {
-        std::string data = largeData + std::to_string(i);
-        blockData.push_back(data);
-        fileDirStore.appendBlock(data);
-    }
-    
-    // Mount existing directory
-    ASSERT_TRUE(fileDirStore.commit().isOk()); // a restart sees committed blocks only
-    pp::FileDirStore fileDirStore2;
-    fileDirStore2.redirectLogger("filedirstore2");
-    fileDirStore2.mount(config.dirPath);
-    
-    EXPECT_EQ(fileDirStore2.getBlockCount(), numBlocks);
-    
-    // Verify all blocks across files are readable
-    for (size_t i = 0; i < numBlocks; i++) {
-        auto readResult = fileDirStore2.readBlock(i);
-        ASSERT_TRUE(readResult.isOk());
-        EXPECT_EQ(readResult.value(), blockData[i]);
-    }
+  config.maxFileSize = 1024 * 1024; // 1MB
+  fileDirStore.init(config);
+
+  // Add blocks that span multiple files
+  std::string largeData(200 * 1024, 'X');
+  const size_t numBlocks = 10;
+  std::vector<std::string> blockData;
+
+  for (size_t i = 0; i < numBlocks; i++) {
+    std::string data = largeData + std::to_string(i);
+    blockData.push_back(data);
+    fileDirStore.appendBlock(data);
+  }
+
+  // Mount existing directory
+  ASSERT_TRUE(fileDirStore.commit().isOk()); // a restart sees committed blocks only
+  pp::FileDirStore fileDirStore2;
+  fileDirStore2.redirectLogger("filedirstore2");
+  fileDirStore2.mount(config.dirPath);
+
+  EXPECT_EQ(fileDirStore2.getBlockCount(), numBlocks);
+
+  // Verify all blocks across files are readable
+  for (size_t i = 0; i < numBlocks; i++) {
+    auto readResult = fileDirStore2.readBlock(i);
+    ASSERT_TRUE(readResult.isOk());
+    EXPECT_EQ(readResult.value(), blockData[i]);
+  }
 }
 
 // --- Durable index (the file list) ---
@@ -500,74 +497,74 @@ TEST_F(FileDirStoreTest, PersistsMultipleFiles) {
 // The index lists files, not blocks: an append within a file leaves it alone. It used to be
 // rewritten in place on every append, so a crash mid-write left an index that would not mount.
 TEST_F(FileDirStoreTest, AppendsWithinAFileLeaveTheIndexAlone) {
-    ASSERT_TRUE(fileDirStore.init(config).isOk());
-    ASSERT_TRUE(fileDirStore.appendBlock(createTestBlock(0)).isOk()); // creates file 1 and lists it
-    const std::string index = testDir + "/idx.dat";
-    const auto listed = std::filesystem::last_write_time(index);
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    for (uint64_t i = 1; i < 5; ++i) {
-        ASSERT_TRUE(fileDirStore.appendBlock(createTestBlock(i)).isOk());
-    }
-    ASSERT_TRUE(fileDirStore.commit().isOk());
-    EXPECT_EQ(std::filesystem::last_write_time(index), listed);
+  ASSERT_TRUE(fileDirStore.init(config).isOk());
+  ASSERT_TRUE(fileDirStore.appendBlock(createTestBlock(0)).isOk()); // creates file 1 and lists it
+  const std::string index = testDir + "/idx.dat";
+  const auto listed = std::filesystem::last_write_time(index);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  for (uint64_t i = 1; i < 5; ++i) {
+    ASSERT_TRUE(fileDirStore.appendBlock(createTestBlock(i)).isOk());
+  }
+  ASSERT_TRUE(fileDirStore.commit().isOk());
+  EXPECT_EQ(std::filesystem::last_write_time(index), listed);
 }
 
 // A block file the index lists but the disk lost would shift every later block id: refused.
 TEST_F(FileDirStoreTest, AMissingListedBlockFileIsRefused) {
-    ASSERT_TRUE(fileDirStore.init(config).isOk());
-    const std::string large(400 * 1024, 'X');
-    for (int i = 0; i < 5; ++i) {
-        ASSERT_TRUE(fileDirStore.appendBlock(large + std::to_string(i)).isOk());
+  ASSERT_TRUE(fileDirStore.init(config).isOk());
+  const std::string large(400 * 1024, 'X');
+  for (int i = 0; i < 5; ++i) {
+    ASSERT_TRUE(fileDirStore.appendBlock(large + std::to_string(i)).isOk());
+  }
+  fileDirStore.close();
+  std::vector<std::filesystem::path> blockFiles;
+  for (const auto& entry : std::filesystem::directory_iterator(testDir)) {
+    if (entry.path().filename() != "idx.dat") {
+      blockFiles.push_back(entry.path());
     }
-    fileDirStore.close();
-    std::vector<std::filesystem::path> blockFiles;
-    for (const auto &entry : std::filesystem::directory_iterator(testDir)) {
-        if (entry.path().filename() != "idx.dat") {
-            blockFiles.push_back(entry.path());
-        }
-    }
-    ASSERT_GE(blockFiles.size(), 2u) << "the blocks span several files";
-    std::sort(blockFiles.begin(), blockFiles.end());
-    std::filesystem::remove(blockFiles.front());
+  }
+  ASSERT_GE(blockFiles.size(), 2u) << "the blocks span several files";
+  std::sort(blockFiles.begin(), blockFiles.end());
+  std::filesystem::remove(blockFiles.front());
 
-    pp::FileDirStore restarted;
-    restarted.redirectLogger("filedirstore2");
-    auto mounted = restarted.mount(testDir);
-    ASSERT_TRUE(mounted.isError());
-    EXPECT_NE(mounted.error().message.find("missing"), std::string::npos) << mounted.error().message;
+  pp::FileDirStore restarted;
+  restarted.redirectLogger("filedirstore2");
+  auto mounted = restarted.mount(testDir);
+  ASSERT_TRUE(mounted.isError());
+  EXPECT_NE(mounted.error().message.find("missing"), std::string::npos) << mounted.error().message;
 }
 
 // A rewind keeps the file holding the target cut at it and deletes every later file; appends then
 // continue in the kept file. Rewinding to the end is a no-op (it used to find no file there and
 // drop them all).
 TEST_F(FileDirStoreTest, RewindAcrossFilesDeletesTheLaterOnes) {
-    ASSERT_TRUE(fileDirStore.init(config).isOk());
-    const std::string large(400 * 1024, 'X');
-    for (int i = 0; i < 6; ++i) {
-        ASSERT_TRUE(fileDirStore.appendBlock(large + std::to_string(i)).isOk());
+  ASSERT_TRUE(fileDirStore.init(config).isOk());
+  const std::string large(400 * 1024, 'X');
+  for (int i = 0; i < 6; ++i) {
+    ASSERT_TRUE(fileDirStore.appendBlock(large + std::to_string(i)).isOk());
+  }
+  auto blockFiles = [&]() {
+    size_t n = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(testDir)) {
+      n += entry.path().filename() != "idx.dat" ? 1 : 0;
     }
-    auto blockFiles = [&]() {
-        size_t n = 0;
-        for (const auto &entry : std::filesystem::directory_iterator(testDir)) {
-            n += entry.path().filename() != "idx.dat" ? 1 : 0;
-        }
-        return n;
-    };
-    ASSERT_GE(blockFiles(), 3u);
-    ASSERT_TRUE(fileDirStore.rewindTo(6).isOk());
-    EXPECT_EQ(fileDirStore.getBlockCount(), 6u) << "rewinding to the end drops nothing";
+    return n;
+  };
+  ASSERT_GE(blockFiles(), 3u);
+  ASSERT_TRUE(fileDirStore.rewindTo(6).isOk());
+  EXPECT_EQ(fileDirStore.getBlockCount(), 6u) << "rewinding to the end drops nothing";
 
-    ASSERT_TRUE(fileDirStore.rewindTo(3).isOk());
-    EXPECT_EQ(fileDirStore.getBlockCount(), 3u);
-    EXPECT_EQ(blockFiles(), 2u) << "the later files are gone from disk";
-    ASSERT_TRUE(fileDirStore.appendBlock("again").isOk());
-    EXPECT_EQ(fileDirStore.readBlock(3).value(), "again");
-    EXPECT_EQ(fileDirStore.readBlock(2).value(), large + "2");
+  ASSERT_TRUE(fileDirStore.rewindTo(3).isOk());
+  EXPECT_EQ(fileDirStore.getBlockCount(), 3u);
+  EXPECT_EQ(blockFiles(), 2u) << "the later files are gone from disk";
+  ASSERT_TRUE(fileDirStore.appendBlock("again").isOk());
+  EXPECT_EQ(fileDirStore.readBlock(3).value(), "again");
+  EXPECT_EQ(fileDirStore.readBlock(2).value(), large + "2");
 
-    fileDirStore.close();
-    pp::FileDirStore restarted;
-    restarted.redirectLogger("filedirstore2");
-    ASSERT_TRUE(restarted.mount(testDir).isOk());
-    EXPECT_EQ(restarted.getBlockCount(), 4u);
-    EXPECT_EQ(restarted.readBlock(3).value(), "again");
+  fileDirStore.close();
+  pp::FileDirStore restarted;
+  restarted.redirectLogger("filedirstore2");
+  ASSERT_TRUE(restarted.mount(testDir).isOk());
+  EXPECT_EQ(restarted.getBlockCount(), 4u);
+  EXPECT_EQ(restarted.readBlock(3).value(), "again");
 }

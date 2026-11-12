@@ -14,7 +14,7 @@ namespace {
 /** Sets an environment variable for the scope of a test. */
 class ScopedEnv {
 public:
-  ScopedEnv(std::string name, const std::string &value) : name_(std::move(name)) {
+  ScopedEnv(std::string name, const std::string& value) : name_(std::move(name)) {
 #ifdef _WIN32
     _putenv_s(name_.c_str(), value.c_str());
 #else
@@ -28,14 +28,14 @@ public:
     unsetenv(name_.c_str());
 #endif
   }
-  ScopedEnv(const ScopedEnv &) = delete;
-  ScopedEnv &operator=(const ScopedEnv &) = delete;
+  ScopedEnv(const ScopedEnv&) = delete;
+  ScopedEnv& operator=(const ScopedEnv&) = delete;
 
 private:
   std::string name_;
 };
 
-std::filesystem::path tempFile(const std::string &name, const std::string &content) {
+std::filesystem::path tempFile(const std::string& name, const std::string& content) {
   const auto path = std::filesystem::temp_directory_path() / ("pp-ledger-env-" + name);
   std::ofstream(path, std::ios::trunc) << content;
   return path;
@@ -55,18 +55,18 @@ TEST(EnvConfigTest, OverlayWritesEachKindOverTheFile) {
   ScopedEnv peers("PP_LEDGER_ALLOWED_PEERS", " QmA, QmB ,,QmC\nQmD ");
   ScopedEnv hash("PP_LEDGER_GENESIS_HASH", "ab");
   std::vector<env_config::Field> fields = env_config::commonFields();
-  for (auto &field : env_config::anchorFields()) {
+  for (auto& field : env_config::anchorFields()) {
     fields.push_back(field);
   }
   auto set = env_config::overlay(config, fields);
   ASSERT_TRUE(set.isOk()) << set.error().message;
   EXPECT_EQ(set.value(), 3u);
   EXPECT_EQ(config.getNonNegInt("port"), 9000) << "the environment wins over the file";
-  const common::Array *list = config.getArray("allowedPeers");
+  const common::Array* list = config.getArray("allowedPeers");
   ASSERT_NE(list, nullptr);
   ASSERT_EQ(list->elements.size(), 4u) << "commas or newlines; blanks dropped";
   EXPECT_EQ(common::asString(list->elements[1]), "QmB");
-  const common::Object *merged = config.getObject("networkAnchor");
+  const common::Object* merged = config.getObject("networkAnchor");
   ASSERT_NE(merged, nullptr);
   EXPECT_EQ(merged->getString("networkId"), "from-file");
   EXPECT_EQ(merged->getString("genesisHash"), "ab");
@@ -105,7 +105,7 @@ TEST(EnvConfigTest, SecretsFromTheVariableOrAFile) {
   ScopedEnv keysFile("PP_MINER_KEYS_FILE", keys.string());
   common::Object config;
   ASSERT_TRUE(env_config::overlay(config, {{"PP_MINER_KEYS", "keys", env_config::Kind::List, "", true}}).isOk());
-  const common::Array *list = config.getArray("keys");
+  const common::Array* list = config.getArray("keys");
   ASSERT_NE(list, nullptr);
   EXPECT_EQ(list->elements.size(), 2u);
   std::filesystem::remove(keys);

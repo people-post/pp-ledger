@@ -11,12 +11,12 @@ UpstreamSet::UpstreamSet(std::vector<std::string> configured, Hooks hooks)
   redirectLogger("UpstreamSet");
 }
 
-const std::string &UpstreamSet::active() const {
+const std::string& UpstreamSet::active() const {
   static const std::string none;
   return active_ < upstreams_.size() ? upstreams_[active_] : none;
 }
 
-void UpstreamSet::follow(size_t index, const std::string &why) {
+void UpstreamSet::follow(size_t index, const std::string& why) {
   active_ = index;
   log().info << "Following upstream [" << index << "] " << upstreams_[index] << ": " << why;
   if (hooks_.onFollow) {
@@ -24,9 +24,9 @@ void UpstreamSet::follow(size_t index, const std::string &why) {
   }
 }
 
-size_t UpstreamSet::addHints(const std::vector<std::string> &hints) {
+size_t UpstreamSet::addHints(const std::vector<std::string>& hints) {
   size_t added = 0;
-  for (const auto &hint : hints) {
+  for (const auto& hint : hints) {
     if (upstreams_.size() >= kMaxUpstreams) {
       break;
     }
@@ -47,14 +47,14 @@ size_t UpstreamSet::addHints(const std::vector<std::string> &hints) {
   return added;
 }
 
-std::optional<size_t> UpstreamSet::choose(const std::vector<std::optional<Client::BeaconState>> &states,
-                                          const std::function<bool(const Client::SignedTip &)> &mayFollow,
-                                          const std::set<size_t> &avoid, size_t active) {
+std::optional<size_t> UpstreamSet::choose(const std::vector<std::optional<Client::BeaconState>>& states,
+                                          const std::function<bool(const Client::SignedTip&)>& mayFollow,
+                                          const std::set<size_t>& avoid, size_t active) {
   auto eligible = [&](size_t i) {
     if (i >= states.size() || !states[i] || avoid.count(i) > 0) {
       return false;
     }
-    const auto &tip = states[i]->signedTip;
+    const auto& tip = states[i]->signedTip;
     return !tip || !mayFollow || mayFollow(*tip);
   };
   auto generation = [&](size_t i) { return states[i]->signedTip ? states[i]->signedTip->generation : 0; };
@@ -78,7 +78,7 @@ std::optional<size_t> UpstreamSet::choose(const std::vector<std::optional<Client
 std::set<size_t> UpstreamSet::avoided() const {
   std::set<size_t> out;
   const auto now = Clock::now();
-  for (const auto &[index, until] : avoidUntil_) {
+  for (const auto& [index, until] : avoidUntil_) {
     if (now < until) {
       out.insert(index);
     }
@@ -86,12 +86,12 @@ std::set<size_t> UpstreamSet::avoided() const {
   return out;
 }
 
-const std::optional<Client::BeaconState> &UpstreamSet::lastStatus(size_t index) const {
+const std::optional<Client::BeaconState>& UpstreamSet::lastStatus(size_t index) const {
   static const std::optional<Client::BeaconState> none;
   return index < states_.size() ? states_[index] : none;
 }
 
-void UpstreamSet::rerank(const std::string &why) {
+void UpstreamSet::rerank(const std::string& why) {
   if (upstreams_.empty() || !hooks_.fetchStatus) {
     return;
   }
@@ -140,7 +140,7 @@ void UpstreamSet::finishRound() {
   if (!chosen_) {
     log().warning << "No upstream to follow (" << why_ << "): none answered with a tip worth following";
   } else if (*chosen_ != active_) {
-    const auto &tip = states_[*chosen_]->signedTip;
+    const auto& tip = states_[*chosen_]->signedTip;
     follow(*chosen_, "beacon generation " + std::to_string(tip ? tip->generation : 0) + ", nextBlockId " +
                          std::to_string(states_[*chosen_]->nextBlockId) + " (" + why_ + ")");
   }
@@ -184,7 +184,7 @@ void UpstreamSet::noteFailed() {
   rerank("the sync failed");
 }
 
-void UpstreamSet::suspect(const std::string &why) {
+void UpstreamSet::suspect(const std::string& why) {
   if (upstreams_.size() > 1 && !inFlight_ && Clock::now() - lastRanked_ >= kSuspectGap) {
     rerank(why);
   }

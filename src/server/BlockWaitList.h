@@ -29,7 +29,7 @@ public:
    * replies due now: this one if the tip is already past (or the list is
    * full), and the peer's previous wait.
    */
-  std::vector<Reply> park(const std::string &peerId, uint64_t knownNext, Clock::time_point deadline, Reply reply,
+  std::vector<Reply> park(const std::string& peerId, uint64_t knownNext, Clock::time_point deadline, Reply reply,
                           uint64_t tip);
 
   /** Replies due: waits the tip has passed, and those past their deadline. */

@@ -27,31 +27,23 @@ protected:
     SystemRenewal,
   };
 
-  chain_tx::Roe<void>
-  applyUserUpdateBufferCommon(const Ledger::TxUserUpdate &tx,
-                              AccountBuffer &bank,
-                              const BufferApplyContext &c,
-                              UpsertKind kind = UpsertKind::Update) const;
+  chain_tx::Roe<void> applyUserUpdateBufferCommon(const Ledger::TxUserUpdate& tx, AccountBuffer& bank,
+                                                  const BufferApplyContext& c,
+                                                  UpsertKind kind = UpsertKind::Update) const;
 
-  chain_tx::Roe<void>
-  applyUserUpdateBlockCommon(const Ledger::TxUserUpdate &tx,
-                             AccountBuffer &bank,
-                             const BlockApplyContext &c,
-                             UpsertKind kind = UpsertKind::Update) const;
+  chain_tx::Roe<void> applyUserUpdateBlockCommon(const Ledger::TxUserUpdate& tx, AccountBuffer& bank,
+                                                 const BlockApplyContext& c,
+                                                 UpsertKind kind = UpsertKind::Update) const;
 
-  chain_tx::Roe<void>
-  applyUserAccountUpsert(const Ledger::TxUserUpdate &tx,
-                         const TxContext &ctx, AccountBuffer &bank,
-                         uint64_t blockId, bool isBufferMode,
-                         chain_block::BlockAdmissionMode admissionMode,
-                         UpsertKind kind) const;
+  chain_tx::Roe<void> applyUserAccountUpsert(const Ledger::TxUserUpdate& tx, const TxContext& ctx, AccountBuffer& bank,
+                                             uint64_t blockId, bool isBufferMode,
+                                             chain_block::BlockAdmissionMode admissionMode, UpsertKind kind) const;
 
 private:
   /** A renewal re-records the committed account: same keys, threshold, key type and meta. */
-  chain_tx::Roe<void> checkRenewalKeepsAccount(const Client::UserAccount &carried,
-                                               const AccountBuffer::Account &held) const;
+  chain_tx::Roe<void> checkRenewalKeepsAccount(const Client::UserAccount& carried,
+                                               const AccountBuffer::Account& held) const;
 };
 } // namespace pp
 
 #endif
-

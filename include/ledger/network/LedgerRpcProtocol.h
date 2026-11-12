@@ -54,7 +54,9 @@ inline constexpr size_t kBulkReservedForDuties = 1;
 inline constexpr size_t kMaxWaitingPerPeer = 256;
 inline constexpr size_t kMaxBulkWaitingPerPeer = 16;
 /** The protocol a request body of `bytes` travels on. */
-inline const char* ProtocolFor(size_t bytes) { return bytes > kMaxSmallRequestBytes ? kBulkProtocolId : kProtocolId; }
+inline const char* ProtocolFor(size_t bytes) {
+  return bytes > kMaxSmallRequestBytes ? kBulkProtocolId : kProtocolId;
+}
 
 /**
  * Bulk channel: one request/response per open (read_once). amp resets it when nothing arrives for

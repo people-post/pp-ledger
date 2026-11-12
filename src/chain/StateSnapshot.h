@@ -19,7 +19,8 @@ namespace pp {
  * against (bp9).
  */
 struct StateSnapshot {
-  constexpr static const uint32_t VERSION = 3; // 2: the predecessor carries block `height`'s header (B037); 3: config.finalitySeconds
+  constexpr static const uint32_t VERSION =
+      3; // 2: the predecessor carries block `height`'s header (B037); 3: config.finalitySeconds
 
   /** Where the state comes from: the old network and its block at `height`. */
   using Predecessor = ChainPredecessor;
@@ -31,7 +32,10 @@ struct StateSnapshot {
     uint64_t blockId{0}; ///< the old block of its last write (the leaf hashes it)
     std::string attachment;
 
-    template <typename Archive> void serialize(Archive &ar) { ar & id & wallet & blockId & attachment; }
+    template <typename Archive>
+    void serialize(Archive& ar) {
+      ar & id & wallet & blockId & attachment;
+    }
   };
 
   Predecessor predecessor;
@@ -40,10 +44,13 @@ struct StateSnapshot {
   /** By ascending id. */
   std::vector<Account> accounts;
 
-  template <typename Archive> void serialize(Archive &ar) { ar & predecessor & config & accounts; }
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & predecessor & config & accounts;
+  }
 
   std::string ltsToString() const;
-  bool ltsFromString(const std::string &str);
+  bool ltsFromString(const std::string& str);
 
   /** Root of the accounts' state-tree leaves (account leaf v2), as the old chain computed it. */
   std::string accountsRoot() const;
@@ -54,7 +61,8 @@ namespace state_export {
 struct Error : RoeErrorBase {
   using RoeErrorBase::RoeErrorBase;
 };
-template <typename T> using Roe = ResultOrError<T, Error>;
+template <typename T>
+using Roe = ResultOrError<T, Error>;
 
 /**
  * The state of the ledger in `ledgerDir` — a full node's (a relay's: from genesis) — after block
@@ -63,7 +71,7 @@ template <typename T> using Roe = ResultOrError<T, Error>;
  * the copy after `height`, replays it from genesis, and dumps every account. Checks the dump's
  * root against block `height`'s state root before returning it.
  */
-Roe<StateSnapshot> exportState(const std::string &ledgerDir, uint64_t height, const std::string &scratchDir);
+Roe<StateSnapshot> exportState(const std::string& ledgerDir, uint64_t height, const std::string& scratchDir);
 
 } // namespace state_export
 

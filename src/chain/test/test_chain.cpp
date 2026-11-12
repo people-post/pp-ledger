@@ -44,18 +44,15 @@ TEST(ChainTest, GenesisAccountMeta_RoundTrip) {
   EXPECT_EQ(parsed.config.slotDuration, gm.config.slotDuration);
   EXPECT_EQ(parsed.config.slotsPerEpoch, gm.config.slotsPerEpoch);
   EXPECT_EQ(parsed.config.maxCustomMetaSize, gm.config.maxCustomMetaSize);
-  EXPECT_EQ(parsed.config.maxTransactionsPerBlock,
-            gm.config.maxTransactionsPerBlock);
+  EXPECT_EQ(parsed.config.maxTransactionsPerBlock, gm.config.maxTransactionsPerBlock);
   EXPECT_EQ(parsed.config.minFeeCoefficients, gm.config.minFeeCoefficients);
   EXPECT_EQ(parsed.config.freeCustomMetaSize, gm.config.freeCustomMetaSize);
   EXPECT_EQ(parsed.config.checkpoint.minBlocks, gm.config.checkpoint.minBlocks);
-  EXPECT_EQ(parsed.config.checkpoint.minAgeSeconds,
-            gm.config.checkpoint.minAgeSeconds);
+  EXPECT_EQ(parsed.config.checkpoint.minAgeSeconds, gm.config.checkpoint.minAgeSeconds);
   EXPECT_EQ(parsed.config.heartbeatSlots, gm.config.heartbeatSlots);
   EXPECT_EQ(parsed.config.finalitySeconds, gm.config.finalitySeconds);
   EXPECT_EQ(parsed.genesis.wallet.publicKeys, gm.genesis.wallet.publicKeys);
-  EXPECT_EQ(parsed.genesis.wallet.minSignatures,
-            gm.genesis.wallet.minSignatures);
+  EXPECT_EQ(parsed.genesis.wallet.minSignatures, gm.genesis.wallet.minSignatures);
   EXPECT_EQ(parsed.genesis.wallet.mBalances, gm.genesis.wallet.mBalances);
 }
 
@@ -104,20 +101,20 @@ TEST(ChainTest, RenewalChangedWalletField_NamesEveryFieldButBalances) {
 
   Client::Wallet carried = held;
   EXPECT_EQ(chain_tx::renewalChangedWalletField(carried, held), std::nullopt);
-  carried.mBalances[AccountBuffer::ID_GENESIS] = 990;  // the fee: verifyBalance's
-  carried.mBalances[42] = 0;                           // a zero entry: verifyBalance reads it as absent
+  carried.mBalances[AccountBuffer::ID_GENESIS] = 990; // the fee: verifyBalance's
+  carried.mBalances[42] = 0;                          // a zero entry: verifyBalance reads it as absent
   EXPECT_EQ(chain_tx::renewalChangedWalletField(carried, held), std::nullopt) << "balances are not compared here";
 
-  const std::vector<std::pair<std::string, std::function<void(Client::Wallet &)>>> changes = {
-      {"keys", [](auto &w) { w.publicKeys.push_back(makeKeyPair().publicKey); }},
-      {"keys", [](auto &w) { w.minSignatures = 1; }},
-      {"keys", [](auto &w) { w.keyType = 0; }},
-      {"miner state", [](auto &w) { w.miner.registered = true; }},
-      {"recovery", [](auto &w) { w.recovery.pending = true; }},
-      {"recovery", [](auto &w) { w.recovery = {}; }},
-      {"domain", [](auto &w) { w.domain = "WXYZ"; }},
+  const std::vector<std::pair<std::string, std::function<void(Client::Wallet&)>>> changes = {
+      {"keys", [](auto& w) { w.publicKeys.push_back(makeKeyPair().publicKey); }},
+      {"keys", [](auto& w) { w.minSignatures = 1; }},
+      {"keys", [](auto& w) { w.keyType = 0; }},
+      {"miner state", [](auto& w) { w.miner.registered = true; }},
+      {"recovery", [](auto& w) { w.recovery.pending = true; }},
+      {"recovery", [](auto& w) { w.recovery = {}; }},
+      {"domain", [](auto& w) { w.domain = "WXYZ"; }},
   };
-  for (const auto &[field, change] : changes) {
+  for (const auto& [field, change] : changes) {
     Client::Wallet changed = held;
     change(changed);
     EXPECT_EQ(chain_tx::renewalChangedWalletField(changed, held), std::optional<std::string>(field)) << field;
@@ -154,23 +151,23 @@ TEST(ChainTest, GenesisAuthority_RefusesEveryBadShape) {
   const Chain::ChainAuthority valid = makeTestAuthority("test-net");
   ASSERT_TRUE(chain_tx::validateGenesisAuthority(valid, adminWallet, "test-net").isOk());
 
-  const std::vector<std::pair<std::string, std::function<void(Chain::ChainAuthority &)>>> refused = {
-      {"at least one public key", [](auto &a) { a.recovery.publicKeys.clear(); }},
-      {"malformed public key", [](auto &a) { a.recovery.publicKeys = {"short"}; }},
-      {"same key twice", [](auto &a) { a.recovery.publicKeys.push_back(a.recovery.publicKeys[0]); }},
-      {"must not be an admin", [&](auto &a) { a.recovery.publicKeys = {admin.publicKey}; }},
-      {"between 1 and its key count", [](auto &a) { a.recovery.minSignatures = 0; }},
-      {"between 1 and its key count", [](auto &a) { a.recovery.minSignatures = 2; }},
-      {"delayEpochs must be at least 1", [](auto &a) { a.recovery.delayEpochs = 0; }},
-      {"must be generation 1", [](auto &a) { a.beacon.generation = 2; }},
-      {"cutoverHeight 0", [](auto &a) { a.beacon.cutoverHeight = 5; }},
-      {"networkId does not match", [](auto &a) { a.beacon.networkId = "other-net"; }},
-      {"Beacon certificate has a malformed", [](auto &a) { a.beacon.publicKey = "short"; }},
-      {"not be an admin or recovery key", [&](auto &a) { a.beacon.publicKey = admin.publicKey; }},
-      {"not be an admin or recovery key", [](auto &a) { a.beacon.publicKey = a.recovery.publicKeys[0]; }},
-      {"cannot carry a pending recovery", [](auto &a) { a.hasPendingRecovery = true; }},
+  const std::vector<std::pair<std::string, std::function<void(Chain::ChainAuthority&)>>> refused = {
+      {"at least one public key", [](auto& a) { a.recovery.publicKeys.clear(); }},
+      {"malformed public key", [](auto& a) { a.recovery.publicKeys = {"short"}; }},
+      {"same key twice", [](auto& a) { a.recovery.publicKeys.push_back(a.recovery.publicKeys[0]); }},
+      {"must not be an admin", [&](auto& a) { a.recovery.publicKeys = {admin.publicKey}; }},
+      {"between 1 and its key count", [](auto& a) { a.recovery.minSignatures = 0; }},
+      {"between 1 and its key count", [](auto& a) { a.recovery.minSignatures = 2; }},
+      {"delayEpochs must be at least 1", [](auto& a) { a.recovery.delayEpochs = 0; }},
+      {"must be generation 1", [](auto& a) { a.beacon.generation = 2; }},
+      {"cutoverHeight 0", [](auto& a) { a.beacon.cutoverHeight = 5; }},
+      {"networkId does not match", [](auto& a) { a.beacon.networkId = "other-net"; }},
+      {"Beacon certificate has a malformed", [](auto& a) { a.beacon.publicKey = "short"; }},
+      {"not be an admin or recovery key", [&](auto& a) { a.beacon.publicKey = admin.publicKey; }},
+      {"not be an admin or recovery key", [](auto& a) { a.beacon.publicKey = a.recovery.publicKeys[0]; }},
+      {"cannot carry a pending recovery", [](auto& a) { a.hasPendingRecovery = true; }},
   };
-  for (const auto &[why, change] : refused) {
+  for (const auto& [why, change] : refused) {
     Chain::ChainAuthority authority = valid;
     change(authority);
     auto result = chain_tx::validateGenesisAuthority(authority, adminWallet, "test-net");
@@ -207,12 +204,21 @@ TEST(BeaconCertificateTest, RefusesABadSeedAnchor) {
   next.cutoverHeight = BeaconCertificate::kNoCutover;
   next.cutoverHash.clear();
   const std::string good(32, 'a');
-  const std::vector<std::function<void(BeaconCertificate &)>> bad = {
-      [&](auto &c) { c.seedAnchor = good.substr(0, 31); c.seedChainLength = 10; },
-      [&](auto &c) { c.seedAnchor = good; c.seedChainLength = 0; },
-      [&](auto &c) { c.seedAnchor = good; c.seedChainLength = consensus::kMaxBeaconSeedChainLength + 1; },
+  const std::vector<std::function<void(BeaconCertificate&)>> bad = {
+      [&](auto& c) {
+        c.seedAnchor = good.substr(0, 31);
+        c.seedChainLength = 10;
+      },
+      [&](auto& c) {
+        c.seedAnchor = good;
+        c.seedChainLength = 0;
+      },
+      [&](auto& c) {
+        c.seedAnchor = good;
+        c.seedChainLength = consensus::kMaxBeaconSeedChainLength + 1;
+      },
   };
-  for (const auto &change : bad) {
+  for (const auto& change : bad) {
     BeaconCertificate cert = current.beacon;
     change(cert);
     genesis.beacon = cert;
@@ -247,13 +253,13 @@ TEST(ChainTest, Genesis_SetsTheAuthorityAndRefusesAnInvalidOne) {
   auto recycleKey = makeKeyPair();
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
-  for (const auto &tweak : std::vector<std::function<void(Chain::GenesisAccountMeta &)>>{
-           [](auto &gm) { gm.authority = {}; },
-           [&](auto &gm) { gm.authority.recovery.publicKeys = {genesisKey.publicKey}; },
+  for (const auto& tweak : std::vector<std::function<void(Chain::GenesisAccountMeta&)>>{
+           [](auto& gm) { gm.authority = {}; },
+           [&](auto& gm) { gm.authority.recovery.publicKeys = {genesisKey.publicKey}; },
        }) {
     Chain refuser;
-    Ledger::ChainNode bad = buildUnsealedGenesis(chainConfig, genesisKey, feeKey, reserveKey, recycleKey,
-                                                 nullptr, nullptr, tweak);
+    Ledger::ChainNode bad =
+        buildUnsealedGenesis(chainConfig, genesisKey, feeKey, reserveKey, recycleKey, nullptr, nullptr, tweak);
     EXPECT_FALSE(refuser.sealBlock(bad).isOk());
     EXPECT_FALSE(refuser.getAuthority().has_value());
   }
@@ -276,15 +282,13 @@ TEST(ChainTest, AddBlock_FailsOnGenesisHashMismatch) {
   auto recycleKey = makeKeyPair();
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   // sealBlock already applied tip state; corrupting hash must not commit.
   genesis.hash = "bad-hash";
 
   auto result = validator.addBlock(genesis);
   EXPECT_TRUE(result.isError());
-  EXPECT_NE(result.error().message.find("uncommitted sealed block"),
-            std::string::npos);
+  EXPECT_NE(result.error().message.find("uncommitted sealed block"), std::string::npos);
 }
 
 TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
@@ -303,8 +307,7 @@ TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -315,8 +318,7 @@ TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
 
   auto result = validator.addBlock(genesis);
   EXPECT_TRUE(result.isOk());
@@ -345,8 +347,8 @@ TEST(ChainTest, TheGenesisMetaInForceIsTheConfigAdminKeysAndAuthority) {
   Ledger::InitConfig ledgerConfig;
   ledgerConfig.workDir = tempDir.string();
   ASSERT_TRUE(validator.initLedger(ledgerConfig).isOk());
-  ASSERT_TRUE(validator.addBlock(makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey))
-                  .isOk());
+  ASSERT_TRUE(
+      validator.addBlock(makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey)).isOk());
 
   auto meta = validator.genesisMetaInForce();
   ASSERT_TRUE(meta.isOk()) << meta.error().message;
@@ -404,8 +406,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyWhenChainHasNoBlocks) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -418,8 +419,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyWhenChainHasNoBlocks) {
   ASSERT_EQ(validator.getNextBlockId(), 0u);
 
   uint64_t blockId = 0;
-  auto result =
-      validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
+  auto result = validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
   ASSERT_TRUE(result.isOk());
   EXPECT_TRUE(result.value().empty());
   EXPECT_EQ(blockId, 0u);
@@ -427,8 +427,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyWhenChainHasNoBlocks) {
   std::filesystem::remove_all(tempDir, ec);
 }
 
-TEST(ChainTest,
-     FindTransactionsByWalletId_WhenStartBlockIdZero_ScansFromLatest) {
+TEST(ChainTest, FindTransactionsByWalletId_WhenStartBlockIdZero_ScansFromLatest) {
   Chain validator;
 
   auto genesisKey = makeKeyPair();
@@ -444,8 +443,7 @@ TEST(ChainTest,
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -456,71 +454,67 @@ TEST(ChainTest,
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   auto addResult = validator.addBlock(genesis);
   ASSERT_TRUE(addResult.isOk());
 
   uint64_t blockId = 0;
-  auto result =
-      validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
+  auto result = validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
   ASSERT_TRUE(result.isOk());
   EXPECT_FALSE(result.value().empty());
   EXPECT_EQ(blockId, 0u);
-  for (const auto &st : result.value()) {
+  for (const auto& st : result.value()) {
     bool matches = false;
     switch (st.type) {
-    case Ledger::T_DEFAULT: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      const auto &tx = txRoe.value();
-      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
-                 tx.toWalletId == AccountBuffer::ID_GENESIS);
-      break;
-    }
-    case Ledger::T_GENESIS: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      matches = true;
-      break;
-    }
-    case Ledger::T_NEW_USER: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      const auto &tx = txRoe.value();
-      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
-                 tx.toWalletId == AccountBuffer::ID_GENESIS);
-      break;
-    }
-    case Ledger::T_CONFIG: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      matches = true;
-      break;
-    }
-    case Ledger::T_USER_UPDATE: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      const auto &tx = txRoe.value();
-      matches = (tx.walletId == AccountBuffer::ID_GENESIS);
-      break;
-    }
-    case Ledger::T_RENEWAL: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      const auto &tx = txRoe.value();
-      matches = (tx.walletId == AccountBuffer::ID_GENESIS);
-      break;
-    }
-    case Ledger::T_END_USER: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      const auto &tx = txRoe.value();
-      matches = (tx.walletId == AccountBuffer::ID_GENESIS);
-      break;
-    }
-    default:
-      break;
+      case Ledger::T_DEFAULT: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        const auto& tx = txRoe.value();
+        matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS || tx.toWalletId == AccountBuffer::ID_GENESIS);
+        break;
+      }
+      case Ledger::T_GENESIS: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        matches = true;
+        break;
+      }
+      case Ledger::T_NEW_USER: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        const auto& tx = txRoe.value();
+        matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS || tx.toWalletId == AccountBuffer::ID_GENESIS);
+        break;
+      }
+      case Ledger::T_CONFIG: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        matches = true;
+        break;
+      }
+      case Ledger::T_USER_UPDATE: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        const auto& tx = txRoe.value();
+        matches = (tx.walletId == AccountBuffer::ID_GENESIS);
+        break;
+      }
+      case Ledger::T_RENEWAL: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        const auto& tx = txRoe.value();
+        matches = (tx.walletId == AccountBuffer::ID_GENESIS);
+        break;
+      }
+      case Ledger::T_END_USER: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        const auto& tx = txRoe.value();
+        matches = (tx.walletId == AccountBuffer::ID_GENESIS);
+        break;
+      }
+      default:
+        break;
     }
     EXPECT_TRUE(matches);
   }
@@ -544,8 +538,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -556,73 +549,69 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   auto addResult = validator.addBlock(genesis);
   ASSERT_TRUE(addResult.isOk());
 
   uint64_t blockId = validator.getNextBlockId();
   ASSERT_GT(blockId, 0u);
 
-  auto result =
-      validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
+  auto result = validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
   ASSERT_TRUE(result.isOk());
-  const auto &txes = result.value();
+  const auto& txes = result.value();
   EXPECT_FALSE(txes.empty());
-  for (const auto &st : txes) {
+  for (const auto& st : txes) {
     bool matches = false;
     switch (st.type) {
-    case Ledger::T_DEFAULT: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      const auto &tx = txRoe.value();
-      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
-                 tx.toWalletId == AccountBuffer::ID_GENESIS);
-      break;
-    }
-    case Ledger::T_GENESIS: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      matches = true;
-      break;
-    }
-    case Ledger::T_NEW_USER: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      const auto &tx = txRoe.value();
-      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
-                 tx.toWalletId == AccountBuffer::ID_GENESIS);
-      break;
-    }
-    case Ledger::T_CONFIG: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      matches = true;
-      break;
-    }
-    case Ledger::T_USER_UPDATE: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      const auto &tx = txRoe.value();
-      matches = (tx.walletId == AccountBuffer::ID_GENESIS);
-      break;
-    }
-    case Ledger::T_RENEWAL: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      const auto &tx = txRoe.value();
-      matches = (tx.walletId == AccountBuffer::ID_GENESIS);
-      break;
-    }
-    case Ledger::T_END_USER: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(st.data);
-      ASSERT_TRUE(txRoe.isOk());
-      const auto &tx = txRoe.value();
-      matches = (tx.walletId == AccountBuffer::ID_GENESIS);
-      break;
-    }
-    default:
-      break;
+      case Ledger::T_DEFAULT: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        const auto& tx = txRoe.value();
+        matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS || tx.toWalletId == AccountBuffer::ID_GENESIS);
+        break;
+      }
+      case Ledger::T_GENESIS: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        matches = true;
+        break;
+      }
+      case Ledger::T_NEW_USER: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        const auto& tx = txRoe.value();
+        matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS || tx.toWalletId == AccountBuffer::ID_GENESIS);
+        break;
+      }
+      case Ledger::T_CONFIG: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        matches = true;
+        break;
+      }
+      case Ledger::T_USER_UPDATE: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        const auto& tx = txRoe.value();
+        matches = (tx.walletId == AccountBuffer::ID_GENESIS);
+        break;
+      }
+      case Ledger::T_RENEWAL: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        const auto& tx = txRoe.value();
+        matches = (tx.walletId == AccountBuffer::ID_GENESIS);
+        break;
+      }
+      case Ledger::T_END_USER: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(st.data);
+        ASSERT_TRUE(txRoe.isOk());
+        const auto& tx = txRoe.value();
+        matches = (tx.walletId == AccountBuffer::ID_GENESIS);
+        break;
+      }
+      default:
+        break;
     }
     EXPECT_TRUE(matches);
   }
@@ -647,8 +636,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyForUnknownWallet) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -659,8 +647,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyForUnknownWallet) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   auto addResult = validator.addBlock(genesis);
   ASSERT_TRUE(addResult.isOk());
 
@@ -690,8 +677,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ClampsBlockIdToNextBlockId) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -702,15 +688,13 @@ TEST(ChainTest, FindTransactionsByWalletId_ClampsBlockIdToNextBlockId) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   auto addResult = validator.addBlock(genesis);
   ASSERT_TRUE(addResult.isOk());
 
   uint64_t nextBlockId = validator.getNextBlockId();
   uint64_t blockId = nextBlockId + 1000u;
-  auto result =
-      validator.findTransactionsByWalletId(AccountBuffer::ID_FEE, blockId);
+  auto result = validator.findTransactionsByWalletId(AccountBuffer::ID_FEE, blockId);
   ASSERT_TRUE(result.isOk());
   EXPECT_GT(result.value().size(), 0u);
   EXPECT_EQ(blockId, 0u);
@@ -728,8 +712,7 @@ TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenNoBlocks) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-gettx");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-gettx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -764,8 +747,7 @@ TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenIndexOutOfRange) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-gettx");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-gettx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -776,8 +758,7 @@ TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenIndexOutOfRange) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   auto addResult = validator.addBlock(genesis);
   ASSERT_TRUE(addResult.isOk());
 
@@ -790,8 +771,7 @@ TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenIndexOutOfRange) {
   std::filesystem::remove_all(tempDir, ec);
 }
 
-TEST(ChainTest,
-     FindTransactionByIndex_ReturnsCorrectTransactionInGenesisBlock) {
+TEST(ChainTest, FindTransactionByIndex_ReturnsCorrectTransactionInGenesisBlock) {
   Chain validator;
 
   auto genesisKey = makeKeyPair();
@@ -807,8 +787,7 @@ TEST(ChainTest,
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-gettx");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-gettx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -819,8 +798,7 @@ TEST(ChainTest,
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   auto addResult = validator.addBlock(genesis);
   ASSERT_TRUE(addResult.isOk());
 
@@ -830,53 +808,59 @@ TEST(ChainTest,
     ASSERT_TRUE(result.isOk()) << "findTransactionByIndex(" << i << ") failed";
     EXPECT_EQ(result.value().type, genesis.block.records[i].type);
 
-    auto unpackWallets = [&](uint16_t type, const std::string &data)
-        -> std::pair<uint64_t, uint64_t> {
+    auto unpackWallets = [&](uint16_t type, const std::string& data) -> std::pair<uint64_t, uint64_t> {
       switch (type) {
-      case Ledger::T_DEFAULT: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(data);
-        EXPECT_TRUE(txRoe.isOk());
-        if (!txRoe.isOk()) return {0, 0};
-        return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
-      }
-      case Ledger::T_GENESIS: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(data);
-        EXPECT_TRUE(txRoe.isOk());
-        if (!txRoe.isOk()) return {0, 0};
-        return {AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS};
-      }
-      case Ledger::T_NEW_USER: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(data);
-        EXPECT_TRUE(txRoe.isOk());
-        if (!txRoe.isOk()) return {0, 0};
-        return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
-      }
-      case Ledger::T_CONFIG: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(data);
-        EXPECT_TRUE(txRoe.isOk());
-        if (!txRoe.isOk()) return {0, 0};
-        return {AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS};
-      }
-      case Ledger::T_USER_UPDATE: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(data);
-        EXPECT_TRUE(txRoe.isOk());
-        if (!txRoe.isOk()) return {0, 0};
-        return {txRoe.value().walletId, txRoe.value().walletId};
-      }
-      case Ledger::T_RENEWAL: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(data);
-        EXPECT_TRUE(txRoe.isOk());
-        if (!txRoe.isOk()) return {0, 0};
-        return {txRoe.value().walletId, txRoe.value().walletId};
-      }
-      case Ledger::T_END_USER: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(data);
-        EXPECT_TRUE(txRoe.isOk());
-        if (!txRoe.isOk()) return {0, 0};
-        return {txRoe.value().walletId, txRoe.value().walletId};
-      }
-      default:
-        return {0, 0};
+        case Ledger::T_DEFAULT: {
+          auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(data);
+          EXPECT_TRUE(txRoe.isOk());
+          if (!txRoe.isOk())
+            return {0, 0};
+          return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
+        }
+        case Ledger::T_GENESIS: {
+          auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(data);
+          EXPECT_TRUE(txRoe.isOk());
+          if (!txRoe.isOk())
+            return {0, 0};
+          return {AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS};
+        }
+        case Ledger::T_NEW_USER: {
+          auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(data);
+          EXPECT_TRUE(txRoe.isOk());
+          if (!txRoe.isOk())
+            return {0, 0};
+          return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
+        }
+        case Ledger::T_CONFIG: {
+          auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(data);
+          EXPECT_TRUE(txRoe.isOk());
+          if (!txRoe.isOk())
+            return {0, 0};
+          return {AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS};
+        }
+        case Ledger::T_USER_UPDATE: {
+          auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(data);
+          EXPECT_TRUE(txRoe.isOk());
+          if (!txRoe.isOk())
+            return {0, 0};
+          return {txRoe.value().walletId, txRoe.value().walletId};
+        }
+        case Ledger::T_RENEWAL: {
+          auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(data);
+          EXPECT_TRUE(txRoe.isOk());
+          if (!txRoe.isOk())
+            return {0, 0};
+          return {txRoe.value().walletId, txRoe.value().walletId};
+        }
+        case Ledger::T_END_USER: {
+          auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(data);
+          EXPECT_TRUE(txRoe.isOk());
+          if (!txRoe.isOk())
+            return {0, 0};
+          return {txRoe.value().walletId, txRoe.value().walletId};
+        }
+        default:
+          return {0, 0};
       }
     };
 
@@ -912,8 +896,7 @@ TEST(ChainTest, AddBlock_RejectsDefaultTransferWithZeroIdempotentId) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-zero-idempotent-id");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-zero-idempotent-id");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -924,8 +907,7 @@ TEST(ChainTest, AddBlock_RejectsDefaultTransferWithZeroIdempotentId) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   ASSERT_TRUE(validator.addBlock(genesis).isOk());
 
   Ledger::TxDefault tx;
@@ -946,9 +928,7 @@ TEST(ChainTest, AddBlock_RejectsDefaultTransferWithZeroIdempotentId) {
   ASSERT_TRUE(validator.ensureEpochSeed(epoch).isOk());
   auto leaderResult = validator.getSlotLeader(slot);
   ASSERT_TRUE(leaderResult.isOk());
-  auto block1 = validator.linkNextBlock(
-      genesis, slot, leaderResult.value(), validator.getSlotEndTime(slot),
-      {rec});
+  auto block1 = validator.linkNextBlock(genesis, slot, leaderResult.value(), validator.getSlotEndTime(slot), {rec});
   auto sealResult = validator.sealBlock(block1);
   ASSERT_FALSE(sealResult.isOk());
   EXPECT_NE(sealResult.error().message.find("idempotentId"), std::string::npos);
@@ -986,8 +966,7 @@ TEST(ChainTest, Seal_RejectsNonIncreasingSlot) {
   ledgerConfig.startingBlockId = 0;
   ASSERT_TRUE(validator.initLedger(ledgerConfig).isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   ASSERT_TRUE(validator.addBlock(genesis).isOk());
 
   // Non-empty so the heartbeat-lag policy doesn't also reject it.
@@ -1028,23 +1007,19 @@ TEST(ChainTest, Seal_RejectsNonIncreasingSlot) {
   ASSERT_TRUE(validator.ensureEpochSeed(epoch).isOk());
   auto leaderResult = validator.getSlotLeader(badSlot);
   ASSERT_TRUE(leaderResult.isOk());
-  auto badBlock = validator.linkNextBlock(
-      block1, badSlot, leaderResult.value(),
-      validator.getSlotEndTime(badSlot), {rec2});
+  auto badBlock =
+      validator.linkNextBlock(block1, badSlot, leaderResult.value(), validator.getSlotEndTime(badSlot), {rec2});
   auto reserveBefore = validator.getAccount(AccountBuffer::ID_RESERVE);
   ASSERT_TRUE(reserveBefore.isOk());
   auto sealResult = validator.sealBlock(badBlock);
   ASSERT_FALSE(sealResult.isOk());
-  EXPECT_NE(sealResult.error().message.find("Invalid block slot"),
-            std::string::npos);
+  EXPECT_NE(sealResult.error().message.find("Invalid block slot"), std::string::npos);
 
   // Failed seal left no pending seal and no applied effects.
   auto reserveAfter = validator.getAccount(AccountBuffer::ID_RESERVE);
   ASSERT_TRUE(reserveAfter.isOk());
-  EXPECT_EQ(reserveAfter.value().wallet.mBalances,
-            reserveBefore.value().wallet.mBalances);
-  Ledger::ChainNode next =
-      makeNextBlockAtSlot(validator, block1, badSlot + 1, {rec2});
+  EXPECT_EQ(reserveAfter.value().wallet.mBalances, reserveBefore.value().wallet.mBalances);
+  Ledger::ChainNode next = makeNextBlockAtSlot(validator, block1, badSlot + 1, {rec2});
   auto addResult = validator.addBlock(next);
   ASSERT_TRUE(addResult.isOk()) << addResult.error().message;
 
@@ -1080,8 +1055,7 @@ TEST(ChainTest, Seal_RejectsFarFutureSlot) {
   ledgerConfig.startingBlockId = 0;
   ASSERT_TRUE(validator.initLedger(ledgerConfig).isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   ASSERT_TRUE(validator.addBlock(genesis).isOk());
 
   // Pin the clock to slot 0's start so the check is deterministic, and stay
@@ -1096,13 +1070,11 @@ TEST(ChainTest, Seal_RejectsFarFutureSlot) {
   ASSERT_TRUE(validator.ensureEpochSeed(epoch).isOk());
   auto leaderResult = validator.getSlotLeader(farFutureSlot);
   ASSERT_TRUE(leaderResult.isOk());
-  auto badBlock = validator.linkNextBlock(
-      genesis, farFutureSlot, leaderResult.value(),
-      validator.getSlotEndTime(farFutureSlot), {});
+  auto badBlock = validator.linkNextBlock(genesis, farFutureSlot, leaderResult.value(),
+                                          validator.getSlotEndTime(farFutureSlot), {});
   auto sealResult = validator.sealBlock(badBlock);
   ASSERT_FALSE(sealResult.isOk());
-  EXPECT_NE(sealResult.error().message.find("too far in the future"),
-            std::string::npos);
+  EXPECT_NE(sealResult.error().message.find("too far in the future"), std::string::npos);
 
   std::filesystem::remove_all(tempDir, ec);
 }
@@ -1119,8 +1091,7 @@ TEST(ChainTest, FutureSlotTolerance_IsMaxOfTwoSlotsAndFifteenSeconds) {
 // Slot monotonicity is an arrival rule only: the structural layer used by
 // ledger replay accepts a same-slot successor, checkBlockArrival rejects it.
 TEST(ChainTest, SlotMonotonicity_ArrivalOnlyNotStructural) {
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-arrival");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-arrival");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
 
@@ -1130,8 +1101,7 @@ TEST(ChainTest, SlotMonotonicity_ArrivalOnlyNotStructural) {
   ledgerConfig.startingBlockId = 0;
   ASSERT_TRUE(ledger.init(ledgerConfig).isOk());
 
-  auto makeBlock = [](uint64_t index, uint64_t slot,
-                      const std::string &previousHash) {
+  auto makeBlock = [](uint64_t index, uint64_t slot, const std::string& previousHash) {
     Ledger::ChainNode node;
     node.block.index = index;
     node.block.slot = slot;
@@ -1157,11 +1127,8 @@ TEST(ChainTest, SlotMonotonicity_ArrivalOnlyNotStructural) {
   consensus.setClockOverride(consensus.getSlotStartTime(4));
   auto arrival = chain_block::checkBlockArrival(sameSlot, ledger, consensus);
   ASSERT_FALSE(arrival.isOk());
-  EXPECT_NE(arrival.error().message.find("Invalid block slot"),
-            std::string::npos);
-  EXPECT_TRUE(chain_block::checkBlockArrival(makeBlock(2, 5, b1.hash), ledger,
-                                             consensus)
-                  .isOk());
+  EXPECT_NE(arrival.error().message.find("Invalid block slot"), std::string::npos);
+  EXPECT_TRUE(chain_block::checkBlockArrival(makeBlock(2, 5, b1.hash), ledger, consensus).isOk());
 
   std::filesystem::remove_all(tempDir, ec);
 }
@@ -1194,8 +1161,7 @@ TEST(ChainTest, LoadFromLedger_IgnoresFutureSlotBound) {
   ASSERT_TRUE(validator.initLedger(ledgerConfig).isOk());
   validator.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock()); // replayed by a second chain below
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   ASSERT_TRUE(validator.addBlock(genesis).isOk());
 
   Ledger::TxDefault tx;
@@ -1249,8 +1215,7 @@ TEST(ChainTest, Renewal_ZeroIdempotentIdAccepted) {
   consensusConfig.slotsPerEpoch = 10;
   producer.initConsensus(consensusConfig);
 
-  const auto tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-renewal");
+  const auto tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-renewal");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
 
@@ -1259,8 +1224,7 @@ TEST(ChainTest, Renewal_ZeroIdempotentIdAccepted) {
   ledgerConfig.workDir = tempDir.string();
   ASSERT_TRUE(producer.initLedger(ledgerConfig).isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      producer, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(producer, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   ASSERT_TRUE(producer.addBlock(genesis).isOk());
 
   Ledger::TxDefault tx;
@@ -1288,12 +1252,11 @@ TEST(ChainTest, Renewal_ZeroIdempotentIdAccepted) {
   ASSERT_TRUE(producer.ensureEpochSeed(producer.getEpochFromSlot(slot2)).isOk());
   auto leader = producer.getSlotLeader(slot2);
   ASSERT_TRUE(leader.isOk());
-  const std::map<uint64_t, const utl::MlDsaKeyPair *> keys = {
-      {AccountBuffer::ID_GENESIS, &genesisKey},
-      {AccountBuffer::ID_FEE, &feeKey},
-      {AccountBuffer::ID_RESERVE, &reserveKey},
-      {AccountBuffer::ID_RECYCLE, &recycleKey},
-      {kTestMinerId, &reserveKey}};
+  const std::map<uint64_t, const utl::MlDsaKeyPair*> keys = {{AccountBuffer::ID_GENESIS, &genesisKey},
+                                                             {AccountBuffer::ID_FEE, &feeKey},
+                                                             {AccountBuffer::ID_RESERVE, &reserveKey},
+                                                             {AccountBuffer::ID_RECYCLE, &recycleKey},
+                                                             {kTestMinerId, &reserveKey}};
   ASSERT_EQ(keys.count(leader.value()), 1u);
 
   // Same admission path the slot leader uses for renewals; block apply goes
@@ -1306,12 +1269,10 @@ TEST(ChainTest, Renewal_ZeroIdempotentIdAccepted) {
     }
     auto renewal = utl::binaryUnpack<Ledger::TxRenewal>(r.data);
     ASSERT_TRUE(renewal.isOk());
-    if (renewal.value().walletId == AccountBuffer::ID_GENESIS ||
-        renewal.value().walletId == AccountBuffer::ID_FEE) {
+    if (renewal.value().walletId == AccountBuffer::ID_GENESIS || renewal.value().walletId == AccountBuffer::ID_FEE) {
       continue;
     }
-    auto sig = utl::mlDsaSign(keys.at(leader.value())->privateKey,
-                              r.signingMessage(producer.getNetworkId()));
+    auto sig = utl::mlDsaSign(keys.at(leader.value())->privateKey, r.signingMessage(producer.getNetworkId()));
     ASSERT_TRUE(sig.isOk());
     r.signatures.push_back(sig.value());
     AccountBuffer scratch;
@@ -1332,7 +1293,7 @@ TEST(ChainTest, ALeaderRenewsOnlyDueAccountsForTheirRenewalFee) {
   auto feeKey = makeKeyPair();
   auto reserveKey = makeKeyPair();
   auto recycleKey = makeKeyPair();
-  const std::map<uint64_t, const utl::MlDsaKeyPair *> keys = {{AccountBuffer::ID_GENESIS, &genesisKey},
+  const std::map<uint64_t, const utl::MlDsaKeyPair*> keys = {{AccountBuffer::ID_GENESIS, &genesisKey},
                                                              {AccountBuffer::ID_FEE, &feeKey},
                                                              {AccountBuffer::ID_RESERVE, &reserveKey},
                                                              {AccountBuffer::ID_RECYCLE, &recycleKey},
@@ -1341,7 +1302,7 @@ TEST(ChainTest, ALeaderRenewsOnlyDueAccountsForTheirRenewalFee) {
   struct Dirs {
     std::vector<std::filesystem::path> paths;
     ~Dirs() {
-      for (const auto &p : paths) {
+      for (const auto& p : paths) {
         std::error_code ec;
         std::filesystem::remove_all(p, ec);
       }
@@ -1353,7 +1314,7 @@ TEST(ChainTest, ALeaderRenewsOnlyDueAccountsForTheirRenewalFee) {
     Ledger::ChainNode tip;
   };
   // Genesis and one transfer; accounts last written before block `minBlocks - 1` are then due.
-  auto open = [&](Net &net, uint64_t minBlocks) {
+  auto open = [&](Net& net, uint64_t minBlocks) {
     Chain::BlockChainConfig config = makeChainConfig(0);
     config.checkpoint.minBlocks = minBlocks;
     config.checkpoint.minAgeSeconds = 0;
@@ -1381,14 +1342,15 @@ TEST(ChainTest, ALeaderRenewsOnlyDueAccountsForTheirRenewalFee) {
     net.tip = makeNextBlock(net.chain, net.tip, {makeRecord(Ledger::T_DEFAULT, tx, reserveKey)});
     ASSERT_TRUE(net.chain.addBlock(net.tip).isOk());
   };
-  auto signedBy = [&](Chain &chain, uint64_t slot, Ledger::Record r) {
+  auto signedBy = [&](Chain& chain, uint64_t slot, Ledger::Record r) {
     EXPECT_TRUE(chain.ensureEpochSeed(chain.getEpochFromSlot(slot)).isOk());
-    const auto &key = *keys.at(chain.getSlotLeader(slot).value());
+    const auto& key = *keys.at(chain.getSlotLeader(slot).value());
     r.signatures = {utl::mlDsaSign(key.privateKey, r.signingMessage(chain.getNetworkId())).value()};
     return r;
   };
   // The block at `slot` holding `records`: sealed, or why not.
-  auto seal = [&](Net &net, uint64_t slot, const std::vector<Ledger::Record> &records) -> Chain::Roe<Ledger::ChainNode> {
+  auto seal = [&](Net& net, uint64_t slot,
+                  const std::vector<Ledger::Record>& records) -> Chain::Roe<Ledger::ChainNode> {
     net.chain.refreshStakeholders(slot);
     EXPECT_TRUE(net.chain.ensureEpochSeed(net.chain.getEpochFromSlot(slot)).isOk());
     auto block = net.chain.linkNextBlock(net.tip, slot, net.chain.getSlotLeader(slot).value(),
@@ -1405,7 +1367,7 @@ TEST(ChainTest, ALeaderRenewsOnlyDueAccountsForTheirRenewalFee) {
   auto renewals = net.chain.collectRenewals(slot2);
   ASSERT_TRUE(renewals.isOk()) << renewals.error().message;
   std::optional<Ledger::Record> user;
-  for (const auto &r : renewals.value()) {
+  for (const auto& r : renewals.value()) {
     if (r.type == Ledger::T_RENEWAL && utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId == kTestMinerId) {
       user = r;
     }
@@ -1447,7 +1409,7 @@ TEST(ChainTest, ALeaderRenewsOnlyDueAccountsForTheirRenewalFee) {
   const uint64_t slot3 = slot2 + 1;
   auto later = net.chain.collectRenewals(slot3);
   ASSERT_TRUE(later.isOk()) << later.error().message;
-  for (const auto &r : later.value()) {
+  for (const auto& r : later.value()) {
     if (r.type == Ledger::T_RENEWAL) {
       EXPECT_NE(utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId, kTestMinerId);
     }
@@ -1504,12 +1466,12 @@ TEST(ChainTest, SystemAccounts_RenewFeeFreeAndAreNeverTerminated) {
   ledgerConfig.workDir = tempDir.string();
   ASSERT_TRUE(producer.initLedger(ledgerConfig).isOk());
 
-  Ledger::ChainNode genesis =
-      makeGenesisBlock(producer, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(producer, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   ASSERT_TRUE(producer.addBlock(genesis).isOk());
-  ASSERT_EQ(producer.getAccount(AccountBuffer::ID_RECYCLE).value().wallet.mBalances.count(AccountBuffer::ID_GENESIS) == 0 ||
-                producer.getAccount(AccountBuffer::ID_RECYCLE).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS) == 0,
-            true); // recycle starts empty: it cannot pay a renewal fee
+  ASSERT_EQ(
+      producer.getAccount(AccountBuffer::ID_RECYCLE).value().wallet.mBalances.count(AccountBuffer::ID_GENESIS) == 0 ||
+          producer.getAccount(AccountBuffer::ID_RECYCLE).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS) == 0,
+      true); // recycle starts empty: it cannot pay a renewal fee
 
   Ledger::TxDefault tx;
   tx.tokenId = AccountBuffer::ID_GENESIS;
@@ -1530,19 +1492,19 @@ TEST(ChainTest, SystemAccounts_RenewFeeFreeAndAreNeverTerminated) {
   ASSERT_TRUE(producer.ensureEpochSeed(producer.getEpochFromSlot(slot2)).isOk());
   auto leader = producer.getSlotLeader(slot2);
   ASSERT_TRUE(leader.isOk());
-  const std::map<uint64_t, const utl::MlDsaKeyPair *> keys = {{AccountBuffer::ID_GENESIS, &genesisKey},
+  const std::map<uint64_t, const utl::MlDsaKeyPair*> keys = {{AccountBuffer::ID_GENESIS, &genesisKey},
                                                              {AccountBuffer::ID_FEE, &feeKey},
                                                              {AccountBuffer::ID_RESERVE, &reserveKey},
                                                              {AccountBuffer::ID_RECYCLE, &recycleKey},
-      {kTestMinerId, &reserveKey}};
-  const auto &leaderKey = *keys.at(leader.value());
+                                                             {kTestMinerId, &reserveKey}};
+  const auto& leaderKey = *keys.at(leader.value());
   auto signByLeader = [&](Ledger::Record r) {
     r.signatures = {utl::mlDsaSign(leaderKey.privateKey, r.signingMessage(producer.getNetworkId())).value()};
     return r;
   };
 
   std::optional<Ledger::Record> recycleRenewal;
-  for (const auto &r : renewals.value()) {
+  for (const auto& r : renewals.value()) {
     ASSERT_NE(r.type, Ledger::T_END_USER) << "a system account must never be terminated";
     auto renewal = utl::binaryUnpack<Ledger::TxRenewal>(r.data);
     ASSERT_TRUE(renewal.isOk());
@@ -1600,7 +1562,7 @@ TEST(ChainTest, SystemAccounts_RenewFeeFreeAndAreNeverTerminated) {
   // carries the committed balance the validator checks when it applies.
   {
     bool seenOther = false;
-    for (const auto &r : renewals.value()) {
+    for (const auto& r : renewals.value()) {
       const uint64_t id = utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId;
       const bool feeFreeSystem = AccountIds::isSystemAccount(id);
       EXPECT_FALSE(feeFreeSystem && seenOther) << "system account " << id << " renews after a crediting record";
@@ -1610,7 +1572,7 @@ TEST(ChainTest, SystemAccounts_RenewFeeFreeAndAreNeverTerminated) {
 
   // Every system-account renewal in the set is fee-free (the full renewal
   // block needs a 3-key genesis account; smoke covers that path).
-  for (const auto &r : renewals.value()) {
+  for (const auto& r : renewals.value()) {
     auto renewal = utl::binaryUnpack<Ledger::TxRenewal>(r.data).value();
     // Genesis included: it issues the native token, so a fee would be minted.
     if (AccountIds::isSystemAccount(renewal.walletId)) {
@@ -1637,8 +1599,7 @@ TEST(ChainTest, AddBlock_RejectsReplayOfAlreadyCommittedIndex) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-replay-old-index");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-replay-old-index");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -1649,8 +1610,7 @@ TEST(ChainTest, AddBlock_RejectsReplayOfAlreadyCommittedIndex) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   ASSERT_TRUE(validator.addBlock(genesis).isOk());
 
   // block1 moves funds from RESERVE to FEE.
@@ -1690,27 +1650,23 @@ TEST(ChainTest, AddBlock_RejectsReplayOfAlreadyCommittedIndex) {
 
   auto feeAfterBlock2 = validator.getAccount(AccountBuffer::ID_FEE);
   ASSERT_TRUE(feeAfterBlock2.isOk());
-  const int64_t feeBalanceAfterBlock2 =
-      feeAfterBlock2.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS);
+  const int64_t feeBalanceAfterBlock2 = feeAfterBlock2.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS);
 
   // Resubmitting the already-committed block1 (index 1, tip is now at 2)
   // must be rejected outright, not re-applied on top of the current tip.
   auto replayResult = validator.addBlock(block1);
   ASSERT_FALSE(replayResult.isOk());
-  EXPECT_NE(replayResult.error().message.find("Invalid block index"),
-            std::string::npos);
+  EXPECT_NE(replayResult.error().message.find("Invalid block index"), std::string::npos);
 
   // block1's RESERVE->FEE transfer must not have been double-applied.
   auto feeAfterReplay = validator.getAccount(AccountBuffer::ID_FEE);
   ASSERT_TRUE(feeAfterReplay.isOk());
-  EXPECT_EQ(feeAfterReplay.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS),
-            feeBalanceAfterBlock2);
+  EXPECT_EQ(feeAfterReplay.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), feeBalanceAfterBlock2);
 
   std::filesystem::remove_all(tempDir, ec);
 }
 
-TEST(ChainTest,
-     ValidateIdempotencyRules_OnlyScansPreviousBlocksOnReplay) {
+TEST(ChainTest, ValidateIdempotencyRules_OnlyScansPreviousBlocksOnReplay) {
   Chain validator;
 
   auto genesisKey = makeKeyPair();
@@ -1726,8 +1682,7 @@ TEST(ChainTest,
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-idempotency-replay");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-idempotency-replay");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -1739,8 +1694,7 @@ TEST(ChainTest,
   ASSERT_TRUE(initResult.isOk());
   validator.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock()); // replayed by a second chain below
 
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   auto addGenesisResult = validator.addBlock(genesis);
   ASSERT_TRUE(addGenesisResult.isOk());
 
@@ -1776,8 +1730,7 @@ TEST(ChainTest,
   ASSERT_TRUE(mountResult2.isOk());
 
   auto loadResult = replayValidator.loadFromLedger(0);
-  ASSERT_TRUE(loadResult.isOk())
-      << "loadFromLedger failed: " << loadResult.error().message;
+  ASSERT_TRUE(loadResult.isOk()) << "loadFromLedger failed: " << loadResult.error().message;
   EXPECT_EQ(loadResult.value(), 2u); // genesis + one normal block
 
   std::filesystem::remove_all(tempDir, ec);
@@ -1796,8 +1749,7 @@ TEST(ChainTest, LateJoiner_CollectRenewals_WhenConfigNotSet_ReturnsEmpty) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir =
-      pp::test::uniqueTempPath("pp-ledger-chain-test-late-joiner");
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-late-joiner");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -1818,15 +1770,12 @@ TEST(ChainTest, LateJoiner_CollectRenewals_WhenConfigNotSet_ReturnsEmpty) {
 
   // collectRenewals must not fail with "Chain config not initialized"
   auto renewalsResult = validator.collectRenewals(0);
-  ASSERT_TRUE(renewalsResult.isOk())
-      << "collectRenewals failed (late joiner config not set): "
-      << (renewalsResult ? "" : renewalsResult.error().message);
+  ASSERT_TRUE(renewalsResult.isOk()) << "collectRenewals failed (late joiner config not set): "
+                                     << (renewalsResult ? "" : renewalsResult.error().message);
   EXPECT_TRUE(renewalsResult.value().empty());
 
   std::filesystem::remove_all(tempDir, ec);
 }
-
-
 
 class ChainComposeTest : public ::testing::Test {
 protected:
@@ -1851,12 +1800,12 @@ TEST_F(ChainComposeTest, StakeExcludesSystemAccounts) {
 // every epoch, N^2 / epoch length block reads (here one epoch a block).
 TEST(ChainReplayTest, ReplayReadsTheLedgerInLinearTime) {
   ComposeHarness harness;
-  harness.SetUp([](Chain::BlockChainConfig &config) { config.checkpoint.minBlocks = 1'000'000'000; }); // no renewals
+  harness.SetUp([](Chain::BlockChainConfig& config) { config.checkpoint.minBlocks = 1'000'000'000; }); // no renewals
   struct TearDown {
-    ComposeHarness &h;
+    ComposeHarness& h;
     ~TearDown() { h.TearDown(); }
   } tearDown{harness};
-  auto &producer = harness.producer;
+  auto& producer = harness.producer;
   producer.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock());
   constexpr uint64_t kBlocks = 200;
   Ledger::ChainNode tip = harness.genesis;
@@ -1880,8 +1829,8 @@ TEST(ChainReplayTest, ReplayReadsTheLedgerInLinearTime) {
 }
 
 TEST_F(ChainComposeTest, ForcedLeader_ProducerAndPeerAcceptTip) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
 
   // Empty body: use heartbeat threshold so seal/validate allow the empty.
   const uint64_t tipSlot = harness_.genesis.block.slot;
@@ -1897,8 +1846,7 @@ TEST_F(ChainComposeTest, ForcedLeader_ProducerAndPeerAcceptTip) {
   producer.setClockOverride(producer.getSlotStartTime(slot));
   peer.setClockOverride(peer.getSlotStartTime(slot));
 
-  Ledger::ChainNode block1 =
-      makeNextBlockAtSlot(producer, harness_.genesis, slot, {});
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(producer, harness_.genesis, slot, {});
   EXPECT_EQ(block1.block.slot, slot);
   EXPECT_EQ(block1.block.slotLeader, forced);
   ASSERT_TRUE(producer.addBlock(block1).isOk());
@@ -1918,7 +1866,7 @@ TEST_F(ChainComposeTest, ForcedLeader_ProducerAndPeerAcceptTip) {
 
 // L-CONSENSUS-WRONG-LEADER: unsealed addBlock rejects a forged slot leader.
 TEST_F(ChainComposeTest, WrongLeader_UnsealedAddBlockRejected) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
 
   // Slot at heartbeat threshold so empty-body policy does not fire first.
   const uint64_t tipSlot = harness_.genesis.block.slot;
@@ -1926,8 +1874,7 @@ TEST_F(ChainComposeTest, WrongLeader_UnsealedAddBlockRejected) {
   const auto stakeholders = producer.getStakeholders();
   ASSERT_FALSE(stakeholders.empty());
   const uint64_t forced = stakeholders.front().id;
-  const uint64_t wrong =
-      (stakeholders.size() > 1) ? stakeholders.back().id : forced + 9999;
+  const uint64_t wrong = (stakeholders.size() > 1) ? stakeholders.back().id : forced + 9999;
   ASSERT_NE(forced, wrong);
 
   producer.forceSlotLeader(slot, forced);
@@ -1940,12 +1887,10 @@ TEST_F(ChainComposeTest, WrongLeader_UnsealedAddBlockRejected) {
   bad.block.timestamp = producer.getSlotEndTime(slot);
   bad.block.slotLeader = wrong;
   bad.block.epoch = slot / 10; // slotsPerEpoch from harness config
-  bad.block.txIndex =
-      harness_.genesis.block.txIndex + harness_.genesis.block.records.size();
+  bad.block.txIndex = harness_.genesis.block.txIndex + harness_.genesis.block.records.size();
   bad.block.records = {};
   bad.block.txRoot = chain_block::calculateTxRoot(bad.block.records);
-  bad.block.stakeSnapshotHash =
-      chain_block::calculateStakeSnapshotHash(producer.getStakeholders());
+  bad.block.stakeSnapshotHash = chain_block::calculateStakeSnapshotHash(producer.getStakeholders());
   bad.block.committee = chain_block::toCommittee(producer.getStakeholders()); // it opens epoch 1
   ASSERT_TRUE(producer.ensureEpochSeed(bad.block.epoch).isOk());
   bad.block.epochSeed = producer.getEpochSeed();
@@ -1961,15 +1906,13 @@ TEST_F(ChainComposeTest, WrongLeader_UnsealedAddBlockRejected) {
   ASSERT_TRUE(add.isError()) << "wrong leader must be rejected";
   // processNormalBlock maps checkBlock failures to E_BLOCK_VALIDATION.
   EXPECT_EQ(add.error().code, Chain::E_BLOCK_VALIDATION) << add.error().message;
-  EXPECT_NE(add.error().message.find("slot leader"), std::string::npos)
-      << add.error().message;
+  EXPECT_NE(add.error().message.find("slot leader"), std::string::npos) << add.error().message;
   EXPECT_EQ(producer.getNextBlockId(), harness_.genesis.block.index + 1);
 }
 
 namespace {
 
-Ledger::Record makeReserveTransfer(const ComposeHarness &h, uint64_t amount,
-                                   uint64_t idempotentId) {
+Ledger::Record makeReserveTransfer(const ComposeHarness& h, uint64_t amount, uint64_t idempotentId) {
   Ledger::TxDefault tx;
   tx.tokenId = AccountBuffer::ID_GENESIS;
   tx.fromWalletId = AccountBuffer::ID_RESERVE;
@@ -1982,7 +1925,7 @@ Ledger::Record makeReserveTransfer(const ComposeHarness &h, uint64_t amount,
   return makeRecord(Ledger::T_DEFAULT, tx, h.reserveKey, h.chainConfig.networkId);
 }
 
-int64_t reserveBalance(const Chain &chain) {
+int64_t reserveBalance(const Chain& chain) {
   auto acc = chain.getAccount(AccountBuffer::ID_RESERVE);
   return acc ? acc->wallet.mBalances.at(AccountBuffer::ID_GENESIS) : -1;
 }
@@ -1992,8 +1935,8 @@ int64_t reserveBalance(const Chain &chain) {
 // A block with valid txs but a forged stateRoot is rejected without touching
 // tip state; the honest block for the same height is still accepted.
 TEST_F(ChainComposeTest, BadStateRoot_RejectedThenHonestBlockAccepted) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   const uint64_t slot = harness_.genesis.block.slot + 1;
   const uint64_t leaderId = producer.getStakeholders().front().id;
   producer.forceSlotLeader(slot, leaderId);
@@ -2001,8 +1944,8 @@ TEST_F(ChainComposeTest, BadStateRoot_RejectedThenHonestBlockAccepted) {
   producer.setClockOverride(producer.getSlotStartTime(slot));
   peer.setClockOverride(peer.getSlotStartTime(slot));
 
-  Ledger::ChainNode honest = makeNextBlockAtSlot(
-      producer, harness_.genesis, slot, {makeReserveTransfer(harness_, 100, 1)});
+  Ledger::ChainNode honest =
+      makeNextBlockAtSlot(producer, harness_.genesis, slot, {makeReserveTransfer(harness_, 100, 1)});
   ASSERT_EQ(honest.block.records.size(), 1u);
 
   Ledger::ChainNode forged = honest;
@@ -2014,8 +1957,7 @@ TEST_F(ChainComposeTest, BadStateRoot_RejectedThenHonestBlockAccepted) {
   const auto stakeBefore = peer.getStakeholders();
   auto bad = peer.addBlock(forged);
   ASSERT_TRUE(bad.isError());
-  EXPECT_NE(bad.error().message.find("stateRoot"), std::string::npos)
-      << bad.error().message;
+  EXPECT_NE(bad.error().message.find("stateRoot"), std::string::npos) << bad.error().message;
   EXPECT_EQ(peer.getNextBlockId(), honest.block.index);
   EXPECT_EQ(reserveBalance(peer), balanceBefore);
   EXPECT_EQ(peer.getStakeholders().size(), stakeBefore.size());
@@ -2034,7 +1976,7 @@ TEST_F(ChainComposeTest, BadStateRoot_RejectedThenHonestBlockAccepted) {
 // A seal whose commit is rejected rolls the tip back; the producer can then
 // seal and commit the next honest block.
 TEST_F(ChainComposeTest, RejectedSeal_RollsBackAndProducerRecovers) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const uint64_t leaderId = producer.getStakeholders().front().id;
   const uint64_t tipSlot = harness_.genesis.block.slot;
   const int64_t balanceBefore = reserveBalance(producer);
@@ -2042,8 +1984,7 @@ TEST_F(ChainComposeTest, RejectedSeal_RollsBackAndProducerRecovers) {
   // Reuses the tip slot: rejected either at seal or at commit.
   producer.forceSlotLeader(tipSlot, leaderId);
   producer.setClockOverride(producer.getSlotStartTime(tipSlot));
-  auto bad = producer.linkNextBlock(harness_.genesis, tipSlot, leaderId,
-                                    producer.getSlotEndTime(tipSlot),
+  auto bad = producer.linkNextBlock(harness_.genesis, tipSlot, leaderId, producer.getSlotEndTime(tipSlot),
                                     {makeReserveTransfer(harness_, 50, 1)});
   auto seal = producer.sealBlock(bad);
   if (seal.isOk()) {
@@ -2055,8 +1996,8 @@ TEST_F(ChainComposeTest, RejectedSeal_RollsBackAndProducerRecovers) {
   const uint64_t slot = tipSlot + 1;
   producer.forceSlotLeader(slot, leaderId);
   producer.setClockOverride(producer.getSlotStartTime(slot));
-  Ledger::ChainNode next = makeNextBlockAtSlot(
-      producer, harness_.genesis, slot, {makeReserveTransfer(harness_, 50, 1)});
+  Ledger::ChainNode next =
+      makeNextBlockAtSlot(producer, harness_.genesis, slot, {makeReserveTransfer(harness_, 50, 1)});
   auto add = producer.addBlock(next);
   ASSERT_TRUE(add.isOk()) << add.error().message;
   EXPECT_EQ(reserveBalance(producer), balanceBefore - 51);
@@ -2064,8 +2005,8 @@ TEST_F(ChainComposeTest, RejectedSeal_RollsBackAndProducerRecovers) {
 
 // Unsealed peer path applies the arrival checks before touching the tip.
 TEST_F(ChainComposeTest, UnsealedAddBlock_RejectsSlotRegressionAndFarFuture) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   const uint64_t leaderId = producer.getStakeholders().front().id;
   const uint64_t slot1 = harness_.genesis.block.slot + 2;
   producer.forceSlotLeader(slot1, leaderId);
@@ -2073,8 +2014,8 @@ TEST_F(ChainComposeTest, UnsealedAddBlock_RejectsSlotRegressionAndFarFuture) {
   producer.setClockOverride(producer.getSlotStartTime(slot1));
   peer.setClockOverride(peer.getSlotStartTime(slot1));
 
-  Ledger::ChainNode block1 = makeNextBlockAtSlot(
-      producer, harness_.genesis, slot1, {makeReserveTransfer(harness_, 10, 1)});
+  Ledger::ChainNode block1 =
+      makeNextBlockAtSlot(producer, harness_.genesis, slot1, {makeReserveTransfer(harness_, 10, 1)});
   ASSERT_TRUE(producer.addBlock(block1).isOk());
   ASSERT_TRUE(peer.addBlock(block1).isOk());
 
@@ -2091,14 +2032,12 @@ TEST_F(ChainComposeTest, UnsealedAddBlock_RejectsSlotRegressionAndFarFuture) {
 
   auto regress = peer.addBlock(relabel(slot1));
   ASSERT_TRUE(regress.isError());
-  EXPECT_NE(regress.error().message.find("Invalid block slot"),
-            std::string::npos) << regress.error().message;
+  EXPECT_NE(regress.error().message.find("Invalid block slot"), std::string::npos) << regress.error().message;
 
   // slotDuration 5 -> tolerance 3 slots.
   auto future = peer.addBlock(relabel(slot1 + 4));
   ASSERT_TRUE(future.isError());
-  EXPECT_NE(future.error().message.find("too far in the future"),
-            std::string::npos) << future.error().message;
+  EXPECT_NE(future.error().message.find("too far in the future"), std::string::npos) << future.error().message;
 
   EXPECT_EQ(reserveBalance(peer), balanceBefore);
   EXPECT_EQ(peer.getNextBlockId(), block1.block.index + 1);
@@ -2107,7 +2046,7 @@ TEST_F(ChainComposeTest, UnsealedAddBlock_RejectsSlotRegressionAndFarFuture) {
 // A seal that is never committed (e.g. broadcast failed) can be abandoned;
 // the tip is restored and the producer seals the next slot.
 TEST_F(ChainComposeTest, AbandonSeal_RestoresTipAndAllowsNextSeal) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const uint64_t leaderId = producer.getStakeholders().front().id;
   const uint64_t slot = harness_.genesis.block.slot + 1;
   producer.forceSlotLeader(slot, leaderId);
@@ -2115,8 +2054,8 @@ TEST_F(ChainComposeTest, AbandonSeal_RestoresTipAndAllowsNextSeal) {
   producer.setClockOverride(producer.getSlotStartTime(slot));
   const int64_t balanceBefore = reserveBalance(producer);
 
-  Ledger::ChainNode sealed = makeNextBlockAtSlot(
-      producer, harness_.genesis, slot, {makeReserveTransfer(harness_, 20, 1)});
+  Ledger::ChainNode sealed =
+      makeNextBlockAtSlot(producer, harness_.genesis, slot, {makeReserveTransfer(harness_, 20, 1)});
   EXPECT_EQ(reserveBalance(producer), balanceBefore - 21);
 
   producer.abandonSeal();
@@ -2124,9 +2063,8 @@ TEST_F(ChainComposeTest, AbandonSeal_RestoresTipAndAllowsNextSeal) {
   EXPECT_EQ(producer.getNextBlockId(), harness_.genesis.block.index + 1);
 
   producer.setClockOverride(producer.getSlotStartTime(slot + 1));
-  Ledger::ChainNode next = makeNextBlockAtSlot(
-      producer, harness_.genesis, slot + 1,
-      {makeReserveTransfer(harness_, 20, 1)});
+  Ledger::ChainNode next =
+      makeNextBlockAtSlot(producer, harness_.genesis, slot + 1, {makeReserveTransfer(harness_, 20, 1)});
   auto add = producer.addBlock(next);
   ASSERT_TRUE(add.isOk()) << add.error().message;
   EXPECT_EQ(reserveBalance(producer), balanceBefore - 21);
@@ -2137,8 +2075,8 @@ TEST_F(ChainComposeTest, AbandonSeal_RestoresTipAndAllowsNextSeal) {
 // abandons its own seal it cannot take the winning block from sync (L1 smoke:
 // a miner stuck forever after one failed broadcast).
 TEST_F(ChainComposeTest, AbandonSeal_LetsLosingProducerAcceptWinningBlock) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   const uint64_t leaderId = producer.getStakeholders().front().id;
   const uint64_t slot = harness_.genesis.block.slot + 1;
   producer.forceSlotLeader(slot, leaderId);
@@ -2146,18 +2084,16 @@ TEST_F(ChainComposeTest, AbandonSeal_LetsLosingProducerAcceptWinningBlock) {
   producer.setClockOverride(producer.getSlotStartTime(slot));
   peer.setClockOverride(peer.getSlotStartTime(slot));
 
-  Ledger::ChainNode winner = makeNextBlockAtSlot(
-      producer, harness_.genesis, slot, {makeReserveTransfer(harness_, 100, 1)});
-  Ledger::ChainNode loser = makeNextBlockAtSlot(
-      peer, harness_.genesis, slot, {makeReserveTransfer(harness_, 50, 2)});
+  Ledger::ChainNode winner =
+      makeNextBlockAtSlot(producer, harness_.genesis, slot, {makeReserveTransfer(harness_, 100, 1)});
+  Ledger::ChainNode loser = makeNextBlockAtSlot(peer, harness_.genesis, slot, {makeReserveTransfer(harness_, 50, 2)});
   ASSERT_EQ(loser.block.index, winner.block.index);
   ASSERT_NE(loser.hash, winner.hash);
   ASSERT_TRUE(producer.addBlock(winner).isOk());
 
   auto refused = peer.addBlock(winner);
   ASSERT_TRUE(refused.isError());
-  EXPECT_NE(refused.error().message.find("uncommitted sealed block"), std::string::npos)
-      << refused.error().message;
+  EXPECT_NE(refused.error().message.find("uncommitted sealed block"), std::string::npos) << refused.error().message;
 
   peer.abandonSeal();
   auto accepted = peer.addBlock(winner);
@@ -2174,8 +2110,8 @@ TEST_F(ChainComposeTest, AbandonSeal_LetsLosingProducerAcceptWinningBlock) {
 // then receives a late block of the current epoch must still validate it with
 // the same snapshot as the producer (L-SMOKE-LATEJOIN stakeSnapshotHash mismatch).
 TEST_F(ChainComposeTest, StakeSnapshot_IndependentOfWallClockRefreshTiming) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   const uint64_t leaderId = producer.getStakeholders().front().id;
   const uint64_t slotA = harness_.genesis.block.slot + 1;
   const uint64_t slotA2 = slotA + 1;
@@ -2191,15 +2127,13 @@ TEST_F(ChainComposeTest, StakeSnapshot_IndependentOfWallClockRefreshTiming) {
 
   // Producer: two stake-changing blocks in one epoch, then the next epoch's first.
   producer.setClockOverride(producer.getSlotStartTime(slotA));
-  Ledger::ChainNode a = makeNextBlockAtSlot(producer, harness_.genesis, slotA,
-                                            {makeReserveTransfer(harness_, 100, 1)});
+  Ledger::ChainNode a = makeNextBlockAtSlot(producer, harness_.genesis, slotA, {makeReserveTransfer(harness_, 100, 1)});
   ASSERT_TRUE(producer.addBlock(a).isOk());
   producer.setClockOverride(producer.getSlotStartTime(slotA2));
   Ledger::ChainNode a2 = makeNextBlockAtSlot(producer, a, slotA2, {makeReserveTransfer(harness_, 50, 2)});
   ASSERT_TRUE(producer.addBlock(a2).isOk());
   producer.setClockOverride(producer.getSlotStartTime(slotNextEpoch));
-  Ledger::ChainNode b = makeNextBlockAtSlot(producer, a2, slotNextEpoch,
-                                            {makeReserveTransfer(harness_, 25, 3)});
+  Ledger::ChainNode b = makeNextBlockAtSlot(producer, a2, slotNextEpoch, {makeReserveTransfer(harness_, 25, 3)});
   ASSERT_TRUE(producer.addBlock(b).isOk());
 
   // Peer: receives `a`, its clock crosses into the next epoch and its run loop
@@ -2225,8 +2159,8 @@ TEST_F(ChainComposeTest, StakeSnapshot_IndependentOfWallClockRefreshTiming) {
 // while the previous epoch had no local blocks) and every later block of the
 // tip epoch was rejected with "Block epochSeed mismatch" until a restart.
 TEST_F(ChainComposeTest, EpochSeed_LaggingRefreshDoesNotPoisonTipEpochSeed) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   const uint64_t leaderId = producer.getStakeholders().front().id;
   // Epoch T >= 1: epoch 0's seed comes from the genesis config, not stakes.
   uint64_t slotA = harness_.genesis.block.slot + 1;
@@ -2252,8 +2186,7 @@ TEST_F(ChainComposeTest, EpochSeed_LaggingRefreshDoesNotPoisonTipEpochSeed) {
 
   // Two stake-changing blocks in epoch T.
   producer.setClockOverride(producer.getSlotStartTime(slotA));
-  Ledger::ChainNode a = makeNextBlockAtSlot(producer, harness_.genesis, slotA,
-                                            {makeReserveTransfer(harness_, 100, 1)});
+  Ledger::ChainNode a = makeNextBlockAtSlot(producer, harness_.genesis, slotA, {makeReserveTransfer(harness_, 100, 1)});
   ASSERT_TRUE(producer.addBlock(a).isOk());
   producer.setClockOverride(producer.getSlotStartTime(slotA2));
   Ledger::ChainNode a2 = makeNextBlockAtSlot(producer, a, slotA2, {makeReserveTransfer(harness_, 50, 2)});
@@ -2286,8 +2219,8 @@ TEST(ChainPolicyTest, ShouldSealEmptyHeartbeat) {
 }
 
 TEST_F(ChainComposeTest, EmptyHeartbeat_ForcedLeaderSealAccepted) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   ASSERT_FALSE(producer.getStakeholders().empty());
   EXPECT_EQ(producer.getHeartbeatSlots(), 10u);
 
@@ -2299,8 +2232,7 @@ TEST_F(ChainComposeTest, EmptyHeartbeat_ForcedLeaderSealAccepted) {
   producer.setClockOverride(producer.getSlotStartTime(slot));
   peer.setClockOverride(peer.getSlotStartTime(slot));
 
-  Ledger::ChainNode empty =
-      makeNextBlockAtSlot(producer, harness_.genesis, slot, {});
+  Ledger::ChainNode empty = makeNextBlockAtSlot(producer, harness_.genesis, slot, {});
   ASSERT_TRUE(empty.block.records.empty());
   ASSERT_TRUE(producer.addBlock(empty).isOk()) << "producer commit";
   ASSERT_TRUE(peer.addBlock(empty).isOk()) << "peer validate empty";
@@ -2309,8 +2241,8 @@ TEST_F(ChainComposeTest, EmptyHeartbeat_ForcedLeaderSealAccepted) {
 }
 
 TEST_F(ChainComposeTest, EmptyHeartbeat_EarlyEmptyRejected) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   ASSERT_EQ(producer.getHeartbeatSlots(), 10u);
 
   const uint64_t tipSlot = harness_.genesis.block.slot;
@@ -2329,19 +2261,16 @@ TEST_F(ChainComposeTest, EmptyHeartbeat_EarlyEmptyRejected) {
   early.block.slot = earlySlot;
   early.block.timestamp = producer.getSlotEndTime(earlySlot);
   early.block.slotLeader = leaderId;
-  early.block.txIndex =
-      harness_.genesis.block.txIndex + harness_.genesis.block.records.size();
+  early.block.txIndex = harness_.genesis.block.txIndex + harness_.genesis.block.records.size();
   early.block.records = {};
   auto seal = producer.sealBlock(early);
   ASSERT_TRUE(seal.isError()) << "seal must reject premature empty";
-  EXPECT_NE(seal.error().message.find("Empty heartbeat"), std::string::npos)
-      << seal.error().message;
+  EXPECT_NE(seal.error().message.find("Empty heartbeat"), std::string::npos) << seal.error().message;
 
   // Peer unsealed path: forge a well-formed early empty (skip seal).
   early.block.epoch = earlySlot / 10;
   early.block.txRoot = chain_block::calculateTxRoot(early.block.records);
-  early.block.stakeSnapshotHash =
-      chain_block::calculateStakeSnapshotHash(peer.getStakeholders());
+  early.block.stakeSnapshotHash = chain_block::calculateStakeSnapshotHash(peer.getStakeholders());
   ASSERT_TRUE(peer.ensureEpochSeed(early.block.epoch).isOk());
   early.block.epochSeed = peer.getEpochSeed();
   auto tip = peer.readLastBlock();
@@ -2351,23 +2280,21 @@ TEST_F(ChainComposeTest, EmptyHeartbeat_EarlyEmptyRejected) {
 
   auto peerAdd = peer.addBlock(early);
   ASSERT_TRUE(peerAdd.isError()) << "peer must reject premature empty";
-  EXPECT_EQ(peerAdd.error().code, Chain::E_BLOCK_VALIDATION)
-      << peerAdd.error().message;
-  EXPECT_NE(peerAdd.error().message.find("Empty heartbeat"), std::string::npos)
-      << peerAdd.error().message;
+  EXPECT_EQ(peerAdd.error().code, Chain::E_BLOCK_VALIDATION) << peerAdd.error().message;
+  EXPECT_NE(peerAdd.error().message.find("Empty heartbeat"), std::string::npos) << peerAdd.error().message;
   EXPECT_EQ(peer.getNextBlockId(), harness_.genesis.block.index + 1);
 }
-
 
 // An epoch without blocks does not stop the chain (WIRE_SCHEMA § Epoch seed): the next block's
 // seed chains through the empty epochs, on the producer and on a peer admitting the block.
 TEST_F(ChainComposeTest, EpochSeed_ChainsThroughEmptyEpochs) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   const uint64_t slot1 = 1;
   producer.setClockOverride(producer.getSlotStartTime(slot1));
   peer.setClockOverride(peer.getSlotStartTime(slot1));
-  Ledger::ChainNode block1 = makeNextBlockAtSlot(producer, harness_.genesis, slot1, {makeReserveTransfer(harness_, 5, 50)});
+  Ledger::ChainNode block1 =
+      makeNextBlockAtSlot(producer, harness_.genesis, slot1, {makeReserveTransfer(harness_, 5, 50)});
   ASSERT_TRUE(producer.addBlock(block1).isOk());
   ASSERT_TRUE(peer.addBlock(block1).isOk());
 
@@ -2382,7 +2309,7 @@ TEST_F(ChainComposeTest, EpochSeed_ChainsThroughEmptyEpochs) {
   ASSERT_TRUE(peerAdd.isOk()) << peerAdd.error().message;
 
   // Spec oracle: each epoch's seed from the one before; no reveal was recorded for epochs 1..3.
-  const std::string &networkId = harness_.chainConfig.networkId;
+  const std::string& networkId = harness_.chainConfig.networkId;
   const std::string seed0 = harness_.genesis.block.epochSeed;
   const std::string seed1 = consensus::deriveEpochSeedV2(1, networkId, seed0, std::nullopt);
   const std::string seed2 = consensus::deriveEpochSeedV2(2, networkId, seed1, std::nullopt);
@@ -2400,8 +2327,8 @@ TEST_F(ChainComposeTest, EpochSeed_ChainsThroughEmptyEpochs) {
 // (every genesis transfer mints); issued ids come only from the registrar;
 // user ids from any funded account.
 TEST_F(ChainComposeTest, Registrar_AloneCreatesIssuedAccounts_GenesisOnlyFundsReserve) {
-  auto &producer = harness_.producer;
-  const auto &registrarKey = harness_.recycleKey; // fixture default
+  auto& producer = harness_.producer;
+  const auto& registrarKey = harness_.recycleKey;               // fixture default
   const int64_t now = static_cast<int64_t>(std::time(nullptr)); // buffer admission checks wall time
   uint64_t idem = 100;
 
@@ -2414,13 +2341,13 @@ TEST_F(ChainComposeTest, Registrar_AloneCreatesIssuedAccounts_GenesisOnlyFundsRe
   fund.idempotentId = idem++;
   fund.validationTsMin = harness_.chainConfig.genesisTime;
   fund.validationTsMax = harness_.chainConfig.genesisTime + 3600;
-  Ledger::ChainNode block1 = makeNextBlock(producer, harness_.genesis,
-                                           {makeRecord(Ledger::T_DEFAULT, fund, harness_.reserveKey)});
+  Ledger::ChainNode block1 =
+      makeNextBlock(producer, harness_.genesis, {makeRecord(Ledger::T_DEFAULT, fund, harness_.reserveKey)});
   ASSERT_TRUE(producer.addBlock(block1).isOk());
   auto leader = producer.getSlotLeader(block1.block.slot + 1);
   ASSERT_TRUE(leader.isOk());
 
-  auto newAccount = [&](uint64_t from, uint64_t to, const utl::MlDsaKeyPair &signer, uint64_t fee = 6) {
+  auto newAccount = [&](uint64_t from, uint64_t to, const utl::MlDsaKeyPair& signer, uint64_t fee = 6) {
     Ledger::TxNewUser nu;
     nu.fromWalletId = from;
     nu.toWalletId = to;
@@ -2431,10 +2358,10 @@ TEST_F(ChainComposeTest, Registrar_AloneCreatesIssuedAccounts_GenesisOnlyFundsRe
     nu.validationTsMin = now - 60;
     nu.validationTsMax = now + 60;
     AccountBuffer scratch;
-    return producer.addBufferTransaction(
-        scratch, makeRecord(Ledger::T_NEW_USER, nu, signer, producer.getNetworkId()), leader.value());
+    return producer.addBufferTransaction(scratch, makeRecord(Ledger::T_NEW_USER, nu, signer, producer.getNetworkId()),
+                                         leader.value());
   };
-  auto expectRefused = [](const auto &added, const std::string &why) {
+  auto expectRefused = [](const auto& added, const std::string& why) {
     ASSERT_FALSE(added.isOk()) << why;
     EXPECT_NE(added.error().message.find(why), std::string::npos) << added.error().message;
   };
@@ -2473,7 +2400,7 @@ TEST_F(ChainComposeTest, Registrar_AloneCreatesIssuedAccounts_GenesisOnlyFundsRe
 // A config update applies at the next epoch boundary, and only one can be
 // pending: at most one takes effect per epoch. (Key rotation applies at once.)
 TEST_F(ChainComposeTest, ConfigUpdate_AppliesAtNextEpochAndOnlyOneIsPending) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const uint64_t before = producer.getMaxTransactionsPerBlock();
   const std::vector<utl::MlDsaKeyPair> rotated = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
 
@@ -2496,8 +2423,9 @@ TEST_F(ChainComposeTest, ConfigUpdate_AppliesAtNextEpochAndOnlyOneIsPending) {
 
   // Epoch 0 (slots 0..9): accepted, not yet in force.
   const auto first = configTx(before + 1, 1, harness_.chainConfig.genesisTime, harness_.chainConfig.genesisTime + 3600);
-  Ledger::ChainNode block1 = makeNextBlockAtSlot(
-      producer, harness_.genesis, 1, {makeRecord(Ledger::T_CONFIG, first, harness_.genesisKey, producer.getNetworkId())});
+  Ledger::ChainNode block1 =
+      makeNextBlockAtSlot(producer, harness_.genesis, 1,
+                          {makeRecord(Ledger::T_CONFIG, first, harness_.genesisKey, producer.getNetworkId())});
   ASSERT_TRUE(producer.addBlock(block1).isOk());
   EXPECT_EQ(producer.getMaxTransactionsPerBlock(), before);
 
@@ -2541,8 +2469,8 @@ TEST_F(ChainComposeTest, ConfigUpdate_AppliesAtNextEpochAndOnlyOneIsPending) {
 // never makes a final block undoable, a block under a lowered one never final before the ones under
 // it (the finalized height is prefix-closed).
 TEST_F(ChainComposeTest, Finality_ABlockKeepsTheBoundItWasCommittedUnder) {
-  auto &producer = harness_.producer;
-  const auto &cfg = harness_.chainConfig; // 5 s slots, 10 slots an epoch, finality an hour
+  auto& producer = harness_.producer;
+  const auto& cfg = harness_.chainConfig; // 5 s slots, 10 slots an epoch, finality an hour
   ASSERT_EQ(cfg.finalitySeconds, 3600u);
   const std::vector<utl::MlDsaKeyPair> rotated = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
   auto configRecord = [&](uint64_t finality, uint64_t idem, bool byRotated) {
@@ -2576,7 +2504,8 @@ TEST_F(ChainComposeTest, Finality_ABlockKeepsTheBoundItWasCommittedUnder) {
   Ledger::ChainNode block2 = makeNextBlockAtSlot(producer, block1, cfg.slotsPerEpoch, {configRecord(3600, 2, true)});
   ASSERT_TRUE(producer.addBlock(block2).isOk());
   EXPECT_EQ(producer.getFinalitySeconds(), 7200u);
-  Ledger::ChainNode block3 = makeNextBlockAtSlot(producer, block2, 2 * cfg.slotsPerEpoch, {configRecord(3600, 3, true)});
+  Ledger::ChainNode block3 =
+      makeNextBlockAtSlot(producer, block2, 2 * cfg.slotsPerEpoch, {configRecord(3600, 3, true)});
   ASSERT_TRUE(producer.addBlock(block3).isOk()) << "a third update, harmless: the same bound";
   EXPECT_EQ(producer.getFinalitySeconds(), 3600u);
   // FN007: each header says when it and every block below it are final — a running maximum.
@@ -2607,8 +2536,8 @@ TEST_F(ChainComposeTest, Finality_ABlockKeepsTheBoundItWasCommittedUnder) {
 // it did not sign — whoever sealed it, from public chain data — is refused, and the leader's own
 // block is then still taken.
 TEST_F(ChainComposeTest, OnlyTheSlotLeaderSignsItsBlock) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   const Ledger::ChainNode honest =
       makeNextBlockAtSlot(producer, harness_.genesis, 1, {makeReserveTransfer(harness_, 10, 1)});
   ASSERT_EQ(honest.block.producerSignatures.size(), 1u);
@@ -2635,8 +2564,8 @@ TEST_F(ChainComposeTest, OnlyTheSlotLeaderSignsItsBlock) {
 }
 
 TEST_F(ChainComposeTest, Finality_ABlockWithAnotherFinalAtIsRefused) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   Ledger::ChainNode block1 = makeNextBlockAtSlot(producer, harness_.genesis, 1, {makeReserveTransfer(harness_, 10, 1)});
   ASSERT_TRUE(producer.addBlock(block1).isOk());
   for (const int64_t delta : {int64_t{-1}, int64_t{1}}) {
@@ -2658,18 +2587,18 @@ namespace {
 /** Offers T_CONFIG updates (harness config + `change`, genesis rotated to 3 keys) to the
  *  producer's buffer, each with a fresh idempotency id. */
 struct ConfigUpdateProbe {
-  ComposeHarness &h;
+  ComposeHarness& h;
   std::vector<utl::MlDsaKeyPair> rotated{makeKeyPair(), makeKeyPair(), makeKeyPair()};
   uint64_t idem = 1;
 
-  explicit ConfigUpdateProbe(ComposeHarness &harness) : h(harness) {}
+  explicit ConfigUpdateProbe(ComposeHarness& harness) : h(harness) {}
 
-  Chain::Roe<void> add(const std::function<void(Chain::BlockChainConfig &)> &change) {
-    return addMeta([&](Chain::GenesisAccountMeta &gm) { change(gm.config); });
+  Chain::Roe<void> add(const std::function<void(Chain::BlockChainConfig&)>& change) {
+    return addMeta([&](Chain::GenesisAccountMeta& gm) { change(gm.config); });
   }
 
   /** A T_CONFIG whose meta (config, rotated genesis keys, authority in force) `tweak` edits. */
-  Chain::Roe<void> addMeta(const std::function<void(Chain::GenesisAccountMeta &)> &tweak) {
+  Chain::Roe<void> addMeta(const std::function<void(Chain::GenesisAccountMeta&)>& tweak) {
     Chain::GenesisAccountMeta gm;
     gm.config = h.chainConfig;
     gm.genesis.wallet = h.producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
@@ -2698,28 +2627,28 @@ struct ConfigUpdateProbe {
 // Slot timing is fixed at genesis (BLOCK_PIPELINE open item D): the slot schedule is set once
 // from it, so a config update may not change slotDuration or slotsPerEpoch either way.
 TEST_F(ChainComposeTest, ConfigUpdate_RefusesSlotTimingChanges) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   producer.setClockOverride(producer.getSlotStartTime(1));
   ConfigUpdateProbe probe(harness_);
-  auto tryConfig = [&](const std::function<void(Chain::BlockChainConfig &)> &change) { return probe.add(change); };
-  auto refused = [&](const std::function<void(Chain::BlockChainConfig &)> &change, const std::string &why) {
+  auto tryConfig = [&](const std::function<void(Chain::BlockChainConfig&)>& change) { return probe.add(change); };
+  auto refused = [&](const std::function<void(Chain::BlockChainConfig&)>& change, const std::string& why) {
     auto added = tryConfig(change);
     ASSERT_FALSE(added.isOk()) << why;
     EXPECT_NE(added.error().message.find(why), std::string::npos) << added.error().message;
   };
-  refused([](auto &c) { c.slotDuration -= 1; }, "Slot duration is fixed at genesis");
-  refused([](auto &c) { c.slotDuration += 1; }, "Slot duration is fixed at genesis");
-  refused([](auto &c) { c.slotsPerEpoch += 1; }, "Slots per epoch is fixed at genesis");
-  refused([](auto &c) { c.slotsPerEpoch -= 1; }, "Slots per epoch is fixed at genesis");
-  auto other = tryConfig([](auto &c) { c.maxTransactionsPerBlock += 1; });
+  refused([](auto& c) { c.slotDuration -= 1; }, "Slot duration is fixed at genesis");
+  refused([](auto& c) { c.slotDuration += 1; }, "Slot duration is fixed at genesis");
+  refused([](auto& c) { c.slotsPerEpoch += 1; }, "Slots per epoch is fixed at genesis");
+  refused([](auto& c) { c.slotsPerEpoch -= 1; }, "Slots per epoch is fixed at genesis");
+  auto other = tryConfig([](auto& c) { c.maxTransactionsPerBlock += 1; });
   EXPECT_TRUE(other.isOk()) << other.error().message;
 }
 
 namespace {
 
 /** A T_BEACON_CERT for `cert`, signed by `signer` (the harness's admin key unless a test says otherwise). */
-Ledger::Record makeBeaconCertRecord(const BeaconCertificate &cert, const utl::MlDsaKeyPair &signer,
-                                    const std::string &networkId, uint64_t idem, int64_t genesisTime,
+Ledger::Record makeBeaconCertRecord(const BeaconCertificate& cert, const utl::MlDsaKeyPair& signer,
+                                    const std::string& networkId, uint64_t idem, int64_t genesisTime,
                                     uint64_t fee = 0) {
   Ledger::TxBeaconCert tx;
   tx.fee = fee;
@@ -2731,7 +2660,7 @@ Ledger::Record makeBeaconCertRecord(const BeaconCertificate &cert, const utl::Ml
 }
 
 /** The next certificate after `current`: a fresh key, no cutover (an honest rotation). */
-BeaconCertificate nextCertificate(const Chain::ChainAuthority &current) {
+BeaconCertificate nextCertificate(const Chain::ChainAuthority& current) {
   BeaconCertificate next = current.beacon;
   next.generation = current.beacon.generation + 1;
   next.publicKey = makeKeyPair().publicKey;
@@ -2745,7 +2674,7 @@ BeaconCertificate nextCertificate(const Chain::ChainAuthority &current) {
 // beacon-authority ba2: the admin set certifies the next generation; it is in force once its
 // block applies, and genesis renewals then carry it.
 TEST_F(ChainComposeTest, BeaconCert_NextGenerationTakesEffect) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   producer.setClockOverride(producer.getSlotStartTime(1));
   const auto before = producer.getAuthority().value();
   const BeaconCertificate next = nextCertificate(before);
@@ -2760,34 +2689,34 @@ TEST_F(ChainComposeTest, BeaconCert_NextGenerationTakesEffect) {
 
   // A config update now carries generation 2 (and is refused with generation 1).
   ConfigUpdateProbe probe(harness_);
-  EXPECT_TRUE(probe.addMeta([](auto &) {}).isOk());
-  auto stale = probe.addMeta([&](auto &gm) { gm.authority = before; });
+  EXPECT_TRUE(probe.addMeta([](auto&) {}).isOk());
+  auto stale = probe.addMeta([&](auto& gm) { gm.authority = before; });
   ASSERT_FALSE(stale.isOk());
 }
 
 TEST_F(ChainComposeTest, BeaconCert_RefusesEveryBadCertificate) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   producer.setClockOverride(producer.getSlotStartTime(1));
   const auto current = producer.getAuthority().value();
   const auto admin = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
   uint64_t idem = 1;
-  auto tryCert = [&](const BeaconCertificate &cert, const utl::MlDsaKeyPair &signer, uint64_t fee = 0) {
+  auto tryCert = [&](const BeaconCertificate& cert, const utl::MlDsaKeyPair& signer, uint64_t fee = 0) {
     AccountBuffer scratch;
     return producer.addBufferTransaction(
         scratch,
         makeBeaconCertRecord(cert, signer, producer.getNetworkId(), idem++, harness_.chainConfig.genesisTime, fee),
         kTestMinerId);
   };
-  const std::vector<std::pair<std::string, std::function<void(BeaconCertificate &)>>> refused = {
-      {"must be generation 2", [](auto &c) { c.generation = 1; }},
-      {"must be generation 2", [](auto &c) { c.generation = 3; }},
-      {"networkId does not match", [](auto &c) { c.networkId = "other-net"; }},
-      {"must not be the current beacon key", [&](auto &c) { c.publicKey = current.beacon.publicKey; }},
-      {"must not be the current beacon key", [&](auto &c) { c.publicKey = admin.publicKeys[0]; }},
-      {"must not be the current beacon key", [&](auto &c) { c.publicKey = current.recovery.publicKeys[0]; }},
-      {"malformed public key", [](auto &c) { c.publicKey = "short"; }},
+  const std::vector<std::pair<std::string, std::function<void(BeaconCertificate&)>>> refused = {
+      {"must be generation 2", [](auto& c) { c.generation = 1; }},
+      {"must be generation 2", [](auto& c) { c.generation = 3; }},
+      {"networkId does not match", [](auto& c) { c.networkId = "other-net"; }},
+      {"must not be the current beacon key", [&](auto& c) { c.publicKey = current.beacon.publicKey; }},
+      {"must not be the current beacon key", [&](auto& c) { c.publicKey = admin.publicKeys[0]; }},
+      {"must not be the current beacon key", [&](auto& c) { c.publicKey = current.recovery.publicKeys[0]; }},
+      {"malformed public key", [](auto& c) { c.publicKey = "short"; }},
   };
-  for (const auto &[why, change] : refused) {
+  for (const auto& [why, change] : refused) {
     BeaconCertificate cert = nextCertificate(current);
     change(cert);
     auto added = tryCert(cert, harness_.genesisKey);
@@ -2807,13 +2736,13 @@ TEST_F(ChainComposeTest, BeaconCert_RefusesEveryBadCertificate) {
 // certificate commits no later than the block after it; a cutover above that (or none) is only a
 // bound, and the one in force is the block before the commit — the last the old generation signed.
 TEST_F(ChainComposeTest, BeaconCert_CommitsNoLaterThanTheBlockAfterItsCutover) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const auto current = producer.getAuthority().value();
   const auto admin = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
   const std::string net = producer.getNetworkId();
   const std::string someHash(utl::SHA256_DIGEST_SIZE, 'h');
   BeaconCertificate next = nextCertificate(current);
-  auto commitAt = [&](uint64_t cutover, uint64_t blockId, const std::string &hash) {
+  auto commitAt = [&](uint64_t cutover, uint64_t blockId, const std::string& hash) {
     next.cutoverHeight = cutover;
     next.cutoverHash = hash;
     return chain_tx::validateNextBeaconCertificate(next, current, admin, net, blockId);
@@ -2868,7 +2797,7 @@ TEST_F(ChainComposeTest, BeaconCert_CommitsNoLaterThanTheBlockAfterItsCutover) {
 // A draft validates against the chain's authority, which moves only when a block applies: a second
 // certificate in the same draft would seal a block the chain refuses, so the draft refuses it.
 TEST_F(ChainComposeTest, BeaconCert_OnePerBlock) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   producer.setClockOverride(producer.getSlotStartTime(1));
   const auto current = producer.getAuthority().value();
   AccountBuffer draft;
@@ -2880,19 +2809,19 @@ TEST_F(ChainComposeTest, BeaconCert_OnePerBlock) {
                                         kTestMinerId)
                   .isOk());
   auto second = producer.addBufferTransaction(
-      draft, makeBeaconCertRecord(nextCertificate(current), harness_.genesisKey, producer.getNetworkId(), 2, genesisTime),
+      draft,
+      makeBeaconCertRecord(nextCertificate(current), harness_.genesisKey, producer.getNetworkId(), 2, genesisTime),
       kTestMinerId);
   ASSERT_FALSE(second.isOk());
-  EXPECT_NE(second.error().message.find("at most one beacon certificate"), std::string::npos)
-      << second.error().message;
+  EXPECT_NE(second.error().message.find("at most one beacon certificate"), std::string::npos) << second.error().message;
 }
 
 // beacon-authority ba8: one certificate per block is a rule of the chain, not only of a producer's
 // draft. A block certifying N+1 and then N+2 passes each certificate's own checks in turn; validators
 // and the authority trail refuse it whole.
 TEST_F(ChainComposeTest, BeaconCert_ABlockWithTwoCertificatesIsRefused) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   const uint64_t slot = 1;
   producer.setClockOverride(producer.getSlotStartTime(slot));
   peer.setClockOverride(peer.getSlotStartTime(slot));
@@ -2924,8 +2853,7 @@ TEST_F(ChainComposeTest, BeaconCert_ABlockWithTwoCertificatesIsRefused) {
   EXPECT_EQ(producer.getAuthority()->beacon.generation, 1u);
   auto atPeer = peer.addBlock(block);
   ASSERT_FALSE(atPeer.isOk());
-  EXPECT_NE(atPeer.error().message.find("at most one beacon certificate"), std::string::npos)
-      << atPeer.error().message;
+  EXPECT_NE(atPeer.error().message.find("at most one beacon certificate"), std::string::npos) << atPeer.error().message;
   EXPECT_EQ(peer.getAuthority()->beacon.generation, 1u);
 
   // A node following blocks or an authority proof refuses it too.
@@ -2944,7 +2872,7 @@ TEST_F(ChainComposeTest, BeaconCert_ABlockWithTwoCertificatesIsRefused) {
 // Out of band (a peer, a file): any higher generation the admin set signed, for this chain.
 namespace {
 
-Client::SignedTip signTip(const Chain &chain, uint64_t height, uint64_t generation, const utl::MlDsaKeyPair &key) {
+Client::SignedTip signTip(const Chain& chain, uint64_t height, uint64_t generation, const utl::MlDsaKeyPair& key) {
   Client::SignedTip tip;
   tip.networkId = chain.getNetworkId();
   tip.generation = generation;
@@ -2958,7 +2886,7 @@ Client::SignedTip signTip(const Chain &chain, uint64_t height, uint64_t generati
 
 // beacon-authority ba4: a node adopts a tip signed by the beacon generation in force for it.
 TEST_F(ChainComposeTest, SignedTip_VerifiesOnlyWithTheGenerationInForce) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const auto genesisTip = signTip(producer, 0, 1, testBeaconKey());
   EXPECT_TRUE(producer.verifySignedTip(genesisTip).isOk());
 
@@ -2983,7 +2911,7 @@ TEST_F(ChainComposeTest, SignedTip_VerifiesOnlyWithTheGenerationInForce) {
 
   // beacon-authority ba5: a node that has not applied block 1 verifies a tip over it given the
   // block itself (the producer applied it when sealing).
-  auto &peer = harness_.peer;
+  auto& peer = harness_.peer;
   Client::SignedTip pendingTip;
   pendingTip.networkId = producer.getNetworkId();
   pendingTip.generation = 2;
@@ -3003,7 +2931,7 @@ TEST_F(ChainComposeTest, SignedTip_VerifiesOnlyWithTheGenerationInForce) {
 // beacon-authority ba5b: a node holding the chain from genesis serves the authority-changing
 // records up to a block; replayed from genesis they reach the authority in force there.
 TEST_F(ChainComposeTest, AuthorityProof_ReplaysFromGenesisToTheAuthorityInForce) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   auto none = producer.authorityProof(0);
   ASSERT_TRUE(none.isOk()) << none.error().message;
   EXPECT_TRUE(none.value().steps.empty());
@@ -3036,10 +2964,12 @@ TEST_F(ChainComposeTest, AuthorityProof_ReplaysFromGenesisToTheAuthorityInForce)
   EXPECT_FALSE(producer.authorityProof(producer.getNextBlockId()).isOk()) << "beyond the tip";
   auto withheld = AuthorityTrail::replayProof(harness_.genesis.block, Client::AuthorityProof{}, 1, 0);
   ASSERT_TRUE(withheld.isOk());
-  EXPECT_FALSE(withheld.value().authority() == producer.getAuthority().value()) << "a withheld step reaches another authority";
-  EXPECT_FALSE(withheld.value()
-                   .agrees(producer.getAuthority().value(), producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet)
-                   .isOk());
+  EXPECT_FALSE(withheld.value().authority() == producer.getAuthority().value())
+      << "a withheld step reaches another authority";
+  EXPECT_FALSE(
+      withheld.value()
+          .agrees(producer.getAuthority().value(), producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet)
+          .isOk());
 }
 
 // The proof follows admin rotations: a certificate signed by the admins a config update installed
@@ -3061,14 +2991,14 @@ TEST_F(ChainComposeTest, AuthorityProof_FollowsAdminRotation) {
   next.generation = 2;
   next.publicKey = makeKeyPair().publicKey;
   next.cutoverHeight = UINT64_MAX; // none: generation 1 signs until block 7 commits it
-  auto certBy = [&](const std::vector<utl::MlDsaKeyPair> &signers) {
+  auto certBy = [&](const std::vector<utl::MlDsaKeyPair>& signers) {
     auto record = makeBeaconCertRecord(next, signers[0], net, 0, harness_.chainConfig.genesisTime);
     for (size_t i = 1; i < signers.size(); ++i) {
       record.signatures.push_back(signMessage(signers[i], record.signingMessage(net)));
     }
     return record;
   };
-  auto replay = [&](const Ledger::Record &cert) {
+  auto replay = [&](const Ledger::Record& cert) {
     Client::AuthorityProof proof;
     proof.steps = {{3, 0, rotateAdmins}, {7, 0, cert}};
     return AuthorityTrail::replayProof(harness_.genesis.block, proof, 9, 0);
@@ -3088,7 +3018,7 @@ TEST_F(ChainComposeTest, AuthorityProof_FollowsAdminRotation) {
 }
 
 TEST_F(ChainComposeTest, BeaconCert_VerifyRecordOutOfBand) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const auto current = producer.getAuthority().value();
   const auto genesisTime = harness_.chainConfig.genesisTime;
   BeaconCertificate skip = nextCertificate(current);
@@ -3115,13 +3045,13 @@ TEST_F(ChainComposeTest, BeaconCert_VerifyRecordOutOfBand) {
 // commits that generation, tips of older generations above its cutover are refused (whoever signed
 // them — the case of a stolen beacon key), and the beacon commits nothing above it but a certificate.
 TEST_F(ChainComposeTest, BeaconCert_SeenOutOfBandBoundsOlderTipsUntilOnChain) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const auto current = producer.getAuthority().value();
   const std::string net = producer.getNetworkId();
   const auto genesisTime = harness_.chainConfig.genesisTime;
   uint64_t idem = 1;
-  auto certRecord = [&](uint64_t generation, uint64_t cutover, const std::string &hash,
-                        const utl::MlDsaKeyPair &signer) {
+  auto certRecord = [&](uint64_t generation, uint64_t cutover, const std::string& hash,
+                        const utl::MlDsaKeyPair& signer) {
     BeaconCertificate cert = nextCertificate(current);
     cert.generation = generation;
     cert.cutoverHeight = cutover;
@@ -3196,7 +3126,7 @@ TEST_F(ChainComposeTest, BeaconCert_SeenOutOfBandBoundsOlderTipsUntilOnChain) {
 // it — a generation in force or held, not past a held certificate's cutover — and the certificates'
 // dial hints name where the beacon is reached.
 TEST_F(ChainComposeTest, BeaconCert_RankingFollowsCertifiedGenerationsAndHints) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const auto current = producer.getAuthority().value();
   const std::string net = producer.getNetworkId();
   auto tip = [&](uint64_t generation, uint64_t height) {
@@ -3215,11 +3145,13 @@ TEST_F(ChainComposeTest, BeaconCert_RankingFollowsCertifiedGenerationsAndHints) 
   gen3.generation = 3;
   gen3.cutoverHeight = 4;
   gen3.cutoverHash = std::string(32, 'c');
-  gen3.dialHints = {"/ip4/127.0.0.1/udp/9001/adp/1.0.0/p2p/gateway-a", "/ip4/127.0.0.1/udp/9002/adp/1.0.0/p2p/gateway-b"};
-  ASSERT_EQ(producer.offerCertificate(makeBeaconCertRecord(gen3, harness_.genesisKey, net, 1,
-                                                           harness_.chainConfig.genesisTime))
-                .value(),
-            Chain::CertificateOffer::Newer);
+  gen3.dialHints = {"/ip4/127.0.0.1/udp/9001/adp/1.0.0/p2p/gateway-a",
+                    "/ip4/127.0.0.1/udp/9002/adp/1.0.0/p2p/gateway-b"};
+  ASSERT_EQ(
+      producer
+          .offerCertificate(makeBeaconCertRecord(gen3, harness_.genesisKey, net, 1, harness_.chainConfig.genesisTime))
+          .value(),
+      Chain::CertificateOffer::Newer);
   EXPECT_EQ(producer.dialHints(), gen3.dialHints);
   EXPECT_TRUE(producer.mayFollowTip(tip(3, 9))) << "the generation held";
   EXPECT_TRUE(producer.mayFollowTip(tip(2, 4))) << "an older one, up to the cutover";
@@ -3233,10 +3165,10 @@ TEST_F(ChainComposeTest, BeaconCert_RankingFollowsCertifiedGenerationsAndHints) 
 // above its height — it commits nothing past it — until a later generation is certified, out of
 // band or on chain.
 TEST_F(ChainComposeTest, BeaconEquivocation_HaltsAboveItsHeightUntilALaterGeneration) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const auto current = producer.getAuthority().value();
   const std::string net = producer.getNetworkId();
-  auto tipBy = [&](const utl::MlDsaKeyPair &key, uint64_t generation, uint64_t height, const std::string &hash) {
+  auto tipBy = [&](const utl::MlDsaKeyPair& key, uint64_t generation, uint64_t height, const std::string& hash) {
     Client::SignedTip tip;
     tip.networkId = net;
     tip.generation = generation;
@@ -3260,8 +3192,8 @@ TEST_F(ChainComposeTest, BeaconEquivocation_HaltsAboveItsHeightUntilALaterGenera
   // Refused: not the beacon's key; a generation no certificate here names.
   EXPECT_FALSE(producer.offerEquivocation(*Client::Equivocation::of(a, tipBy(makeKeyPair(), 1, 3, "fork-3"))).isOk());
   const auto gen2Key = makeKeyPair();
-  auto unknown = producer.offerEquivocation(
-      *Client::Equivocation::of(tipBy(gen2Key, 2, 3, "x"), tipBy(gen2Key, 2, 3, "y")));
+  auto unknown =
+      producer.offerEquivocation(*Client::Equivocation::of(tipBy(gen2Key, 2, 3, "x"), tipBy(gen2Key, 2, 3, "y")));
   ASSERT_FALSE(unknown.isOk());
   EXPECT_NE(unknown.error().message.find("no certificate here names"), std::string::npos) << unknown.error().message;
   EXPECT_FALSE(producer.equivocation().has_value());
@@ -3270,8 +3202,9 @@ TEST_F(ChainComposeTest, BeaconEquivocation_HaltsAboveItsHeightUntilALaterGenera
   EXPECT_TRUE(producer.verifySignedTip(tipAt(4)).isOk());
   ASSERT_EQ(producer.offerEquivocation(*evidence).value(), Offer::Newer);
   EXPECT_EQ(producer.offerEquivocation(*evidence).value(), Offer::Same);
-  EXPECT_EQ(producer.offerEquivocation(*Client::Equivocation::of(tipBy(testBeaconKey(), 1, 2, "x"),
-                                                                  tipBy(testBeaconKey(), 1, 2, "y")))
+  EXPECT_EQ(producer
+                .offerEquivocation(
+                    *Client::Equivocation::of(tipBy(testBeaconKey(), 1, 2, "x"), tipBy(testBeaconKey(), 1, 2, "y")))
                 .value(),
             Offer::Ignored)
       << "one piece of evidence per generation";
@@ -3285,10 +3218,11 @@ TEST_F(ChainComposeTest, BeaconEquivocation_HaltsAboveItsHeightUntilALaterGenera
   next.publicKey = gen2Key.publicKey;
   next.cutoverHeight = 5;
   next.cutoverHash = std::string(utl::SHA256_DIGEST_SIZE, '5'); // block 5 is not held here
-  ASSERT_EQ(producer.offerCertificate(makeBeaconCertRecord(next, harness_.genesisKey, net, 1,
-                                                           harness_.chainConfig.genesisTime))
-                .value(),
-            Chain::CertificateOffer::Newer);
+  ASSERT_EQ(
+      producer
+          .offerCertificate(makeBeaconCertRecord(next, harness_.genesisKey, net, 1, harness_.chainConfig.genesisTime))
+          .value(),
+      Chain::CertificateOffer::Newer);
   EXPECT_FALSE(producer.equivocation().has_value()) << "resumed";
   EXPECT_TRUE(producer.verifySignedTip(tipAt(4)).isOk()) << "generation 1 up to the new cutover";
   EXPECT_EQ(producer.offerEquivocation(*evidence).value(), Offer::Ignored) << "superseded";
@@ -3300,9 +3234,9 @@ TEST_F(ChainComposeTest, BeaconEquivocation_HaltsAboveItsHeightUntilALaterGenera
 
 // ba6: committing a later certificate on chain resumes too.
 TEST_F(ChainComposeTest, BeaconEquivocation_ResumesWhenALaterCertificateCommits) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const std::string net = producer.getNetworkId();
-  auto tipAt = [&](const std::string &hash) {
+  auto tipAt = [&](const std::string& hash) {
     Client::SignedTip tip;
     tip.networkId = net;
     tip.generation = 1;
@@ -3316,9 +3250,9 @@ TEST_F(ChainComposeTest, BeaconEquivocation_ResumesWhenALaterCertificateCommits)
   producer.setClockOverride(producer.getSlotStartTime(1));
   BeaconCertificate next = nextCertificate(producer.getAuthority().value());
   next.cutoverHeight = UINT64_MAX;
-  Ledger::ChainNode block1 = makeNextBlockAtSlot(
-      producer, harness_.genesis, 1,
-      {makeBeaconCertRecord(next, harness_.genesisKey, net, 1, harness_.chainConfig.genesisTime)});
+  Ledger::ChainNode block1 =
+      makeNextBlockAtSlot(producer, harness_.genesis, 1,
+                          {makeBeaconCertRecord(next, harness_.genesisKey, net, 1, harness_.chainConfig.genesisTime)});
   ASSERT_TRUE(producer.addBlock(block1).isOk());
   EXPECT_EQ(producer.getAuthority()->beacon.generation, 2u);
   EXPECT_FALSE(producer.equivocation().has_value());
@@ -3327,12 +3261,12 @@ TEST_F(ChainComposeTest, BeaconEquivocation_ResumesWhenALaterCertificateCommits)
 namespace {
 
 /** A T_RECOVERY naming `admins` (threshold `minSignatures`), signed by `signer`. */
-Ledger::Record makeRecoveryRecord(const std::vector<utl::MlDsaKeyPair> &admins, uint8_t minSignatures,
-                                  const utl::MlDsaKeyPair &signer, const std::string &networkId, uint64_t idem,
+Ledger::Record makeRecoveryRecord(const std::vector<utl::MlDsaKeyPair>& admins, uint8_t minSignatures,
+                                  const utl::MlDsaKeyPair& signer, const std::string& networkId, uint64_t idem,
                                   int64_t genesisTime) {
   RecoveryAnnouncement announcement;
   announcement.networkId = networkId;
-  for (const auto &admin : admins) {
+  for (const auto& admin : admins) {
     announcement.adminPublicKeys.push_back(admin.publicKey);
   }
   announcement.adminMinSignatures = minSignatures;
@@ -3350,18 +3284,18 @@ Ledger::Record makeRecoveryRecord(const std::vector<utl::MlDsaKeyPair> &admins, 
 // admin set is frozen — no config update, no certificate, on chain or out of band — and the first
 // block of the epoch `delayEpochs` later replaces it in place; from then on only the new admins sign.
 TEST_F(ChainComposeTest, Recovery_FreezesTheAdminSetThenReplacesIt) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const std::string net = producer.getNetworkId();
   const auto genesisTime = harness_.chainConfig.genesisTime;
   const auto oldKeys = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys;
   const std::vector<utl::MlDsaKeyPair> admins = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
   ASSERT_EQ(producer.getAuthority()->recovery.delayEpochs, 3u);
   producer.setClockOverride(producer.getSlotStartTime(1));
-  auto tryAdd = [&](const Ledger::Record &record) {
+  auto tryAdd = [&](const Ledger::Record& record) {
     AccountBuffer scratch;
     return producer.addBufferTransaction(scratch, record, kTestMinerId);
   };
-  auto refusedWith = [&](const Ledger::Record &record, const std::string &why) {
+  auto refusedWith = [&](const Ledger::Record& record, const std::string& why) {
     auto added = tryAdd(record);
     ASSERT_FALSE(added.isOk()) << why;
     EXPECT_NE(added.error().message.find(why), std::string::npos) << added.error().message;
@@ -3370,13 +3304,12 @@ TEST_F(ChainComposeTest, Recovery_FreezesTheAdminSetThenReplacesIt) {
   // Only the recovery set announces; the new set must have the genesis shape.
   EXPECT_FALSE(tryAdd(makeRecoveryRecord(admins, 2, harness_.genesisKey, net, 1, genesisTime)).isOk())
       << "the admin set cannot announce";
-  refusedWith(makeRecoveryRecord({admins[0], admins[1]}, 2, testRecoveryKey(), net, 2, genesisTime),
-              "between 3 and");
+  refusedWith(makeRecoveryRecord({admins[0], admins[1]}, 2, testRecoveryKey(), net, 2, genesisTime), "between 3 and");
   refusedWith(makeRecoveryRecord(admins, 1, testRecoveryKey(), net, 3, genesisTime), "minSignatures");
 
   // Announced in epoch 0: pending until epoch 3.
-  Ledger::ChainNode block =
-      makeNextBlockAtSlot(producer, harness_.genesis, 1, {makeRecoveryRecord(admins, 2, testRecoveryKey(), net, 4, genesisTime)});
+  Ledger::ChainNode block = makeNextBlockAtSlot(
+      producer, harness_.genesis, 1, {makeRecoveryRecord(admins, 2, testRecoveryKey(), net, 4, genesisTime)});
   ASSERT_TRUE(producer.addBlock(block).isOk());
   ASSERT_TRUE(producer.getAuthority()->hasPendingRecovery);
   EXPECT_EQ(producer.getAuthority()->pendingRecovery.applyEpoch, 3u);
@@ -3390,11 +3323,11 @@ TEST_F(ChainComposeTest, Recovery_FreezesTheAdminSetThenReplacesIt) {
   producer.setClockOverride(producer.getSlotStartTime(2));
   refusedWith(makeRecoveryRecord(admins, 2, testRecoveryKey(), net, 5, genesisTime), "already pending");
   ConfigUpdateProbe probe(harness_);
-  auto config = probe.add([](auto &c) { c.maxTransactionsPerBlock += 1; });
+  auto config = probe.add([](auto& c) { c.maxTransactionsPerBlock += 1; });
   ASSERT_FALSE(config.isOk());
   EXPECT_NE(config.error().message.find("freezes the admin set"), std::string::npos) << config.error().message;
-  const auto cert = makeBeaconCertRecord(nextCertificate(producer.getAuthority().value()), harness_.genesisKey, net,
-                                         6, genesisTime);
+  const auto cert =
+      makeBeaconCertRecord(nextCertificate(producer.getAuthority().value()), harness_.genesisKey, net, 6, genesisTime);
   refusedWith(cert, "freezes the admin set");
   EXPECT_FALSE(producer.offerCertificate(cert).isOk()) << "out of band too";
 
@@ -3437,7 +3370,7 @@ TEST_F(ChainComposeTest, Recovery_FreezesTheAdminSetThenReplacesIt) {
 // beacon-authority bp1 (B023): a chain holding blocks above the cutover of a certificate it keeps
 // out of band is ordered to rewind to the cutover; at or below it, nothing is ordered.
 TEST_F(ChainComposeTest, BeaconCert_ACutoverBelowTheTipOrdersARewind) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const auto current = producer.getAuthority().value();
   const std::string net = producer.getNetworkId();
   const auto genesisTime = harness_.chainConfig.genesisTime;
@@ -3447,7 +3380,7 @@ TEST_F(ChainComposeTest, BeaconCert_ACutoverBelowTheTipOrdersARewind) {
   EXPECT_FALSE(producer.rewindOrder().has_value()) << "no certificate held out of band";
 
   uint64_t idem = 1;
-  auto offer = [&](uint64_t generation, uint64_t cutover, const std::string &hash) {
+  auto offer = [&](uint64_t generation, uint64_t cutover, const std::string& hash) {
     BeaconCertificate cert = nextCertificate(current);
     cert.generation = generation;
     cert.cutoverHeight = cutover;
@@ -3477,60 +3410,60 @@ TEST_F(ChainComposeTest, BeaconCert_ACutoverBelowTheTipOrdersARewind) {
 // beacon-authority ba1: the recovery set and beacon certificate are not config — a config update
 // must carry them unchanged (only their own records will change them).
 TEST_F(ChainComposeTest, ConfigUpdate_CannotChangeTheAuthority) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   producer.setClockOverride(producer.getSlotStartTime(1));
   ConfigUpdateProbe probe(harness_);
   const std::string why = "cannot change the recovery set or beacon certificate";
-  const std::vector<std::function<void(Chain::GenesisAccountMeta &)>> changes = {
-      [](auto &gm) { gm.authority.recovery.delayEpochs += 1; },
-      [](auto &gm) { gm.authority.recovery.publicKeys.push_back(makeKeyPair().publicKey); },
-      [](auto &gm) { gm.authority.beacon.generation = 2; },
-      [](auto &gm) { gm.authority.beacon.publicKey = makeKeyPair().publicKey; },
-      [](auto &gm) { gm.authority = {}; },
+  const std::vector<std::function<void(Chain::GenesisAccountMeta&)>> changes = {
+      [](auto& gm) { gm.authority.recovery.delayEpochs += 1; },
+      [](auto& gm) { gm.authority.recovery.publicKeys.push_back(makeKeyPair().publicKey); },
+      [](auto& gm) { gm.authority.beacon.generation = 2; },
+      [](auto& gm) { gm.authority.beacon.publicKey = makeKeyPair().publicKey; },
+      [](auto& gm) { gm.authority = {}; },
   };
   for (size_t i = 0; i < changes.size(); ++i) {
     auto added = probe.addMeta(changes[i]);
     ASSERT_FALSE(added.isOk()) << "change " << i;
     EXPECT_NE(added.error().message.find(why), std::string::npos) << added.error().message;
   }
-  auto unchanged = probe.addMeta([](auto &gm) { gm.config.maxTransactionsPerBlock += 1; });
+  auto unchanged = probe.addMeta([](auto& gm) { gm.config.maxTransactionsPerBlock += 1; });
   EXPECT_TRUE(unchanged.isOk()) << unchanged.error().message;
 }
 
 // Liveness settings in a config update (WIRE_SCHEMA § Config updates): heartbeats at least once an
 // epoch; a miner due period of 0 or at least 12 hours of slots (5 s slots: 8640).
 TEST_F(ChainComposeTest, ConfigUpdate_RefusesLivenessSettingsOutOfRange) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   ASSERT_EQ(harness_.chainConfig.slotDuration, 5u);
   ASSERT_EQ(harness_.chainConfig.slotsPerEpoch, 10u);
   producer.setClockOverride(producer.getSlotStartTime(1));
   ConfigUpdateProbe probe(harness_);
-  auto tryConfig = [&](const std::function<void(Chain::BlockChainConfig &)> &change) { return probe.add(change); };
-  auto refused = tryConfig([](auto &c) { c.heartbeatSlots = 11; });
+  auto tryConfig = [&](const std::function<void(Chain::BlockChainConfig&)>& change) { return probe.add(change); };
+  auto refused = tryConfig([](auto& c) { c.heartbeatSlots = 11; });
   ASSERT_FALSE(refused.isOk());
   EXPECT_NE(refused.error().message.find("heartbeatSlots (11) cannot exceed slotsPerEpoch (10)"), std::string::npos)
       << refused.error().message;
-  refused = tryConfig([](auto &c) { c.minerDueAfterSlots = 8639; });
+  refused = tryConfig([](auto& c) { c.minerDueAfterSlots = 8639; });
   ASSERT_FALSE(refused.isOk());
   EXPECT_NE(refused.error().message.find("at least 8640"), std::string::npos) << refused.error().message;
   // The finality bound (projects/finality FN001): an hour to 30 days.
   for (uint64_t out : {uint64_t{0}, uint64_t{3599}, uint64_t{30 * 86400 + 1}}) {
-    refused = tryConfig([out](auto &c) { c.finalitySeconds = out; });
+    refused = tryConfig([out](auto& c) { c.finalitySeconds = out; });
     ASSERT_FALSE(refused.isOk()) << out;
     EXPECT_NE(refused.error().message.find("finalitySeconds must be between 3600 and 2592000"), std::string::npos)
         << refused.error().message;
   }
-  for (const auto &ok : std::vector<std::function<void(Chain::BlockChainConfig &)>>{
-           [](auto &c) { c.minerDueAfterSlots = 8640; }, [](auto &c) { c.minerDueAfterSlots = 0; },
-           [](auto &c) { c.heartbeatSlots = 0; }, [](auto &c) { c.heartbeatSlots = 10; },
-           [](auto &c) { c.finalitySeconds = 3600; }, [](auto &c) { c.finalitySeconds = 30 * 86400; }}) {
+  for (const auto& ok : std::vector<std::function<void(Chain::BlockChainConfig&)>>{
+           [](auto& c) { c.minerDueAfterSlots = 8640; }, [](auto& c) { c.minerDueAfterSlots = 0; },
+           [](auto& c) { c.heartbeatSlots = 0; }, [](auto& c) { c.heartbeatSlots = 10; },
+           [](auto& c) { c.finalitySeconds = 3600; }, [](auto& c) { c.finalitySeconds = 30 * 86400; }}) {
     auto added = tryConfig(ok);
     EXPECT_TRUE(added.isOk()) << added.error().message;
   }
 }
 
 TEST_F(ChainComposeTest, GenesisIssuance_CappedPerEpoch) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   auto issue = [&](uint64_t amount, uint64_t idem) {
     Ledger::TxDefault tx;
     tx.tokenId = AccountBuffer::ID_GENESIS;
@@ -3543,7 +3476,8 @@ TEST_F(ChainComposeTest, GenesisIssuance_CappedPerEpoch) {
     tx.validationTsMax = harness_.chainConfig.genesisTime + 3600;
     return makeRecord(Ledger::T_DEFAULT, tx, harness_.genesisKey);
   };
-  const int64_t reserveBefore = producer.getAccount(AccountBuffer::ID_RESERVE).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS);
+  const int64_t reserveBefore =
+      producer.getAccount(AccountBuffer::ID_RESERVE).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS);
 
   // Epoch 0: 60 + 1 fee issued; another 50 + 1 would pass 100.
   Ledger::ChainNode block1 = makeNextBlockAtSlot(producer, harness_.genesis, 1, {issue(60, 1)});
@@ -3559,8 +3493,7 @@ TEST_F(ChainComposeTest, GenesisIssuance_CappedPerEpoch) {
   }
 
   // Epoch 1: a fresh allowance.
-  Ledger::ChainNode block2 =
-      makeNextBlockAtSlot(producer, block1, harness_.chainConfig.slotsPerEpoch, {issue(90, 3)});
+  Ledger::ChainNode block2 = makeNextBlockAtSlot(producer, block1, harness_.chainConfig.slotsPerEpoch, {issue(90, 3)});
   ASSERT_TRUE(producer.addBlock(block2).isOk());
   EXPECT_EQ(producer.getAccount(AccountBuffer::ID_RESERVE).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS),
             reserveBefore + 150);
@@ -3570,9 +3503,9 @@ TEST_F(ChainComposeTest, GenesisIssuance_CappedPerEpoch) {
 // miners are, in the genesis block), and an update cannot change it — otherwise anyone could
 // register without the fee and minimum stake, or reset its own missed-slot count.
 TEST_F(ChainComposeTest, MinerStateCannotBeSetByAccountCreationOrUpdate) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   EXPECT_TRUE(producer.getAccount(kTestMinerId).value().wallet.miner.registered) << "genesis miner";
-  const int64_t now = static_cast<int64_t>(std::time(nullptr));  // buffer admission checks wall time
+  const int64_t now = static_cast<int64_t>(std::time(nullptr)); // buffer admission checks wall time
   auto leader = producer.getSlotLeader(1);
   ASSERT_TRUE(leader.isOk());
 
@@ -3601,7 +3534,7 @@ TEST_F(ChainComposeTest, MinerStateCannotBeSetByAccountCreationOrUpdate) {
   update.wallet = producer.getAccount(kTestMinerId).value().wallet;
   update.wallet.miner.missedDue = 0;
   update.wallet.miner.lastProducedSlot = 999;
-  update.wallet.mBalances[AccountBuffer::ID_GENESIS] -= 100;  // pays its fee
+  update.wallet.mBalances[AccountBuffer::ID_GENESIS] -= 100; // pays its fee
   update.meta = AccountAttachment::emptySerialized();
   Ledger::TxUserUpdate uu;
   uu.walletId = kTestMinerId;
@@ -3623,14 +3556,14 @@ TEST_F(ChainComposeTest, MinerStateCannotBeSetByAccountCreationOrUpdate) {
 // update rotates an account's keys, a record signed with the old key is refused in the draft (the
 // seal would refuse it and lose the slot), and one signed with the new key applies.
 TEST_F(ChainComposeTest, ADraftChecksSignaturesAgainstTheKeysItHolds) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   auto leader = producer.getSlotLeader(1);
   ASSERT_TRUE(leader.isOk());
   const auto held = producer.getAccount(kTestMinerId).value();
   const auto nextKey = makeKeyPair();
 
   // The rotation, then a payment by the rotated account, valid around `at`.
-  auto records = [&](int64_t at, const utl::MlDsaKeyPair &payKey) {
+  auto records = [&](int64_t at, const utl::MlDsaKeyPair& payKey) {
     Client::UserAccount update;
     update.wallet = held.wallet;
     update.wallet.publicKeys = {nextKey.publicKey};
@@ -3676,7 +3609,7 @@ TEST_F(ChainComposeTest, ADraftChecksSignaturesAgainstTheKeysItHolds) {
 // An account update replaces keys and meta; the balances stay the chain's, whatever the update
 // carries — they move while the account's holders sign it (transfers in, renewals, issuing).
 TEST_F(ChainComposeTest, AnAccountUpdateKeepsTheChainsBalances) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const int64_t now = static_cast<int64_t>(std::time(nullptr));
   auto leader = producer.getSlotLeader(1);
   ASSERT_TRUE(leader.isOk());
@@ -3713,10 +3646,9 @@ TEST_F(ChainComposeTest, AnAccountUpdateKeepsTheChainsBalances) {
   uu.idempotentId = 4;
   AccountBuffer scratch2;
   EXPECT_FALSE(producer
-                   .addBufferTransaction(scratch2,
-                                         makeRecord(Ledger::T_USER_UPDATE, uu, harness_.reserveKey,
-                                                    producer.getNetworkId()),
-                                         leader.value())
+                   .addBufferTransaction(
+                       scratch2, makeRecord(Ledger::T_USER_UPDATE, uu, harness_.reserveKey, producer.getNetworkId()),
+                       leader.value())
                    .isOk());
 }
 
@@ -3729,7 +3661,7 @@ struct FundedUser {
   Ledger::ChainNode block;
 };
 
-FundedUser addFundedUser(ComposeHarness &h, const Ledger::ChainNode &previous, uint64_t slot, uint64_t id,
+FundedUser addFundedUser(ComposeHarness& h, const Ledger::ChainNode& previous, uint64_t slot, uint64_t id,
                          int64_t balance) {
   FundedUser user;
   user.id = id;
@@ -3739,7 +3671,7 @@ FundedUser addFundedUser(ComposeHarness &h, const Ledger::ChainNode &previous, u
   nu.fromWalletId = AccountBuffer::ID_RESERVE;
   nu.toWalletId = id;
   nu.amount = static_cast<uint64_t>(balance);
-  nu.fee = 6;  // meta fee 1 + newAccountFee 5
+  nu.fee = 6; // meta fee 1 + newAccountFee 5
   nu.meta = makeUserAccount(user.key.publicKey, balance).ltsToString();
   nu.idempotentId = id;
   nu.validationTsMin = h.chainConfig.genesisTime;
@@ -3750,7 +3682,7 @@ FundedUser addFundedUser(ComposeHarness &h, const Ledger::ChainNode &previous, u
   return user;
 }
 
-Ledger::Record minerTx(ComposeHarness &h, const FundedUser &user, uint16_t type, uint64_t fee, uint64_t idem) {
+Ledger::Record minerTx(ComposeHarness& h, const FundedUser& user, uint16_t type, uint64_t fee, uint64_t idem) {
   Ledger::TxMinerRegister tx;
   tx.walletId = user.id;
   tx.fee = fee;
@@ -3759,7 +3691,7 @@ Ledger::Record minerTx(ComposeHarness &h, const FundedUser &user, uint16_t type,
   tx.validationTsMax = h.chainConfig.genesisTime + 3600;
   Ledger::Record rec;
   rec.type = type;
-  rec.data = utl::binaryPack(static_cast<const Ledger::TxMiner &>(tx));
+  rec.data = utl::binaryPack(static_cast<const Ledger::TxMiner&>(tx));
   rec.signatures = {signMessage(user.key, rec.signingMessage(h.producer.getNetworkId()))};
   return rec;
 }
@@ -3769,22 +3701,22 @@ Ledger::Record minerTx(ComposeHarness &h, const FundedUser &user, uint16_t type,
 // Registration: the account opts in itself, pays the meta fee + minerRegistrationFee (7), keeps
 // at least minerMinStake (50) after the fee; revoke opts out. System accounts never mine.
 TEST_F(ChainComposeTest, MinerRegisterAndRevoke) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   FundedUser rich = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER + 1, 1000);
   FundedUser poor = addFundedUser(harness_, rich.block, 2, AccountBuffer::ID_FIRST_USER + 2, 55);
-  producer.setClockOverride(producer.getSlotStartTime(3));  // the buffer path checks validity windows
-  auto tryAdd = [&](const Ledger::Record &rec) {
+  producer.setClockOverride(producer.getSlotStartTime(3)); // the buffer path checks validity windows
+  auto tryAdd = [&](const Ledger::Record& rec) {
     AccountBuffer scratch;
     return producer.addBufferTransaction(scratch, rec, producer.getSlotLeader(3).value());
   };
-  auto refusedWith = [&](const Ledger::Record &rec, const std::string &why) {
+  auto refusedWith = [&](const Ledger::Record& rec, const std::string& why) {
     auto added = tryAdd(rec);
     ASSERT_FALSE(added.isOk()) << why;
     EXPECT_NE(added.error().message.find(why), std::string::npos) << added.error().message;
   };
 
   refusedWith(minerTx(harness_, rich, Ledger::T_MINER_REGISTER, 7, 10), "fee below minimum 8");
-  refusedWith(minerTx(harness_, poor, Ledger::T_MINER_REGISTER, 8, 10), "minerMinStake");  // 55 - 8 < 50
+  refusedWith(minerTx(harness_, poor, Ledger::T_MINER_REGISTER, 8, 10), "minerMinStake"); // 55 - 8 < 50
   refusedWith(minerTx(harness_, rich, Ledger::T_MINER_REVOKE, 1, 11), "not a registered miner");
   FundedUser reserve{AccountBuffer::ID_RESERVE, harness_.reserveKey, {}};
   refusedWith(minerTx(harness_, reserve, Ledger::T_MINER_REGISTER, 8, 12), "System accounts");
@@ -3792,8 +3724,8 @@ TEST_F(ChainComposeTest, MinerRegisterAndRevoke) {
   // Registered in a block: fee paid to the fee account, due clock starts at this slot.
   const int64_t feeBefore =
       producer.getAccount(AccountBuffer::ID_FEE).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS);
-  Ledger::ChainNode registered = makeNextBlockAtSlot(producer, poor.block, 3,
-                                                     {minerTx(harness_, rich, Ledger::T_MINER_REGISTER, 8, 20)});
+  Ledger::ChainNode registered =
+      makeNextBlockAtSlot(producer, poor.block, 3, {minerTx(harness_, rich, Ledger::T_MINER_REGISTER, 8, 20)});
   ASSERT_TRUE(producer.addBlock(registered).isOk());
   auto account = producer.getAccount(rich.id).value();
   EXPECT_TRUE(account.wallet.miner.registered);
@@ -3804,8 +3736,8 @@ TEST_F(ChainComposeTest, MinerRegisterAndRevoke) {
   refusedWith(minerTx(harness_, rich, Ledger::T_MINER_REGISTER, 8, 21), "already a registered miner");
 
   // Revoke: meta fee only.
-  Ledger::ChainNode revoked = makeNextBlockAtSlot(producer, registered, 4,
-                                                  {minerTx(harness_, rich, Ledger::T_MINER_REVOKE, 1, 22)});
+  Ledger::ChainNode revoked =
+      makeNextBlockAtSlot(producer, registered, 4, {minerTx(harness_, rich, Ledger::T_MINER_REVOKE, 1, 22)});
   ASSERT_TRUE(producer.addBlock(revoked).isOk());
   EXPECT_FALSE(producer.getAccount(rich.id).value().wallet.miner.registered);
 }
@@ -3815,30 +3747,29 @@ TEST_F(ChainComposeTest, MinerRegisterAndRevoke) {
 // leaves it the same way. Funded accounts that never registered are never candidates (before: every
 // funded account was, miner or not).
 TEST_F(ChainComposeTest, OnlyRegisteredMinersAreElectedFromTheEpochAfterNext) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   auto committee = [&]() {
     std::set<uint64_t> ids;
-    for (const auto &s : producer.getStakeholders()) {
+    for (const auto& s : producer.getStakeholders()) {
       ids.insert(s.id);
     }
     return ids;
   };
   FundedUser miner = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER + 1, 1000);
   FundedUser idle = addFundedUser(harness_, miner.block, 2, AccountBuffer::ID_FIRST_USER + 2, 5000);
-  Ledger::ChainNode registered = makeNextBlockAtSlot(producer, idle.block, 3,
-                                                     {minerTx(harness_, miner, Ledger::T_MINER_REGISTER, 8, 30)});
+  Ledger::ChainNode registered =
+      makeNextBlockAtSlot(producer, idle.block, 3, {minerTx(harness_, miner, Ledger::T_MINER_REGISTER, 8, 30)});
   ASSERT_TRUE(producer.addBlock(registered).isOk());
   EXPECT_EQ(committee(), std::set<uint64_t>{kTestMinerId}) << "epoch 0's committee predates the registration";
 
   // Epoch 1 (slots 10..19): its committee is epoch 0's snapshot (slot 1), before the registration;
   // its first block takes epoch 1's snapshot, with the new miner.
-  Ledger::ChainNode epoch1 =
-      makeNextBlockAtSlot(producer, registered, 10, {makeReserveTransfer(harness_, 5, 31)});
+  Ledger::ChainNode epoch1 = makeNextBlockAtSlot(producer, registered, 10, {makeReserveTransfer(harness_, 5, 31)});
   ASSERT_TRUE(producer.addBlock(epoch1).isOk());
   EXPECT_EQ(committee(), std::set<uint64_t>{kTestMinerId}) << "fixed at epoch 0's start";
 
-  Ledger::ChainNode revoked = makeNextBlockAtSlot(producer, epoch1, 11,
-                                                  {minerTx(harness_, miner, Ledger::T_MINER_REVOKE, 1, 32)});
+  Ledger::ChainNode revoked =
+      makeNextBlockAtSlot(producer, epoch1, 11, {minerTx(harness_, miner, Ledger::T_MINER_REVOKE, 1, 32)});
   ASSERT_TRUE(producer.addBlock(revoked).isOk());
   // Epoch 2: epoch 1's snapshot, registered and not yet revoked.
   Ledger::ChainNode epoch2 = makeNextBlockAtSlot(producer, revoked, 20, {makeReserveTransfer(harness_, 5, 33)});
@@ -3856,7 +3787,7 @@ TEST_F(ChainComposeTest, OnlyRegisteredMinersAreElectedFromTheEpochAfterNext) {
 class MinerLivenessTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    harness_.SetUp([](Chain::BlockChainConfig &c) {
+    harness_.SetUp([](Chain::BlockChainConfig& c) {
       c.minerDueAfterSlots = 3;
       c.minerMaxMissedSlots = 2;
       c.minerReregisterCooldownEpochs = 2;
@@ -3869,8 +3800,8 @@ protected:
     harness_.peer.forceSlotLeader(slot, id);
   }
   /** Seal on the producer, then admit on the peer (the full apply path) — both banks must agree. */
-  Ledger::ChainNode commit(const Ledger::ChainNode &previous, uint64_t slot,
-                           const std::vector<Ledger::Record> &records) {
+  Ledger::ChainNode commit(const Ledger::ChainNode& previous, uint64_t slot,
+                           const std::vector<Ledger::Record>& records) {
     harness_.producer.setClockOverride(harness_.producer.getSlotStartTime(slot));
     harness_.peer.setClockOverride(harness_.peer.getSlotStartTime(slot));
     Ledger::ChainNode block = makeNextBlockAtSlot(harness_.producer, previous, slot, records);
@@ -3888,7 +3819,7 @@ protected:
 // A due miner's empty block is admitted however short the tip lag; a miner that is not due still
 // needs the heartbeat lag.
 TEST_F(MinerLivenessTest, DueMinerEmptyBlockAccepted) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   ASSERT_EQ(producer.getHeartbeatSlots(), 10u);
   ASSERT_EQ(minerOf(kTestMinerId).lastProducedSlot, 0u);
 
@@ -3915,7 +3846,7 @@ TEST_F(MinerLivenessTest, DueMinerEmptyBlockAccepted) {
 // certificate commits although its validity window ended long ago — it waited out of band for the
 // new beacon; a certificate without a cutover still needs its window.
 TEST_F(MinerLivenessTest, TheBlockAfterABeaconOutageChargesNoMisses) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   for (uint64_t slot = 1; slot < 40; ++slot) {
     lead(slot, kTestMinerId);
   }
@@ -3927,7 +3858,7 @@ TEST_F(MinerLivenessTest, TheBlockAfterABeaconOutageChargesNoMisses) {
   lead(5, user.id); // due by then: a miss, were it charged
 
   const std::string net = producer.getNetworkId();
-  auto expiredCertificate = [&](uint64_t cutover, const std::string &hash, uint64_t idem) {
+  auto expiredCertificate = [&](uint64_t cutover, const std::string& hash, uint64_t idem) {
     BeaconCertificate cert = nextCertificate(producer.getAuthority().value());
     cert.cutoverHeight = cutover;
     cert.cutoverHash = hash;
@@ -3940,8 +3871,8 @@ TEST_F(MinerLivenessTest, TheBlockAfterABeaconOutageChargesNoMisses) {
   };
   producer.setClockOverride(producer.getSlotStartTime(6));
   AccountBuffer scratch;
-  auto stale = producer.addBufferTransaction(
-      scratch, expiredCertificate(BeaconCertificate::kNoCutover, "", 51), kTestMinerId);
+  auto stale =
+      producer.addBufferTransaction(scratch, expiredCertificate(BeaconCertificate::kNoCutover, "", 51), kTestMinerId);
   ASSERT_FALSE(stale.isOk()) << "no cutover: its window still applies";
   EXPECT_NE(stale.error().message.find("outside validation window"), std::string::npos) << stale.error().message;
 
@@ -3959,7 +3890,7 @@ TEST_F(MinerLivenessTest, TheBlockAfterABeaconOutageChargesNoMisses) {
 // A skipped slot counts a miss only for a due elected leader; producing resets the count; the
 // limit deregisters and the cool-down then refuses re-registration until it has passed.
 TEST_F(MinerLivenessTest, DueMissesDeregisterAndCoolDownBlocksReregistration) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   for (uint64_t slot = 1; slot < 40; ++slot) {
     lead(slot, kTestMinerId);
   }
@@ -3995,8 +3926,8 @@ TEST_F(MinerLivenessTest, DueMissesDeregisterAndCoolDownBlocksReregistration) {
   // Cool-down: 2 epochs from epoch 1 — refused in epoch 2, allowed from epoch 3.
   producer.setClockOverride(producer.getSlotStartTime(21));
   AccountBuffer scratch;
-  auto refused = producer.addBufferTransaction(scratch, minerTx(harness_, user, Ledger::T_MINER_REGISTER, 8, 45),
-                                               kTestMinerId);
+  auto refused =
+      producer.addBufferTransaction(scratch, minerTx(harness_, user, Ledger::T_MINER_REGISTER, 8, 45), kTestMinerId);
   ASSERT_FALSE(refused.isOk());
   EXPECT_NE(refused.error().message.find("cool-down until epoch 3"), std::string::npos) << refused.error().message;
   block = commit(block, 30, {minerTx(harness_, user, Ledger::T_MINER_REGISTER, 8, 46)});
@@ -4023,10 +3954,10 @@ TEST_F(MinerLivenessTest, ProducerStatsCountBlocksFeesAndChargedMisses) {
   blocks.push_back(commit(blocks.back(), 7, {makeReserveTransfer(harness_, 5, 42)})); // the user produces
 
   uint64_t fees = 0;
-  for (const auto &block : blocks) {
-    for (const auto &record : block.block.records) {
+  for (const auto& block : blocks) {
+    for (const auto& record : block.block.records) {
       fees += std::visit(
-          [](const auto &tx) -> uint64_t {
+          [](const auto& tx) -> uint64_t {
             if constexpr (std::is_base_of_v<Ledger::TxCommon, std::decay_t<decltype(tx)>>) {
               return tx.fee;
             } else {
@@ -4037,7 +3968,7 @@ TEST_F(MinerLivenessTest, ProducerStatsCountBlocksFeesAndChargedMisses) {
     }
   }
   const uint64_t next = blocks.back().block.index + 1;
-  for (Chain *node : {&harness_.producer, &harness_.peer}) {
+  for (Chain* node : {&harness_.producer, &harness_.peer}) {
     auto stats = node->producerStats(0, next);
     ASSERT_TRUE(stats.isOk()) << stats.error().message;
     EXPECT_EQ(stats.value().blocks, blocks.size()) << "block 0 is not counted";
@@ -4046,8 +3977,8 @@ TEST_F(MinerLivenessTest, ProducerStatsCountBlocksFeesAndChargedMisses) {
     EXPECT_EQ(stats.value().firstSlot, 1u);
     EXPECT_EQ(stats.value().lastSlot, 7u);
     ASSERT_EQ(stats.value().producers.size(), 2u);
-    const auto &miner = stats.value().producers[0];
-    const auto &newcomer = stats.value().producers[1];
+    const auto& miner = stats.value().producers[0];
+    const auto& newcomer = stats.value().producers[1];
     EXPECT_EQ(miner.accountId, kTestMinerId);
     EXPECT_EQ(miner.blocks, blocks.size() - 1);
     EXPECT_EQ(miner.missesCharged, 0u) << "it led slot 3 but was not due";
@@ -4073,7 +4004,7 @@ TEST_F(MinerLivenessTest, ProducerStatsCountBlocksFeesAndChargedMisses) {
 // it pinned, block 0; the authority proof to the beacon key; the signed tip; the blocks under it; the
 // account in the tip block's state root.
 TEST_F(ChainComposeTest, AClientProvesAnAccountFromThePinnedGenesis) {
-  auto &peer = harness_.peer;
+  auto& peer = harness_.peer;
   FundedUser user = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER + 1, 1000);
   peer.setClockOverride(peer.getSlotStartTime(1));
   ASSERT_TRUE(peer.addBlock(user.block).isOk());
@@ -4138,8 +4069,8 @@ TEST_F(ChainComposeTest, AClientProvesAnAccountFromThePinnedGenesis) {
 // nothing) until the first epoch starting at least the delay later applies it — on both nodes alike;
 // only the set withdraws it.
 TEST_F(MinerLivenessTest, AnAccountsRecoverySetStandsAboveItsKeys) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   for (uint64_t slot = 1; slot < 40; ++slot) {
     lead(slot, kTestMinerId);
   }
@@ -4154,7 +4085,7 @@ TEST_F(MinerLivenessTest, AnAccountsRecoverySetStandsAboveItsKeys) {
   const uint64_t halfEpoch = chain_tx::minRecoveryDelaySeconds(harness_.chainConfig);
   ASSERT_EQ(halfEpoch, 25u);
 
-  auto update = [&](const utl::MlDsaKeyPair &signer, uint64_t idem, const Client::AccountRecovery &recovery) {
+  auto update = [&](const utl::MlDsaKeyPair& signer, uint64_t idem, const Client::AccountRecovery& recovery) {
     Client::UserAccount account{peer.getAccount(user.id).value().wallet, AccountAttachment::emptySerialized()};
     account.wallet.recovery = recovery;
     Ledger::TxUserUpdate uu;
@@ -4166,7 +4097,7 @@ TEST_F(MinerLivenessTest, AnAccountsRecoverySetStandsAboveItsKeys) {
     uu.validationTsMax = from + 3600;
     return makeRecord(Ledger::T_USER_UPDATE, uu, signer, producer.getNetworkId());
   };
-  auto act = [&](const utl::MlDsaKeyPair &signer, uint64_t idem, const AccountRecoveryAction &action) {
+  auto act = [&](const utl::MlDsaKeyPair& signer, uint64_t idem, const AccountRecoveryAction& action) {
     Ledger::TxAccountRecovery tx;
     tx.walletId = user.id;
     tx.meta = action.ltsToString();
@@ -4182,7 +4113,7 @@ TEST_F(MinerLivenessTest, AnAccountsRecoverySetStandsAboveItsKeys) {
   announce.minSignatures = 1;
   AccountRecoveryAction withdraw;
   withdraw.kind = AccountRecoveryAction::WITHDRAW;
-  auto pay = [&](const utl::MlDsaKeyPair &signer, uint64_t idem) {
+  auto pay = [&](const utl::MlDsaKeyPair& signer, uint64_t idem) {
     Ledger::TxDefault tx;
     tx.tokenId = AccountBuffer::ID_GENESIS;
     tx.fromWalletId = user.id;
@@ -4194,7 +4125,7 @@ TEST_F(MinerLivenessTest, AnAccountsRecoverySetStandsAboveItsKeys) {
     tx.validationTsMax = from + 3600;
     return makeRecord(Ledger::T_DEFAULT, tx, signer, producer.getNetworkId());
   };
-  auto refused = [&](const Ledger::Record &record) {
+  auto refused = [&](const Ledger::Record& record) {
     AccountBuffer scratch;
     return !producer.addBufferTransaction(scratch, record, kTestMinerId).isOk();
   };
@@ -4263,7 +4194,7 @@ TEST_F(MinerLivenessTest, AnAccountsRecoverySetStandsAboveItsKeys) {
   EXPECT_EQ(peer.getAccount(user.id).value().wallet.publicKeys, std::vector<std::string>{user.key.publicKey})
       << "not yet: still epoch 1";
   block = commit(upTo(block, 21), 21, {makeReserveTransfer(harness_, 5, 61)});
-  for (Chain *node : {&producer, &peer}) {
+  for (Chain* node : {&producer, &peer}) {
     const auto after = node->getAccount(user.id).value().wallet;
     EXPECT_EQ(after.publicKeys, std::vector<std::string>{nextKey.publicKey});
     EXPECT_EQ(after.minSignatures, 1u);
@@ -4288,7 +4219,8 @@ TEST(AccountRecoveryPolicyTest, ASetHasKeysAThresholdAndHalfAnEpochOfDelay) {
   set.delaySeconds = 25;
   EXPECT_TRUE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_FIRST_USER, withConfig).isOk());
   EXPECT_TRUE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_FIRST_ISSUED, withConfig).isOk()) << "issuers too";
-  for (uint64_t id : {AccountBuffer::ID_RESERVE, AccountBuffer::ID_REGISTRAR, AccountBuffer::ID_FEE, AccountBuffer::ID_RECYCLE}) {
+  for (uint64_t id :
+       {AccountBuffer::ID_RESERVE, AccountBuffer::ID_REGISTRAR, AccountBuffer::ID_FEE, AccountBuffer::ID_RECYCLE}) {
     EXPECT_TRUE(chain_tx::validateRecoverySet(set, id, withConfig).isOk()) << "system account " << id;
   }
   EXPECT_FALSE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_GENESIS, withConfig).isOk())
@@ -4311,28 +4243,28 @@ TEST(AccountRecoveryPolicyTest, ASetHasKeysAThresholdAndHalfAnEpochOfDelay) {
   EXPECT_FALSE(chain_tx::validateRecoverySet(stray, AccountBuffer::ID_FIRST_USER, withConfig).isOk());
 
   // The first epoch starting at least the delay after the slot: never the epoch's next start too soon.
-  EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 8, 25), 2u);  // slot 8 + 5 = 13 → epoch 2 (slot 20)
-  EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 5, 25), 1u);  // 5 + 5 = 10 → epoch 1, at the edge
-  EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 0, 26), 1u);  // 26 s is 6 slots → epoch 1
+  EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 8, 25), 2u);       // slot 8 + 5 = 13 → epoch 2 (slot 20)
+  EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 5, 25), 1u);       // 5 + 5 = 10 → epoch 1, at the edge
+  EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 0, 26), 1u);       // 26 s is 6 slots → epoch 1
   EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 3, 86400), 1729u); // a day: 17,280 slots on
 }
 
 // projects/domains: issued accounts get their domain from the registrar — at creation or later, once —
 // and both directions are proven under the state root.
 TEST_F(MinerLivenessTest, TheRegistrarGivesIssuedAccountsDomainsProvenBothWays) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   for (uint64_t slot = 1; slot < 20; ++slot) {
     lead(slot, kTestMinerId);
   }
-  const auto &registrarKey = harness_.recycleKey; // the harness's registrar signs with it
+  const auto& registrarKey = harness_.recycleKey; // the harness's registrar signs with it
   const int64_t from = harness_.chainConfig.genesisTime;
   const uint64_t acme = AccountBuffer::ID_FIRST_ISSUED + 5;
   const uint64_t plain = AccountBuffer::ID_FIRST_ISSUED + 6;
   const uint64_t user = AccountBuffer::ID_FIRST_USER + 9;
   uint64_t idem = 500;
 
-  auto newAccount = [&](uint64_t fromId, const utl::MlDsaKeyPair &signer, uint64_t id, const std::string &domain) {
+  auto newAccount = [&](uint64_t fromId, const utl::MlDsaKeyPair& signer, uint64_t id, const std::string& domain) {
     Client::UserAccount account = makeUserAccount(makeKeyPair().publicKey, 1000);
     account.wallet.domain = domain;
     Ledger::TxNewUser nu;
@@ -4346,7 +4278,7 @@ TEST_F(MinerLivenessTest, TheRegistrarGivesIssuedAccountsDomainsProvenBothWays) 
     nu.validationTsMax = from + 3600;
     return makeRecord(Ledger::T_NEW_USER, nu, signer, producer.getNetworkId());
   };
-  auto assign = [&](const utl::MlDsaKeyPair &signer, uint64_t id, const std::string &domain) {
+  auto assign = [&](const utl::MlDsaKeyPair& signer, uint64_t id, const std::string& domain) {
     Ledger::TxDomainAssign tx;
     tx.walletId = id;
     tx.domain = domain;
@@ -4356,7 +4288,7 @@ TEST_F(MinerLivenessTest, TheRegistrarGivesIssuedAccountsDomainsProvenBothWays) 
     tx.validationTsMax = from + 3600;
     return makeRecord(Ledger::T_DOMAIN_ASSIGN, tx, signer, producer.getNetworkId());
   };
-  auto refused = [&](const Ledger::Record &record) {
+  auto refused = [&](const Ledger::Record& record) {
     AccountBuffer scratch;
     return !producer.addBufferTransaction(scratch, record, kTestMinerId).isOk();
   };
@@ -4371,24 +4303,26 @@ TEST_F(MinerLivenessTest, TheRegistrarGivesIssuedAccountsDomainsProvenBothWays) 
   fund.idempotentId = ++idem;
   fund.validationTsMin = from;
   fund.validationTsMax = from + 3600;
-  Ledger::ChainNode block = commit(harness_.genesis, 1, {makeRecord(Ledger::T_DEFAULT, fund, harness_.reserveKey,
-                                                                    producer.getNetworkId())});
+  Ledger::ChainNode block =
+      commit(harness_.genesis, 1, {makeRecord(Ledger::T_DEFAULT, fund, harness_.reserveKey, producer.getNetworkId())});
 
   // Created with a domain: 4–7 capital letters, by the registrar; a user account has none.
   EXPECT_TRUE(refused(newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, acme, "ABC"))) << "the system's length";
   EXPECT_TRUE(refused(newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, acme, "Acme"))) << "capitals only";
   EXPECT_TRUE(refused(newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, acme, "ACMECORP"))) << "7 at most";
   EXPECT_TRUE(refused(newAccount(AccountBuffer::ID_RESERVE, harness_.reserveKey, user, "BOBCO"))) << "users have none";
-  block = commit(block, 2, {newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, acme, "ACME"),
-                            newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, plain, ""),
-                            newAccount(AccountBuffer::ID_RESERVE, harness_.reserveKey, user, "")});
-  for (Chain *node : {&producer, &peer}) {
+  block = commit(block, 2,
+                 {newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, acme, "ACME"),
+                  newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, plain, ""),
+                  newAccount(AccountBuffer::ID_RESERVE, harness_.reserveKey, user, "")});
+  for (Chain* node : {&producer, &peer}) {
     EXPECT_EQ(node->getAccount(acme).value().wallet.domain, "ACME");
     ASSERT_TRUE(node->findDomain("ACME").has_value());
     EXPECT_EQ(node->findDomain("ACME")->accountId, acme);
   }
-  EXPECT_TRUE(refused(newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, AccountBuffer::ID_FIRST_ISSUED + 7,
-                                 "ACME"))) << "taken";
+  EXPECT_TRUE(
+      refused(newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, AccountBuffer::ID_FIRST_ISSUED + 7, "ACME")))
+      << "taken";
   EXPECT_TRUE(refused(newAccount(AccountBuffer::ID_RESERVE, harness_.reserveKey, AccountIds::ID_LIMIT, "")))
       << "account ids stay below 2^63";
 
@@ -4461,7 +4395,7 @@ TEST(DomainTest, LettersOnlyTheLengthTellsTheKindAndKeysNeverMeetAccounts) {
 
 TEST(DomainTest, AnEndedAccountsDomainIsFreeAgainAndTheRootFollows) {
   AccountBuffer bank;
-  auto accountOf = [](uint64_t id, int64_t balance, const std::string &domain) {
+  auto accountOf = [](uint64_t id, int64_t balance, const std::string& domain) {
     AccountBuffer::Account a;
     a.id = id;
     a.wallet = makeUserAccount(makeKeyPair().publicKey, balance).wallet;
@@ -4501,7 +4435,7 @@ TEST(DomainTest, AnEndedAccountsDomainIsFreeAgainAndTheRootFollows) {
 class GenesisRenewalConfigTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    harness_.SetUp([](Chain::BlockChainConfig &c) {
+    harness_.SetUp([](Chain::BlockChainConfig& c) {
       c.checkpoint.minBlocks = 2;
       c.checkpoint.minAgeSeconds = 0;
     });
@@ -4512,12 +4446,12 @@ protected:
     r.signatures = {signMessage(harness_.reserveKey, r.signingMessage(harness_.producer.getNetworkId()))};
     return r;
   }
-  static Chain::GenesisAccountMeta genesisMetaOf(const Ledger::Record &r) {
+  static Chain::GenesisAccountMeta genesisMetaOf(const Ledger::Record& r) {
     Chain::GenesisAccountMeta gm;
     EXPECT_TRUE(gm.ltsFromString(utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().meta));
     return gm;
   }
-  static bool isGenesisRenewal(const Ledger::Record &r) {
+  static bool isGenesisRenewal(const Ledger::Record& r) {
     return r.type == Ledger::T_RENEWAL &&
            utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId == AccountBuffer::ID_GENESIS;
   }
@@ -4526,7 +4460,7 @@ protected:
 };
 
 TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const uint64_t before = producer.getMaxTransactionsPerBlock();
   // The update rotates genesis to 3 keys (a genesis renewal needs a valid genesis wallet).
   const std::vector<utl::MlDsaKeyPair> rotated = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
@@ -4543,9 +4477,9 @@ TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
   configTx.idempotentId = 1;
   configTx.validationTsMin = harness_.chainConfig.genesisTime;
   configTx.validationTsMax = harness_.chainConfig.genesisTime + 3600;
-  Ledger::ChainNode block = makeNextBlockAtSlot(
-      producer, harness_.genesis, 1,
-      {makeRecord(Ledger::T_CONFIG, configTx, harness_.genesisKey, producer.getNetworkId())});
+  Ledger::ChainNode block =
+      makeNextBlockAtSlot(producer, harness_.genesis, 1,
+                          {makeRecord(Ledger::T_CONFIG, configTx, harness_.genesisKey, producer.getNetworkId())});
   ASSERT_TRUE(producer.addBlock(block).isOk());
 
   // Renew whatever falls due, slot by slot, until genesis does (still epoch 0: update pending).
@@ -4554,7 +4488,7 @@ TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
     auto due = producer.collectRenewals(slot);
     ASSERT_TRUE(due.isOk()) << due.error().message;
     std::vector<Ledger::Record> records;
-    for (const auto &r : due.value()) {
+    for (const auto& r : due.value()) {
       records.push_back(signedByLeader(r));
       if (isGenesisRenewal(r)) {
         genesisRenewal = records.back();
@@ -4572,7 +4506,7 @@ TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
       Ledger::Record bad = *genesisRenewal;
       bad.data = utl::binaryPack(tampered);
       std::vector<Ledger::Record> badRecords;
-      for (const auto &r : records) {
+      for (const auto& r : records) {
         badRecords.push_back(isGenesisRenewal(r) ? signedByLeader(bad) : r);
       }
       Ledger::ChainNode badBlock =
@@ -4590,7 +4524,7 @@ TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
       Ledger::Record badAuthority = *genesisRenewal;
       badAuthority.data = utl::binaryPack(altered);
       std::vector<Ledger::Record> badAuthorityRecords;
-      for (const auto &r : records) {
+      for (const auto& r : records) {
         badAuthorityRecords.push_back(isGenesisRenewal(r) ? signedByLeader(badAuthority) : r);
       }
       Ledger::ChainNode badAuthorityBlock =
@@ -4609,7 +4543,7 @@ TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
       Ledger::Record badKeys = *genesisRenewal;
       badKeys.data = utl::binaryPack(seized);
       std::vector<Ledger::Record> badKeysRecords;
-      for (const auto &r : records) {
+      for (const auto& r : records) {
         badKeysRecords.push_back(isGenesisRenewal(r) ? signedByLeader(badKeys) : r);
       }
       Ledger::ChainNode badKeysBlock =
@@ -4634,7 +4568,7 @@ TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
 // recovery and meta as the chain holds them. A renewal planting a pending recovery would hand the
 // admin set to the leader's keys at the next epoch start (and freeze genesis until then).
 TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeTheGenesisRecoveryOrMeta) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   // A genesis renewal needs a valid genesis wallet: rotate genesis to 3 keys first.
   const std::vector<utl::MlDsaKeyPair> rotated = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
   Chain::GenesisAccountMeta update;
@@ -4649,9 +4583,9 @@ TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeTheGenesisRecoveryOrMeta) {
   configTx.idempotentId = 1;
   configTx.validationTsMin = harness_.chainConfig.genesisTime;
   configTx.validationTsMax = harness_.chainConfig.genesisTime + 3600;
-  Ledger::ChainNode block = makeNextBlockAtSlot(
-      producer, harness_.genesis, 1,
-      {makeRecord(Ledger::T_CONFIG, configTx, harness_.genesisKey, producer.getNetworkId())});
+  Ledger::ChainNode block =
+      makeNextBlockAtSlot(producer, harness_.genesis, 1,
+                          {makeRecord(Ledger::T_CONFIG, configTx, harness_.genesisKey, producer.getNetworkId())});
   ASSERT_TRUE(producer.addBlock(block).isOk());
 
   const std::vector<utl::MlDsaKeyPair> attacker = {makeKeyPair(), makeKeyPair(), makeKeyPair(), makeKeyPair()};
@@ -4660,12 +4594,12 @@ TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeTheGenesisRecoveryOrMeta) {
     auto due = producer.collectRenewals(slot);
     ASSERT_TRUE(due.isOk()) << due.error().message;
     std::vector<Ledger::Record> records;
-    for (const auto &r : due.value()) {
+    for (const auto& r : due.value()) {
       records.push_back(signedByLeader(r));
     }
-    auto sealWith = [&](const std::function<void(Chain::GenesisAccountMeta &)> &change) {
+    auto sealWith = [&](const std::function<void(Chain::GenesisAccountMeta&)>& change) {
       std::vector<Ledger::Record> changed;
-      for (const auto &r : records) {
+      for (const auto& r : records) {
         if (!isGenesisRenewal(r)) {
           changed.push_back(r);
           continue;
@@ -4682,12 +4616,12 @@ TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeTheGenesisRecoveryOrMeta) {
           producer.linkNextBlock(block, slot, kTestMinerId, producer.getSlotEndTime(slot), changed);
       return producer.sealBlock(candidate);
     };
-    for (const auto &r : records) {
+    for (const auto& r : records) {
       sawGenesis = sawGenesis || isGenesisRenewal(r);
     }
     if (sawGenesis) {
-      auto planted = sealWith([&](Chain::GenesisAccountMeta &gm) {
-        Client::AccountRecovery &recovery = gm.genesis.wallet.recovery;
+      auto planted = sealWith([&](Chain::GenesisAccountMeta& gm) {
+        Client::AccountRecovery& recovery = gm.genesis.wallet.recovery;
         recovery.publicKeys = {attacker[0].publicKey};
         recovery.minSignatures = 1;
         recovery.delaySeconds = 1;
@@ -4698,10 +4632,9 @@ TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeTheGenesisRecoveryOrMeta) {
       });
       ASSERT_FALSE(planted.isOk()) << "a leader-signed renewal planted a recovery on genesis";
       // The genesis wallet's shape refuses any recovery before the renewal is compared with the held one.
-      EXPECT_NE(planted.error().message.find("no recovery of its own"), std::string::npos)
-          << planted.error().message;
+      EXPECT_NE(planted.error().message.find("no recovery of its own"), std::string::npos) << planted.error().message;
 
-      auto meta = sealWith([](Chain::GenesisAccountMeta &gm) {
+      auto meta = sealWith([](Chain::GenesisAccountMeta& gm) {
         AccountAttachment attachment;
         AccountAttachment::ProfileSlot profile;
         profile.data = "planted";
@@ -4729,7 +4662,7 @@ TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeTheGenesisRecoveryOrMeta) {
 class CheckpointJoinTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    harness_.SetUp([this](Chain::BlockChainConfig &c) {
+    harness_.SetUp([this](Chain::BlockChainConfig& c) {
       c.checkpoint.minBlocks = 3;
       c.checkpoint.minAgeSeconds = minAgeSeconds_;
       if (maxValidationTimespanSeconds_ > 0) {
@@ -4748,14 +4681,14 @@ protected:
   }
 
   /** The producer commits a block at `slot`: the renewals due (signed by the leader) and `records`. */
-  Ledger::ChainNode produce(const Ledger::ChainNode &previous, uint64_t slot,
+  Ledger::ChainNode produce(const Ledger::ChainNode& previous, uint64_t slot,
                             std::vector<Ledger::Record> records = {}) {
-    auto &producer = harness_.producer;
+    auto& producer = harness_.producer;
     producer.setClockOverride(producer.getSlotEndTime(slot));
     auto due = producer.collectRenewals(slot);
     EXPECT_TRUE(due.isOk()) << due.error().message;
     std::vector<Ledger::Record> all;
-    for (const auto &r : due.value()) {
+    for (const auto& r : due.value()) {
       Ledger::Record signed_ = r;
       signed_.signatures = {signMessage(harness_.reserveKey, r.signingMessage(producer.getNetworkId()))};
       all.push_back(signed_);
@@ -4772,7 +4705,7 @@ protected:
    * renewal needs one, as a real network's genesis has. Returns the tip.
    */
   Ledger::ChainNode startChain() {
-    auto &producer = harness_.producer;
+    auto& producer = harness_.producer;
     producer.setClockOverride(producer.getSlotEndTime(1));
     user_ = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER, 500);
     Chain::GenesisAccountMeta gm;
@@ -4797,7 +4730,8 @@ protected:
   }
 
   /** A record's validity window around `slot` (the helpers' windows end an hour after genesis). */
-  template <typename Tx> void windowAt(Tx &tx, uint64_t slot) {
+  template <typename Tx>
+  void windowAt(Tx& tx, uint64_t slot) {
     const int64_t start = harness_.producer.getSlotStartTime(slot);
     tx.validationTsMin = start - 60;
     tx.validationTsMax = start + 3600;
@@ -4820,7 +4754,7 @@ protected:
    * The reserve funds a new user account `id` with `balance`, valid at `slot`. `profileBytes` > 0
    * gives it a self-published profile that large (its renewal then costs more than the free meta).
    */
-  Ledger::Record newUserAt(uint64_t slot, uint64_t id, const utl::MlDsaKeyPair &key, int64_t balance,
+  Ledger::Record newUserAt(uint64_t slot, uint64_t id, const utl::MlDsaKeyPair& key, int64_t balance,
                            size_t profileBytes = 0) {
     Ledger::TxNewUser nu;
     nu.fromWalletId = AccountBuffer::ID_RESERVE;
@@ -4840,7 +4774,7 @@ protected:
   }
 
   /** Account `id` registers itself as a miner, valid at `slot`. */
-  Ledger::Record registerMinerAt(uint64_t slot, uint64_t id, const utl::MlDsaKeyPair &key) {
+  Ledger::Record registerMinerAt(uint64_t slot, uint64_t id, const utl::MlDsaKeyPair& key) {
     Ledger::TxMinerRegister tx;
     tx.walletId = id;
     tx.fee = 8; // meta fee 1 + minerRegistrationFee 7
@@ -4848,15 +4782,15 @@ protected:
     windowAt(tx, slot);
     Ledger::Record rec;
     rec.type = Ledger::T_MINER_REGISTER;
-    rec.data = utl::binaryPack(static_cast<const Ledger::TxMiner &>(tx));
+    rec.data = utl::binaryPack(static_cast<const Ledger::TxMiner&>(tx));
     rec.signatures = {signMessage(key, rec.signingMessage(harness_.producer.getNetworkId()))};
     return rec;
   }
 
   /** `renewals` as the leader signs them. */
-  std::vector<Ledger::Record> signedRenewals(const std::vector<Ledger::Record> &renewals) {
+  std::vector<Ledger::Record> signedRenewals(const std::vector<Ledger::Record>& renewals) {
     std::vector<Ledger::Record> out;
-    for (const auto &r : renewals) {
+    for (const auto& r : renewals) {
       Ledger::Record signed_ = r;
       signed_.signatures = {signMessage(harness_.reserveKey, r.signingMessage(harness_.producer.getNetworkId()))};
       out.push_back(signed_);
@@ -4865,16 +4799,17 @@ protected:
   }
 
   /** The account a renewal record renews. */
-  static uint64_t renewedAccount(const Ledger::Record &renewal) {
+  static uint64_t renewedAccount(const Ledger::Record& renewal) {
     auto tx = utl::binaryUnpack<Ledger::TxRenewal>(renewal.data);
     return tx ? tx.value().walletId : 0;
   }
 
   /** Blocks until the next slot is an eligible checkpoint (an epoch start minBlocks on). */
   Ledger::ChainNode advanceToEligibleSlot(Ledger::ChainNode tip) {
-    auto &producer = harness_.producer;
+    auto& producer = harness_.producer;
     while (!((slot_ + 1) % harness_.chainConfig.slotsPerEpoch == 0 &&
-             producer.getNextBlockId() >= producer.getCheckpoint().currentId + harness_.chainConfig.checkpoint.minBlocks)) {
+             producer.getNextBlockId() >=
+                 producer.getCheckpoint().currentId + harness_.chainConfig.checkpoint.minBlocks)) {
       tip = next(tip);
       if (HasFailure()) {
         break;
@@ -4884,14 +4819,14 @@ protected:
   }
 
   /** The next block, one slot on, with a reserve transfer (empty blocks wait for heartbeats). */
-  Ledger::ChainNode next(const Ledger::ChainNode &tip) {
+  Ledger::ChainNode next(const Ledger::ChainNode& tip) {
     ++slot_;
     return produce(tip, slot_, {transferAt(slot_)});
   }
 
   /** True when the genesis miner (the producer's key) leads `slot`. */
   bool genesisMinerLeads(uint64_t slot) {
-    auto &producer = harness_.producer;
+    auto& producer = harness_.producer;
     producer.setClockOverride(producer.getSlotEndTime(slot));
     producer.refreshStakeholders(slot);
     if (!producer.ensureEpochSeed(producer.getEpochFromSlot(slot)).isOk()) {
@@ -4902,7 +4837,7 @@ protected:
   }
 
   /** The next block in a slot the genesis miner leads; slots other miners lead are skipped. */
-  Ledger::ChainNode nextLedByGenesisMiner(const Ledger::ChainNode &tip, std::vector<Ledger::Record> records = {}) {
+  Ledger::ChainNode nextLedByGenesisMiner(const Ledger::ChainNode& tip, std::vector<Ledger::Record> records = {}) {
     do {
       ++slot_;
     } while (!genesisMinerLeads(slot_));
@@ -4923,7 +4858,7 @@ protected:
     consensus::SlotCommittee::Config consensusConfig;
     consensusConfig.timeOffsetMs = 0;
     joiner->initConsensus(consensusConfig);
-    for (const auto &[slot, id] : forced_) {
+    for (const auto& [slot, id] : forced_) {
       joiner->forceSlotLeader(slot, id);
     }
     if (fresh) {
@@ -4943,7 +4878,7 @@ protected:
    * A fresh joiner starts at checkpoint `start`, takes every block to the producer's tip (Full from
    * the next checkpoint on) and ends with the producer's state for `accounts`.
    */
-  void joinFrom(uint64_t start, const std::vector<uint64_t> &accounts) {
+  void joinFrom(uint64_t start, const std::vector<uint64_t>& accounts) {
     joiner_.reset();
     std::error_code ec;
     std::filesystem::remove_all(joinerDir_, ec);
@@ -4964,7 +4899,7 @@ protected:
   std::vector<uint64_t> rotations_;
 
   /** produce(), recording checkpoint rotations. */
-  Ledger::ChainNode produceTracked(const Ledger::ChainNode &previous, uint64_t slot,
+  Ledger::ChainNode produceTracked(const Ledger::ChainNode& previous, uint64_t slot,
                                    std::vector<Ledger::Record> records) {
     const uint64_t before = harness_.producer.getCheckpoint().currentId;
     auto block = produce(previous, slot, std::move(records));
@@ -4975,7 +4910,7 @@ protected:
   }
 
   /** The joiner takes the producer's blocks [from, to). */
-  void feed(Chain &joiner, uint64_t from, uint64_t to) {
+  void feed(Chain& joiner, uint64_t from, uint64_t to) {
     for (uint64_t id = from; id < to; ++id) {
       auto block = harness_.producer.readBlock(id);
       ASSERT_TRUE(block.isOk());
@@ -4995,7 +4930,7 @@ protected:
   /** When > 0, the chain's maxValidationTimespanSeconds (a node seals once its blocks span it). */
   uint64_t maxValidationTimespanSeconds_ = 0;
   /** Applied to the config the startChain T_CONFIG installs. */
-  std::function<void(Chain::BlockChainConfig &)> configUpdate_;
+  std::function<void(Chain::BlockChainConfig&)> configUpdate_;
   /** The 2-of-3 admin set startChain rotates to. */
   std::vector<utl::MlDsaKeyPair> adminKeys_;
 };
@@ -5004,7 +4939,7 @@ protected:
 // least checkpoint.minBlocks after the current one, opening with the genesis renewal. The newest
 // two are kept (a joiner starts at the older and works from the newer).
 TEST_F(CheckpointJoinTest, CheckpointsAreEpochStartsOpeningWithTheGenesisRenewal) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const uint64_t slotsPerEpoch = harness_.chainConfig.slotsPerEpoch;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
@@ -5064,7 +4999,7 @@ TEST_F(CheckpointJoinTest, CheckpointsAreEpochStartsOpeningWithTheGenesisRenewal
 // B035: due renewals may wait when they do not fit. A block that leaves any out holds renewals only,
 // at least one; the rest go into later blocks.
 TEST_F(CheckpointJoinTest, DueRenewalsMayWaitInABlockOfRenewalsOnly) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
   std::vector<Ledger::Record> due;
@@ -5081,7 +5016,7 @@ TEST_F(CheckpointJoinTest, DueRenewalsMayWaitInABlockOfRenewalsOnly) {
     ASSERT_LT(slot_, 200u);
   }
   ++slot_;
-  auto refusedWith = [&](std::vector<Ledger::Record> records, const std::string &why) {
+  auto refusedWith = [&](std::vector<Ledger::Record> records, const std::string& why) {
     Ledger::ChainNode block = producer.linkNextBlock(tip, slot_, kTestMinerId, producer.getSlotEndTime(slot_), records);
     auto sealed = producer.sealBlock(block);
     ASSERT_FALSE(sealed.isOk()) << why;
@@ -5102,7 +5037,7 @@ TEST_F(CheckpointJoinTest, DueRenewalsMayWaitInABlockOfRenewalsOnly) {
 // genesis renewal out and a block opening with it is refused; once it renews, the next epoch start
 // rotates.
 TEST_F(CheckpointJoinTest, ACheckpointWaitsForRenewalsOfAccountsWrittenBeforeTheCurrentOne) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
   // Two users written in each of three consecutive blocks: with minBlocks 3, two renewals are due
@@ -5132,7 +5067,7 @@ TEST_F(CheckpointJoinTest, ACheckpointWaitsForRenewalsOfAccountsWrittenBeforeThe
     auto collected = producer.collectRenewals(slot_);
     ASSERT_TRUE(collected.isOk());
     std::vector<Ledger::Record> records;
-    for (const auto &r : signedRenewals(collected.value())) {
+    for (const auto& r : signedRenewals(collected.value())) {
       const uint64_t id = renewedAccount(r);
       if (!heldBack && id != AccountBuffer::ID_GENESIS) {
         heldBack = id;
@@ -5153,7 +5088,7 @@ TEST_F(CheckpointJoinTest, ACheckpointWaitsForRenewalsOfAccountsWrittenBeforeThe
   auto collected = producer.collectRenewals(slot_);
   ASSERT_TRUE(collected.isOk());
   std::vector<Ledger::Record> due = signedRenewals(collected.value());
-  for (const auto &r : due) {
+  for (const auto& r : due) {
     EXPECT_FALSE(chain_block::isGenesisRenewal(r)) << "the genesis renewal waits with the checkpoint";
   }
   // A block opening with a genesis renewal anyway (the current checkpoint's), as a checkpoint
@@ -5180,7 +5115,7 @@ TEST_F(CheckpointJoinTest, ACheckpointWaitsForRenewalsOfAccountsWrittenBeforeThe
 
 // B034: a block larger than maxBlockBytes is refused, whatever it holds.
 TEST_F(CheckpointJoinTest, ABlockLargerThanMaxBlockBytesIsRefused) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
   ++slot_;
@@ -5201,7 +5136,7 @@ TEST_F(CheckpointJoinTest, ABlockLargerThanMaxBlockBytesIsRefused) {
 // every account with its leaf fields and full attachment — checked against block H's state root.
 // It works on a copy: the node's ledger is left as it is.
 TEST_F(CheckpointJoinTest, AStateExportIsTheStateAtItsHeightCheckedAgainstItsRoot) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   producer.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock()); // on disk, as a stopped node's
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
@@ -5219,7 +5154,7 @@ TEST_F(CheckpointJoinTest, AStateExportIsTheStateAtItsHeightCheckedAgainstItsRoo
 
   auto exported = state_export::exportState(harness_.producerDir.string(), height, scratch.string());
   ASSERT_TRUE(exported.isOk()) << exported.error().message;
-  const StateSnapshot &snapshot = exported.value();
+  const StateSnapshot& snapshot = exported.value();
   const auto atHeight = producer.readBlock(height);
   ASSERT_TRUE(atHeight.isOk());
   EXPECT_EQ(snapshot.predecessor.networkId, producer.getNetworkId());
@@ -5231,11 +5166,11 @@ TEST_F(CheckpointJoinTest, AStateExportIsTheStateAtItsHeightCheckedAgainstItsRoo
   EXPECT_EQ(snapshot.config.networkId, producer.getNetworkId());
 
   const auto found = std::find_if(snapshot.accounts.begin(), snapshot.accounts.end(),
-                                  [&](const StateSnapshot::Account &a) { return a.id == profiled; });
+                                  [&](const StateSnapshot::Account& a) { return a.id == profiled; });
   ASSERT_NE(found, snapshot.accounts.end());
   EXPECT_EQ(found->attachment, producer.getAccount(profiled).value().meta) << "the profile, in full";
   EXPECT_TRUE(std::is_sorted(snapshot.accounts.begin(), snapshot.accounts.end(),
-                             [](const auto &a, const auto &b) { return a.id < b.id; }));
+                             [](const auto& a, const auto& b) { return a.id < b.id; }));
 
   StateSnapshot read;
   ASSERT_TRUE(read.ltsFromString(snapshot.ltsToString()));
@@ -5246,8 +5181,10 @@ TEST_F(CheckpointJoinTest, AStateExportIsTheStateAtItsHeightCheckedAgainstItsRoo
   balance.accounts.front().wallet.mBalances[AccountBuffer::ID_GENESIS] += 1;
   EXPECT_NE(balance.accountsRoot(), snapshot.predecessor.stateRoot);
   StateSnapshot profile = snapshot;
-  auto &attachment = std::find_if(profile.accounts.begin(), profile.accounts.end(),
-                                  [&](const StateSnapshot::Account &a) { return a.id == profiled; })->attachment;
+  auto& attachment =
+      std::find_if(profile.accounts.begin(), profile.accounts.end(), [&](const StateSnapshot::Account& a) {
+        return a.id == profiled;
+      })->attachment;
   attachment.back() ^= 1;
   EXPECT_NE(profile.accountsRoot(), snapshot.predecessor.stateRoot);
 
@@ -5263,7 +5200,7 @@ TEST_F(CheckpointJoinTest, AStateExportIsTheStateAtItsHeightCheckedAgainstItsRoo
 }
 
 TEST_F(CheckpointJoinTest, JoinerAtThePreviousCheckpointValidatesFullBlocksLikeTheProducer) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   // Grow past two checkpoint rotations.
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
@@ -5302,8 +5239,8 @@ TEST_F(CheckpointJoinTest, JoinerAtThePreviousCheckpointValidatesFullBlocksLikeT
     feed(*joiner_, tip.block.index, tip.block.index + 1);
     ASSERT_FALSE(HasFailure());
   }
-  for (uint64_t id : {AccountBuffer::ID_GENESIS, AccountBuffer::ID_RESERVE, AccountBuffer::ID_FEE, kTestMinerId,
-                      user_.id}) {
+  for (uint64_t id :
+       {AccountBuffer::ID_GENESIS, AccountBuffer::ID_RESERVE, AccountBuffer::ID_FEE, kTestMinerId, user_.id}) {
     auto ours = joiner_->getAccount(id);
     auto theirs = producer.getAccount(id);
     ASSERT_TRUE(ours.isOk() && theirs.isOk()) << "account " << id;
@@ -5322,7 +5259,7 @@ TEST_F(CheckpointJoinTest, JoinerAtThePreviousCheckpointValidatesFullBlocksLikeT
 // stakeSnapshotHash commits to (a warming node takes the epoch's leaders from it); no other block
 // carries one. A tampered committee is refused, by a node in warm-up too.
 TEST_F(CheckpointJoinTest, EpochOpeningBlocksCarryTheirCommittee) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
   while (producer.getCheckpoint().lastId == 0) {
@@ -5365,7 +5302,7 @@ TEST_F(CheckpointJoinTest, EpochOpeningBlocksCarryTheirCommittee) {
 // users created before the joiner's checkpoint keep paying each other (and fees) while the joiner
 // does not hold them yet — fees still reach the fee account, credits still reach known recipients.
 TEST_F(CheckpointJoinTest, WarmUpAppliesEveryEffectOnHeldAccounts) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
   // Users are created one every few blocks, so their renewals (and the joiner's knowledge of them)
@@ -5434,7 +5371,7 @@ TEST_F(CheckpointJoinTest, WarmUpAppliesEveryEffectOnHeldAccounts) {
   }
   std::vector<uint64_t> ids = {AccountBuffer::ID_GENESIS, AccountBuffer::ID_RESERVE, AccountBuffer::ID_FEE,
                                AccountBuffer::ID_RECYCLE, kTestMinerId};
-  for (const auto &user : users) {
+  for (const auto& user : users) {
     ids.push_back(user.first);
   }
   ids.insert(ids.end(), poor.begin(), poor.end());
@@ -5464,7 +5401,7 @@ protected:
 };
 
 TEST_F(CheckpointClockTest, ReplayYearsLaterAgreesWithTheProducer) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
   while (producer.getCheckpoint().lastId == 0) {
@@ -5491,7 +5428,6 @@ TEST_F(CheckpointClockTest, ReplayYearsLaterAgreesWithTheProducer) {
   EXPECT_EQ(replay.getCheckpoint().currentId, producer.getCheckpoint().currentId);
 }
 
-
 // beacon-authority ba5b.4: warm-up is exact although liveness charges depend on each epoch's
 // committee. Miner B (large stake, registered long before the joiner's checkpoint) never produces;
 // once due, every slot it leads is skipped and charged — in the joiner's first epoch too, when the
@@ -5501,13 +5437,13 @@ class CheckpointLivenessTest : public CheckpointJoinTest {
 protected:
   void SetUp() override {
     CheckpointJoinTest::SetUp();
-    configUpdate_ = [](Chain::BlockChainConfig &c) {
+    configUpdate_ = [](Chain::BlockChainConfig& c) {
       c.minerDueAfterSlots = 8640; // the least a config allows at 5 s slots (12 hours)
       c.minerMaxMissedSlots = 0;   // keep counting misses (no auto-deregistration)
     };
   }
 
-  Client::MinerState minerOf(const Chain &chain, uint64_t id) {
+  Client::MinerState minerOf(const Chain& chain, uint64_t id) {
     auto account = chain.getAccount(id);
     EXPECT_TRUE(account.isOk()) << "account " << id;
     return account ? account.value().wallet.miner : Client::MinerState{};
@@ -5518,7 +5454,7 @@ protected:
 };
 
 TEST_F(CheckpointLivenessTest, WarmUpChargesSkippedSlotsExactly) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
   const auto keyB = makeKeyPair();
@@ -5579,7 +5515,7 @@ TEST_F(CheckpointLivenessTest, WarmUpChargesSkippedSlotsExactly) {
 // also renews B: a joiner starting there holds B when that block's liveness runs (the block before
 // it is not held; the charges start at the epoch's first slot all the same).
 TEST_F(CheckpointLivenessTest, CheckpointBlockChargesExactly) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const uint64_t slotsPerEpoch = harness_.chainConfig.slotsPerEpoch;
   const uint64_t minBlocks = harness_.chainConfig.checkpoint.minBlocks;
   Ledger::ChainNode tip = startChain();
@@ -5602,9 +5538,10 @@ TEST_F(CheckpointLivenessTest, CheckpointBlockChargesExactly) {
       if (!block) {
         continue;
       }
-      for (const auto &r : block.value().block.records) {
+      for (const auto& r : block.value().block.records) {
         if ((r.type == Ledger::T_RENEWAL && utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId == kMinerB) ||
-            (r.type == Ledger::T_NEW_USER && utl::binaryUnpack<Ledger::TxNewUser>(r.data).value().toWalletId == kMinerB)) {
+            (r.type == Ledger::T_NEW_USER &&
+             utl::binaryUnpack<Ledger::TxNewUser>(r.data).value().toWalletId == kMinerB)) {
           return id;
         }
       }
@@ -5664,7 +5601,7 @@ TEST_F(CheckpointLivenessTest, CheckpointBlockChargesExactly) {
     const auto block = producer.readBlock(index).value();
     ASSERT_TRUE(std::find(rotations_.begin(), rotations_.end(), index) != rotations_.end()) << "block " << index;
     bool renews = false;
-    for (const auto &r : block.block.records) {
+    for (const auto& r : block.block.records) {
       renews = renews || (r.type == Ledger::T_RENEWAL &&
                           utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId == kMinerB);
     }
@@ -5672,8 +5609,8 @@ TEST_F(CheckpointLivenessTest, CheckpointBlockChargesExactly) {
   }
   ASSERT_TRUE(minerOf(producer, kMinerC).registered);
 
-  const std::vector<uint64_t> ids = {kTestMinerId, kMinerB, kMinerC, AccountBuffer::ID_GENESIS,
-                                     AccountBuffer::ID_RESERVE, AccountBuffer::ID_FEE};
+  const std::vector<uint64_t> ids = {
+      kTestMinerId, kMinerB, kMinerC, AccountBuffer::ID_GENESIS, AccountBuffer::ID_RESERVE, AccountBuffer::ID_FEE};
   for (size_t k = 0; k + 1 < rotations_.size(); ++k) {
     joinFrom(rotations_[k], ids);
     ASSERT_FALSE(HasFailure());
@@ -5683,7 +5620,7 @@ TEST_F(CheckpointLivenessTest, CheckpointBlockChargesExactly) {
 // A transfer to the payer itself used to mint: transferBalance read both balances before writing
 // them, so the payee's write (+amount) overwrote the payer's (-amount). It is refused.
 TEST_F(ChainComposeTest, TransferToSelfIsRefused) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   producer.setClockOverride(producer.getSlotStartTime(1));
   const auto reserveBefore = producer.getAccount(AccountBuffer::ID_RESERVE).value().wallet.mBalances;
   Ledger::TxDefault tx;
@@ -5703,18 +5640,17 @@ TEST_F(ChainComposeTest, TransferToSelfIsRefused) {
   EXPECT_EQ(producer.getAccount(AccountBuffer::ID_RESERVE).value().wallet.mBalances, reserveBefore);
 }
 
-
 // ba7: the first block of a recovery's epoch carries the genesis renewal built for that epoch — the
 // new admin set, nothing pending — and the slot leader's draft takes it, though the committed chain
 // still holds the recovery as pending (found by L-SMOKE-RECOVERY: leaders could not produce).
 TEST_F(GenesisRenewalConfigTest, RenewalInTheRecoveryEpochCarriesTheNewAdminSet) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const std::string net = producer.getNetworkId();
   const std::vector<utl::MlDsaKeyPair> admins = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
   producer.setClockOverride(producer.getSlotStartTime(1));
-  Ledger::ChainNode block = makeNextBlockAtSlot(
-      producer, harness_.genesis, 1,
-      {makeRecoveryRecord(admins, 2, testRecoveryKey(), net, 1, harness_.chainConfig.genesisTime)});
+  Ledger::ChainNode block =
+      makeNextBlockAtSlot(producer, harness_.genesis, 1,
+                          {makeRecoveryRecord(admins, 2, testRecoveryKey(), net, 1, harness_.chainConfig.genesisTime)});
   ASSERT_TRUE(producer.addBlock(block).isOk());
   const uint64_t applyEpoch = producer.getAuthority()->pendingRecovery.applyEpoch;
   const uint64_t slot = applyEpoch * harness_.chainConfig.slotsPerEpoch;
@@ -5726,7 +5662,7 @@ TEST_F(GenesisRenewalConfigTest, RenewalInTheRecoveryEpochCarriesTheNewAdminSet)
   std::vector<Ledger::Record> records;
   AccountBuffer draft;
   bool sawGenesis = false;
-  for (const auto &r : due.value()) {
+  for (const auto& r : due.value()) {
     records.push_back(signedByLeader(r));
     auto drafted = producer.addBufferTransaction(draft, records.back(), kTestMinerId);
     ASSERT_TRUE(drafted.isOk()) << "the leader's draft refused a renewal: " << drafted.error().message;
@@ -5748,23 +5684,22 @@ TEST_F(GenesisRenewalConfigTest, RenewalInTheRecoveryEpochCarriesTheNewAdminSet)
 // The slot leader signs every renewal: it re-records an account as it is. A renewal that changes an
 // account's keys (taking it over) or its meta is refused; only the fee leaves its balance.
 TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeAnAccountsKeysOrMeta) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   producer.setClockOverride(producer.getSlotStartTime(1));
-  Ledger::ChainNode block =
-      makeNextBlockAtSlot(producer, harness_.genesis, 1, {makeReserveTransfer(harness_, 5, 1)});
+  Ledger::ChainNode block = makeNextBlockAtSlot(producer, harness_.genesis, 1, {makeReserveTransfer(harness_, 5, 1)});
   ASSERT_TRUE(producer.addBlock(block).isOk());
 
   producer.setClockOverride(producer.getSlotEndTime(2));
   auto due = producer.collectRenewals(2);
   ASSERT_TRUE(due.isOk()) << due.error().message;
   std::optional<Ledger::Record> minerRenewal;
-  for (const auto &r : due.value()) {
+  for (const auto& r : due.value()) {
     if (r.type == Ledger::T_RENEWAL && utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId == kTestMinerId) {
       minerRenewal = r;
     }
   }
   ASSERT_TRUE(minerRenewal.has_value()) << "the genesis miner is due";
-  auto tryRenewal = [&](const std::function<void(Client::UserAccount &)> &change) {
+  auto tryRenewal = [&](const std::function<void(Client::UserAccount&)>& change) {
     auto tx = utl::binaryUnpack<Ledger::TxRenewal>(minerRenewal->data).value();
     Client::UserAccount account;
     EXPECT_TRUE(account.ltsFromString(tx.meta));
@@ -5776,14 +5711,14 @@ TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeAnAccountsKeysOrMeta) {
     return producer.addBufferTransaction(draft, signedByLeader(record), kTestMinerId);
   };
 
-  auto honest = tryRenewal([](Client::UserAccount &) {});
+  auto honest = tryRenewal([](Client::UserAccount&) {});
   EXPECT_TRUE(honest.isOk()) << honest.error().message;
-  auto seized = tryRenewal([](Client::UserAccount &a) { a.wallet.publicKeys = {makeKeyPair().publicKey}; });
+  auto seized = tryRenewal([](Client::UserAccount& a) { a.wallet.publicKeys = {makeKeyPair().publicKey}; });
   ASSERT_FALSE(seized.isOk()) << "the leader took the account over";
   EXPECT_NE(seized.error().message.find("cannot change the keys"), std::string::npos) << seized.error().message;
-  auto threshold = tryRenewal([](Client::UserAccount &a) { a.wallet.minSignatures += 1; });
+  auto threshold = tryRenewal([](Client::UserAccount& a) { a.wallet.minSignatures += 1; });
   EXPECT_FALSE(threshold.isOk());
-  auto meta = tryRenewal([](Client::UserAccount &a) {
+  auto meta = tryRenewal([](Client::UserAccount& a) {
     AccountAttachment attachment;
     AccountAttachment::ProfileSlot slot;
     slot.data = "planted";
@@ -5804,15 +5739,15 @@ protected:
   Ledger::Record reveal(uint64_t epoch) const { return makeBeaconSeedRecord(epoch, net()); }
 
   /** What the producer's pool says of `record` while `slot` is produced. */
-  Chain::Roe<void> admit(const Ledger::Record &record, uint64_t slot) {
-    auto &producer = harness_.producer;
+  Chain::Roe<void> admit(const Ledger::Record& record, uint64_t slot) {
+    auto& producer = harness_.producer;
     producer.setClockOverride(producer.getSlotEndTime(slot));
     return producer.checkAdmission(record, producer.getSlotStartTime(slot), /*verifySignatures=*/true);
   }
 
   /** Seals a block at `slot` on `tip` (the renewals due, then `records`); a block that seals is abandoned. */
-  Chain::Roe<void> trySeal(const Ledger::ChainNode &tip, uint64_t slot, const std::vector<Ledger::Record> &records) {
-    auto &producer = harness_.producer;
+  Chain::Roe<void> trySeal(const Ledger::ChainNode& tip, uint64_t slot, const std::vector<Ledger::Record>& records) {
+    auto& producer = harness_.producer;
     producer.setClockOverride(producer.getSlotEndTime(slot));
     auto due = producer.collectRenewals(slot);
     EXPECT_TRUE(due.isOk());
@@ -5829,7 +5764,7 @@ protected:
   }
 
   /** The renewals due at `slot` on `chain`, signed by the leader, then `records`. */
-  std::vector<Ledger::Record> withRenewals(Chain &chain, uint64_t slot, std::vector<Ledger::Record> records) {
+  std::vector<Ledger::Record> withRenewals(Chain& chain, uint64_t slot, std::vector<Ledger::Record> records) {
     auto due = chain.collectRenewals(slot);
     EXPECT_TRUE(due.isOk());
     std::vector<Ledger::Record> all = due.isOk() ? signedRenewals(due.value()) : std::vector<Ledger::Record>{};
@@ -5839,8 +5774,8 @@ protected:
 
   /** The peer checks every block the producer holds that it does not. */
   void syncPeer() {
-    auto &producer = harness_.producer;
-    auto &peer = harness_.peer;
+    auto& producer = harness_.producer;
+    auto& peer = harness_.peer;
     for (uint64_t index = peer.getNextBlockId(); index < producer.getNextBlockId(); ++index) {
       auto stored = producer.readBlock(index);
       ASSERT_TRUE(stored.isOk());
@@ -5850,15 +5785,15 @@ protected:
     }
   }
 
-  static void expectRefused(const Chain::Roe<void> &result, const std::string &why) {
+  static void expectRefused(const Chain::Roe<void>& result, const std::string& why) {
     ASSERT_FALSE(result.isOk()) << why;
     EXPECT_NE(result.error().message.find(why), std::string::npos) << result.error().message;
   }
 };
 
 TEST_F(BeaconSeedTest, TheBeaconsRevealForTheNextEpochIsAdmitted) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   auto admitted = admit(reveal(1), 1);
   EXPECT_TRUE(admitted.isOk()) << admitted.error().message;
   Ledger::ChainNode block = produce(harness_.genesis, 1, {reveal(1)});
@@ -5889,8 +5824,7 @@ TEST_F(BeaconSeedTest, RefusesAWrongSignerAWrongEpochOrAForgedReveal) {
   expectRefused(admit(reveal(2), 1), "epoch");
   expectRefused(admit(makeBeaconSeedRecord(0, std::string(32, 'r'), testBeaconKey(), net()), 1), "epoch");
 
-  expectRefused(admit(makeBeaconSeedRecord(1, testBeaconReveal(2), testBeaconKey(), net()), 1),
-                "does not match");
+  expectRefused(admit(makeBeaconSeedRecord(1, testBeaconReveal(2), testBeaconKey(), net()), 1), "does not match");
   expectRefused(admit(makeBeaconSeedRecord(1, testBeaconReveal(1).substr(1), testBeaconKey(), net()), 1),
                 "does not match");
 
@@ -5898,12 +5832,12 @@ TEST_F(BeaconSeedTest, RefusesAWrongSignerAWrongEpochOrAForgedReveal) {
   expectRefused(trySeal(harness_.genesis, 1, {makeBeaconSeedRecord(1, testBeaconReveal(2), testBeaconKey(), net())}),
                 "does not match");
   expectRefused(trySeal(harness_.genesis, 1, {reveal(2)}), "epoch");
-  EXPECT_FALSE(trySeal(harness_.genesis, 1, {makeBeaconSeedRecord(1, testBeaconReveal(1), harness_.genesisKey, net())})
-                   .isOk());
+  EXPECT_FALSE(
+      trySeal(harness_.genesis, 1, {makeBeaconSeedRecord(1, testBeaconReveal(1), harness_.genesisKey, net())}).isOk());
 }
 
 TEST_F(BeaconSeedTest, OneRevealPerEpoch) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   producer.setClockOverride(producer.getSlotEndTime(1));
   AccountBuffer draft;
   auto first = producer.addBufferTransaction(draft, reveal(1), kTestMinerId);
@@ -5924,17 +5858,17 @@ TEST_F(BeaconSeedTest, OneRevealPerEpoch) {
 // Its own harnesses, not the fixture's: harnesses share their directories within a process, and on
 // Windows a directory a live harness holds open cannot be removed for the next one.
 TEST(BeaconSeedChainTest, NoChainOrAnExhaustedChainRefusesReveals) {
-  auto expectRefused = [](const Chain::Roe<void> &result, const std::string &why) {
+  auto expectRefused = [](const Chain::Roe<void>& result, const std::string& why) {
     ASSERT_FALSE(result.isOk()) << why;
     EXPECT_NE(result.error().message.find(why), std::string::npos) << result.error().message;
   };
   struct Guard {
-    ComposeHarness &h;
+    ComposeHarness& h;
     ~Guard() { h.TearDown(); }
   };
   {
     ComposeHarness h; // a beacon without a seed chain: every epoch takes the absent seed
-    h.tweakGenesisMeta = [](Chain::GenesisAccountMeta &gm) {
+    h.tweakGenesisMeta = [](Chain::GenesisAccountMeta& gm) {
       gm.authority.beacon.seedAnchor.clear();
       gm.authority.beacon.seedChainLength = 0;
     };
@@ -5949,7 +5883,7 @@ TEST(BeaconSeedChainTest, NoChainOrAnExhaustedChainRefusesReveals) {
   {
     const std::string secret(32, '\x33');
     ComposeHarness h; // a two-epoch chain: reveals for epochs 1 and 2, then none
-    h.tweakGenesisMeta = [&](Chain::GenesisAccountMeta &gm) {
+    h.tweakGenesisMeta = [&](Chain::GenesisAccountMeta& gm) {
       gm.authority.beacon.seedAnchor = consensus::beaconSeedValue(secret, 2);
       gm.authority.beacon.seedAnchorEpoch = 0;
       gm.authority.beacon.seedChainLength = 2;
@@ -5957,11 +5891,12 @@ TEST(BeaconSeedChainTest, NoChainOrAnExhaustedChainRefusesReveals) {
     h.SetUp();
     Guard guard{h};
     ASSERT_FALSE(HasFailure());
-    auto &producer = h.producer;
+    auto& producer = h.producer;
     const std::string network = producer.getNetworkId();
     producer.setClockOverride(producer.getSlotEndTime(1));
-    Ledger::ChainNode block = makeNextBlockAtSlot(
-        producer, h.genesis, 1, {makeBeaconSeedRecord(1, consensus::beaconSeedValue(secret, 1), testBeaconKey(), network)});
+    Ledger::ChainNode block =
+        makeNextBlockAtSlot(producer, h.genesis, 1,
+                            {makeBeaconSeedRecord(1, consensus::beaconSeedValue(secret, 1), testBeaconKey(), network)});
     ASSERT_TRUE(producer.addBlock(block).isOk());
     producer.setClockOverride(producer.getSlotEndTime(11));
     block = makeNextBlockAtSlot(producer, block, 11, {makeBeaconSeedRecord(2, secret, testBeaconKey(), network)});
@@ -5977,7 +5912,7 @@ TEST(BeaconSeedChainTest, NoChainOrAnExhaustedChainRefusesReveals) {
 // B035: a block leaving due renewals out holds renewals only — and the beacon's reveal, which must
 // land in its epoch.
 TEST_F(BeaconSeedTest, ARenewalsOnlyBlockMayCarryTheReveal) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
   std::vector<Ledger::Record> due;
@@ -6006,8 +5941,8 @@ TEST_F(BeaconSeedTest, ARenewalsOnlyBlockMayCarryTheReveal) {
 }
 
 TEST_F(BeaconSeedTest, AFailedBlockLeavesNoReveal) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   // A leader's draft failing on a record after the reveal.
   Ledger::TxDefault overdraft;
   overdraft.tokenId = AccountBuffer::ID_GENESIS;
@@ -6041,11 +5976,11 @@ TEST_F(BeaconSeedTest, AFailedBlockLeavesNoReveal) {
 // and the joiner holds the reveals a tip node holds: it refuses the same duplicates and has the
 // same reveal for the next epoch.
 TEST_F(BeaconSeedTest, ACheckpointJoinerHoldsTheRevealsItNeeds) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
   // Every epoch's first block produced here carries the reveal for the next epoch.
-  auto nextWithReveal = [&](const Ledger::ChainNode &previous) {
+  auto nextWithReveal = [&](const Ledger::ChainNode& previous) {
     ++slot_;
     std::vector<Ledger::Record> records = {transferAt(slot_)};
     const uint64_t epoch = producer.getEpochFromSlot(slot_);
@@ -6087,7 +6022,7 @@ TEST_F(BeaconSeedTest, ACheckpointJoinerHoldsTheRevealsItNeeds) {
 
   // A second reveal for the next epoch: refused by both, for the same reason.
   ++slot_;
-  for (Chain *node : {&producer, joiner_.get()}) {
+  for (Chain* node : {&producer, joiner_.get()}) {
     node->setClockOverride(producer.getSlotEndTime(slot_));
     expectRefused(node->checkAdmission(reveal(tipEpoch + 1), producer.getSlotStartTime(slot_), true),
                   "already recorded");
@@ -6097,15 +6032,15 @@ TEST_F(BeaconSeedTest, ACheckpointJoinerHoldsTheRevealsItNeeds) {
 // Epoch seed v2: the seed of epoch E is H(E, network, seed of E-1, the beacon's reveal for E), with
 // no block hashes and no stake hash in it.
 TEST_F(BeaconSeedTest, TheNextSeedMixesTheReveal) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   Ledger::ChainNode block = startChain();
   ASSERT_FALSE(HasFailure());
   block = produce(block, 3, {transferAt(3), reveal(1)});
   block = produce(block, 11, {transferAt(11)});
   ASSERT_FALSE(HasFailure());
-  const std::string expected = consensus::deriveEpochSeedV2(1, net(), harness_.genesis.block.epochSeed,
-                                                            testBeaconReveal(1));
+  const std::string expected =
+      consensus::deriveEpochSeedV2(1, net(), harness_.genesis.block.epochSeed, testBeaconReveal(1));
   EXPECT_EQ(block.block.epochSeed, expected);
   ASSERT_TRUE(producer.ensureEpochSeed(1).isOk());
   EXPECT_EQ(producer.getEpochSeed(), expected);
@@ -6118,7 +6053,7 @@ TEST_F(BeaconSeedTest, TheNextSeedMixesTheReveal) {
 }
 
 TEST_F(BeaconSeedTest, WithoutARevealTheSeedIsTheAbsentOne) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode block = startChain();
   ASSERT_FALSE(HasFailure());
   block = produce(block, 11, {transferAt(11)});
@@ -6142,8 +6077,8 @@ TEST_F(BeaconSeedTest, WithoutARevealTheSeedIsTheAbsentOne) {
 // different records, now give the same seed for E: on the chain deriving it and in the next
 // epoch's first block.
 TEST_F(BeaconSeedTest, TheLastLeaderCannotSteerTheNextSeed) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
   tip = produce(tip, 3, {transferAt(3), reveal(1)});
@@ -6157,8 +6092,7 @@ TEST_F(BeaconSeedTest, TheLastLeaderCannotSteerTheNextSeed) {
   producer.setClockOverride(producer.getSlotEndTime(last));
   peer.setClockOverride(peer.getSlotEndTime(last));
   Ledger::ChainNode plain = makeNextBlockAtSlot(producer, tip, last, withRenewals(producer, last, {shared}));
-  Ledger::ChainNode ground =
-      makeNextBlockAtSlot(peer, tip, last, withRenewals(peer, last, {shared, transferAt(last)}));
+  Ledger::ChainNode ground = makeNextBlockAtSlot(peer, tip, last, withRenewals(peer, last, {shared, transferAt(last)}));
   ASSERT_FALSE(HasFailure());
   ASSERT_TRUE(producer.addBlock(plain).isOk());
   auto added = peer.addBlock(ground);
@@ -6170,14 +6104,15 @@ TEST_F(BeaconSeedTest, TheLastLeaderCannotSteerTheNextSeed) {
   const std::string producerSeed = producer.getEpochSeed();
   ASSERT_TRUE(peer.ensureEpochSeed(1).isOk());
   EXPECT_EQ(peer.getEpochSeed(), producerSeed);
-  EXPECT_EQ(producerSeed, consensus::deriveEpochSeedV2(1, net(), harness_.genesis.block.epochSeed,
-                                                       testBeaconReveal(1)));
+  EXPECT_EQ(producerSeed,
+            consensus::deriveEpochSeedV2(1, net(), harness_.genesis.block.epochSeed, testBeaconReveal(1)));
 
   // The first block of epoch 1 on each chain carries that seed.
   const uint64_t first = harness_.chainConfig.slotsPerEpoch;
   producer.setClockOverride(producer.getSlotEndTime(first));
   peer.setClockOverride(peer.getSlotEndTime(first));
-  Ledger::ChainNode next1 = makeNextBlockAtSlot(producer, plain, first, withRenewals(producer, first, {transferAt(first)}));
+  Ledger::ChainNode next1 =
+      makeNextBlockAtSlot(producer, plain, first, withRenewals(producer, first, {transferAt(first)}));
   Ledger::ChainNode next2 = makeNextBlockAtSlot(peer, ground, first, withRenewals(peer, first, {transferAt(first)}));
   ASSERT_FALSE(HasFailure());
   EXPECT_EQ(next1.block.epochSeed, producerSeed);
@@ -6187,7 +6122,7 @@ TEST_F(BeaconSeedTest, TheLastLeaderCannotSteerTheNextSeed) {
 // Before epoch E's first block, a node elects E's leaders with a provisional seed. A reveal landing
 // in E-1's last block, after that, changes the seed of E: the next refresh installs it.
 TEST_F(BeaconSeedTest, ALateRevealCorrectsTheProvisionalSeed) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
 
@@ -6214,7 +6149,7 @@ TEST_F(BeaconSeedTest, ALateRevealCorrectsTheProvisionalSeed) {
 // the epoch's first block applies. The seed of an epoch already in a block is read from that block,
 // so re-deriving it later (the single-seed cache evicted by the clock's next epoch) still agrees.
 TEST_F(BeaconSeedTest, AnEpochsSeedOutlivesThePrunedReveal) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
   tip = produce(tip, 3, {transferAt(3), reveal(1)});
@@ -6252,7 +6187,7 @@ protected:
   }
 
   /** Account `id` revokes its miner registration, valid at `slot`. */
-  Ledger::Record revokeMinerAt(uint64_t slot, uint64_t id, const utl::MlDsaKeyPair &key) {
+  Ledger::Record revokeMinerAt(uint64_t slot, uint64_t id, const utl::MlDsaKeyPair& key) {
     Ledger::TxMinerRegister tx;
     tx.walletId = id;
     tx.fee = 1;
@@ -6260,7 +6195,7 @@ protected:
     windowAt(tx, slot);
     Ledger::Record rec;
     rec.type = Ledger::T_MINER_REVOKE;
-    rec.data = utl::binaryPack(static_cast<const Ledger::TxMiner &>(tx));
+    rec.data = utl::binaryPack(static_cast<const Ledger::TxMiner&>(tx));
     rec.signatures = {signMessage(key, rec.signingMessage(harness_.producer.getNetworkId()))};
     return rec;
   }
@@ -6268,7 +6203,7 @@ protected:
   uint64_t epochOf(uint64_t slot) const { return slot / harness_.chainConfig.slotsPerEpoch; }
 
   /** The first block of epoch `epoch` (> the tip's), in a slot the genesis miner leads. */
-  Ledger::ChainNode openEpoch(const Ledger::ChainNode &tip, uint64_t epoch, std::vector<Ledger::Record> records = {}) {
+  Ledger::ChainNode openEpoch(const Ledger::ChainNode& tip, uint64_t epoch, std::vector<Ledger::Record> records = {}) {
     slot_ = epoch * harness_.chainConfig.slotsPerEpoch - 1;
     auto block = nextLedByGenesisMiner(tip, std::move(records));
     EXPECT_EQ(block.block.epoch, epoch) << "no block in epoch " << epoch << "'s slots the genesis miner leads";
@@ -6276,16 +6211,16 @@ protected:
     return block;
   }
 
-  static std::set<uint64_t> idsOf(const std::vector<Ledger::CommitteeMember> &committee) {
+  static std::set<uint64_t> idsOf(const std::vector<Ledger::CommitteeMember>& committee) {
     std::set<uint64_t> ids;
-    for (const auto &m : committee) {
+    for (const auto& m : committee) {
       ids.insert(m.id);
     }
     return ids;
   }
-  static std::set<uint64_t> idsOf(const std::vector<consensus::Stakeholder> &stakeholders) {
+  static std::set<uint64_t> idsOf(const std::vector<consensus::Stakeholder>& stakeholders) {
     std::set<uint64_t> ids;
-    for (const auto &s : stakeholders) {
+    for (const auto& s : stakeholders) {
       ids.insert(s.id);
     }
     return ids;
@@ -6342,7 +6277,7 @@ TEST_F(CommitteeLagTest, AnEmptyPreviousEpochUsesTheStateBeforeIt) {
 }
 
 TEST_F(CommitteeLagTest, AJoinersFirstFullEpochTakesTheBlocksCommittee) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
   while (producer.getCheckpoint().lastId == 0) {
@@ -6390,7 +6325,7 @@ TEST_F(CommitteeLagTest, AJoinersFirstFullEpochTakesTheBlocksCommittee) {
 // Full as Full: it records the same epoch start snapshots as in its first run, so it can still
 // compute, and seal under, the next epoch's committee itself.
 TEST_F(CommitteeLagTest, AJoinerRestartedAfterItsRotationSealsTheNextEpochsFirstBlock) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
   while (producer.getCheckpoint().lastId == 0) {
@@ -6430,7 +6365,7 @@ TEST_F(CommitteeLagTest, AJoinerRestartedAfterItsRotationSealsTheNextEpochsFirst
     ++slot_;
   } while (!genesisMinerLeads(slot_));
   ASSERT_EQ(epochOf(slot_), sealEpoch);
-  Chain &joiner = *joiner_;
+  Chain& joiner = *joiner_;
   joiner.setClockOverride(joiner.getSlotEndTime(slot_));
   auto due = joiner.collectRenewals(slot_);
   ASSERT_TRUE(due.isOk()) << due.error().message;
@@ -6456,7 +6391,7 @@ TEST_F(CommitteeLagTest, AJoinerRestartedAfterItsRotationSealsTheNextEpochsFirst
 // candidates (no block since full ended): the restarted miner seals full + 2's first block and the
 // network accepts it.
 TEST_F(CommitteeLagTest, AMinerRestartedInItsRotationEpochRecoversAnEpochLater) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const uint64_t slotsPerEpoch = harness_.chainConfig.slotsPerEpoch;
   Ledger::ChainNode tip = startChain();
   ASSERT_FALSE(HasFailure());
@@ -6483,7 +6418,7 @@ TEST_F(CommitteeLagTest, AMinerRestartedInItsRotationEpochRecoversAnEpochLater) 
   joiner_.reset(); // restarted with its tip still in `full`
   joiner_ = openJoiner(checkpoint.lastId, /*fresh=*/false);
   ASSERT_FALSE(HasFailure());
-  Chain &joiner = *joiner_;
+  Chain& joiner = *joiner_;
 
   // Epoch full + 1: no committee, so no leader, and no opening block sealed.
   const uint64_t opening1 = (full + 1) * slotsPerEpoch;
@@ -6550,11 +6485,11 @@ protected:
     std::optional<std::string> nextReveal;
   };
 
-  static Observed observe(Chain &node, const Ledger::ChainNode &block) {
+  static Observed observe(Chain& node, const Ledger::ChainNode& block) {
     Observed o;
     o.epoch = block.block.epoch;
     node.setClockOverride(node.getSlotEndTime(block.block.slot));
-    for (const auto &s : node.getStakeholders()) {
+    for (const auto& s : node.getStakeholders()) {
       o.committee.emplace_back(s.id, s.stake);
     }
     o.reveal = node.getBeaconReveal(o.epoch);
@@ -6568,13 +6503,13 @@ protected:
     return o;
   }
 
-  void expectAgrees(Chain &node, uint64_t index, const std::string &who) {
+  void expectAgrees(Chain& node, uint64_t index, const std::string& who) {
     auto block = harness_.producer.readBlock(index);
     ASSERT_TRUE(block.isOk());
     const Observed got = observe(node, block.value());
-    const Observed &want = expected_.at(index);
-    const std::string where = who + ", after block " + std::to_string(index) + " (epoch " +
-                              std::to_string(want.epoch) + ")";
+    const Observed& want = expected_.at(index);
+    const std::string where =
+        who + ", after block " + std::to_string(index) + " (epoch " + std::to_string(want.epoch) + ")";
     EXPECT_EQ(utl::hexEncode(got.seed), utl::hexEncode(want.seed)) << where << ": epoch seed";
     EXPECT_EQ(utl::hexEncode(got.nextSeed), utl::hexEncode(want.nextSeed)) << where << ": next epoch's seed";
     EXPECT_EQ(got.committee, want.committee) << where << ": committee";
@@ -6584,7 +6519,7 @@ protected:
   }
 
   /** A node as Miner::init makes one, on its own ledger in `dir`. */
-  std::unique_ptr<Chain> openNode(const std::filesystem::path &dir, uint64_t start, bool fresh) {
+  std::unique_ptr<Chain> openNode(const std::filesystem::path& dir, uint64_t start, bool fresh) {
     auto node = std::make_unique<Chain>();
     consensus::SlotCommittee::Config consensusConfig;
     consensusConfig.timeOffsetMs = 0;
@@ -6603,7 +6538,7 @@ protected:
   }
 
   /** Admin-signed (2 of the 3 keys startChain set) T_BEACON_CERT for the next generation. */
-  Ledger::Record recertify(const utl::MlDsaKeyPair &key, const std::string &secret, uint64_t anchorEpoch) {
+  Ledger::Record recertify(const utl::MlDsaKeyPair& key, const std::string& secret, uint64_t anchorEpoch) {
     BeaconCertificate next = harness_.producer.getAuthority().value().beacon;
     next.generation += 1;
     next.publicKey = key.publicKey;
@@ -6612,13 +6547,12 @@ protected:
     next.seedAnchor = consensus::beaconSeedValue(secret, kTestBeaconSeedChainLength);
     next.seedAnchorEpoch = anchorEpoch;
     next.seedChainLength = kTestBeaconSeedChainLength;
-    Ledger::Record rec =
-        makeBeaconCertRecord(next, adminKeys_[0], net(), idem_++, harness_.chainConfig.genesisTime);
+    Ledger::Record rec = makeBeaconCertRecord(next, adminKeys_[0], net(), idem_++, harness_.chainConfig.genesisTime);
     rec.signatures.push_back(signMessage(adminKeys_[1], rec.signingMessage(net())));
     return rec;
   }
 
-  static std::string revealOn(const std::string &secret, uint64_t anchorEpoch, uint64_t epoch) {
+  static std::string revealOn(const std::string& secret, uint64_t anchorEpoch, uint64_t epoch) {
     return consensus::beaconSeedValue(secret, kTestBeaconSeedChainLength - (epoch - anchorEpoch));
   }
 
@@ -6627,7 +6561,7 @@ protected:
 };
 
 TEST_F(SeedAgreementTest, EveryNodeTypeDerivesTheSameSeedsAcrossReCertifications) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   const uint64_t spe = harness_.chainConfig.slotsPerEpoch;
   const std::string secret2(32, '\x22');
   const std::string secret3(32, '\x33');
@@ -6679,23 +6613,20 @@ TEST_F(SeedAgreementTest, EveryNodeTypeDerivesTheSameSeedsAcrossReCertifications
       consensus::deriveEpochSeedV2(kEmptyEpoch, net(), seedOf(kEmptyEpoch - 1), testBeaconReveal(kEmptyEpoch));
   EXPECT_EQ(seedOf(kEmptyEpoch + 1), consensus::deriveEpochSeedV2(kEmptyEpoch + 1, net(), emptySeed, std::nullopt))
       << "the empty epoch carried no reveal for the next";
-  EXPECT_EQ(seedOf(kCert2Epoch + 1),
-            consensus::deriveEpochSeedV2(kCert2Epoch + 1, net(), seedOf(kCert2Epoch),
-                                         revealOn(secret2, kCert2Epoch, kCert2Epoch + 1)))
+  EXPECT_EQ(seedOf(kCert2Epoch + 1), consensus::deriveEpochSeedV2(kCert2Epoch + 1, net(), seedOf(kCert2Epoch),
+                                                                  revealOn(secret2, kCert2Epoch, kCert2Epoch + 1)))
       << "the reveal on the new anchor, committed after the re-certification";
-  EXPECT_EQ(seedOf(kCert3Epoch + 1),
-            consensus::deriveEpochSeedV2(kCert3Epoch + 1, net(), seedOf(kCert3Epoch),
-                                         revealOn(secret2, kCert2Epoch, kCert3Epoch + 1)))
+  EXPECT_EQ(seedOf(kCert3Epoch + 1), consensus::deriveEpochSeedV2(kCert3Epoch + 1, net(), seedOf(kCert3Epoch),
+                                                                  revealOn(secret2, kCert2Epoch, kCert3Epoch + 1)))
       << "the reveal landed before the re-certification";
-  EXPECT_EQ(seedOf(kCert3Epoch + 2),
-            consensus::deriveEpochSeedV2(kCert3Epoch + 2, net(), seedOf(kCert3Epoch + 1),
-                                         revealOn(secret3, kCert3Epoch, kCert3Epoch + 2)))
+  EXPECT_EQ(seedOf(kCert3Epoch + 2), consensus::deriveEpochSeedV2(kCert3Epoch + 2, net(), seedOf(kCert3Epoch + 1),
+                                                                  revealOn(secret3, kCert3Epoch, kCert3Epoch + 2)))
       << "the first reveal on the third anchor";
   const uint64_t end = producer.getNextBlockId();
   const uint64_t first = expected_.begin()->first;
 
   // (a) A node from genesis, checking every block Full.
-  auto &peer = harness_.peer;
+  auto& peer = harness_.peer;
   for (uint64_t i = 1; i < end && !HasFailure(); ++i) {
     feed(peer, i, i + 1);
     if (i >= first) {
@@ -6745,15 +6676,15 @@ TEST_F(SeedAgreementTest, EveryNodeTypeDerivesTheSameSeedsAcrossReCertifications
 // keys of the fee, reserve, registrar or recycle account have a way back short of a re-genesis. (Genesis
 // keeps its own: the genesis recovery set in the chain authority.)
 TEST_F(MinerLivenessTest, ASystemAccountHasAWayBackOfItsOwn) {
-  auto &producer = harness_.producer;
-  auto &peer = harness_.peer;
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
   const uint64_t id = AccountBuffer::ID_FEE;
   const auto guardian = makeKeyPair();
   const auto nextKey = makeKeyPair();
   const int64_t from = harness_.chainConfig.genesisTime;
   const uint64_t halfEpoch = chain_tx::minRecoveryDelaySeconds(harness_.chainConfig);
 
-  auto update = [&](const utl::MlDsaKeyPair &signer, uint64_t idem, const Client::AccountRecovery &recovery) {
+  auto update = [&](const utl::MlDsaKeyPair& signer, uint64_t idem, const Client::AccountRecovery& recovery) {
     Client::UserAccount account{peer.getAccount(id).value().wallet, AccountAttachment::emptySerialized()};
     account.wallet.recovery = recovery;
     Ledger::TxUserUpdate uu;
@@ -6765,7 +6696,7 @@ TEST_F(MinerLivenessTest, ASystemAccountHasAWayBackOfItsOwn) {
     uu.validationTsMax = from + 3600;
     return makeRecord(Ledger::T_USER_UPDATE, uu, signer, producer.getNetworkId());
   };
-  auto announce = [&](const utl::MlDsaKeyPair &signer, uint64_t idem) {
+  auto announce = [&](const utl::MlDsaKeyPair& signer, uint64_t idem) {
     AccountRecoveryAction action;
     action.kind = AccountRecoveryAction::ANNOUNCE;
     action.publicKeys = {nextKey.publicKey};
@@ -6779,7 +6710,7 @@ TEST_F(MinerLivenessTest, ASystemAccountHasAWayBackOfItsOwn) {
     tx.validationTsMax = from + 3600;
     return makeRecord(Ledger::T_ACCOUNT_RECOVERY, tx, signer, producer.getNetworkId());
   };
-  auto pay = [&](const utl::MlDsaKeyPair &signer, uint64_t idem) {
+  auto pay = [&](const utl::MlDsaKeyPair& signer, uint64_t idem) {
     Ledger::TxDefault tx;
     tx.tokenId = AccountBuffer::ID_GENESIS;
     tx.fromWalletId = id;
@@ -6791,7 +6722,7 @@ TEST_F(MinerLivenessTest, ASystemAccountHasAWayBackOfItsOwn) {
     tx.validationTsMax = from + 3600;
     return makeRecord(Ledger::T_DEFAULT, tx, signer, producer.getNetworkId());
   };
-  auto refused = [&](const Ledger::Record &record) {
+  auto refused = [&](const Ledger::Record& record) {
     AccountBuffer scratch;
     return !producer.addBufferTransaction(scratch, record, kTestMinerId).isOk();
   };
@@ -6858,7 +6789,8 @@ TEST(ImportTest, SystemAccountsEnterWithTheirNewKeysAndNoOldRecovery) {
   auto user = ImportTxHandler::entering(withRecovery(AccountBuffer::ID_FIRST_USER), progress, config, 1);
   ASSERT_TRUE(user.isOk()) << user.error().message;
   EXPECT_EQ(user.value().wallet.publicKeys, std::vector<std::string>{"old-key"});
-  EXPECT_EQ(user.value().wallet.recovery.publicKeys, std::vector<std::string>{"old-guardian"}) << "the set carries over";
+  EXPECT_EQ(user.value().wallet.recovery.publicKeys, std::vector<std::string>{"old-guardian"})
+      << "the set carries over";
   EXPECT_TRUE(user.value().wallet.recovery.pending) << "and its announcement";
 }
 
@@ -6876,15 +6808,15 @@ TEST(ImportTest, APendingRecoveryRestartsItsDelayOnTheNewNetwork) {
   old.wallet.recovery.pending = true;
   old.wallet.recovery.nextPublicKeys = {"announced-key"};
   old.wallet.recovery.nextMinSignatures = 1;
-  old.wallet.recovery.applyEpoch = 5000;  // deep in the old network
+  old.wallet.recovery.applyEpoch = 5000; // deep in the old network
   old.wallet.recovery.announcedAt = 49'990;
   BlockChainConfig config;
-  config.slotDuration = 5;   // epochs of 50 s
+  config.slotDuration = 5; // epochs of 50 s
   config.slotsPerEpoch = 10;
 
   auto entered = ImportTxHandler::entering(old, ImportProgress{}, config, 3);
   ASSERT_TRUE(entered.isOk()) << entered.error().message;
-  const Client::AccountRecovery &recovery = entered.value().wallet.recovery;
+  const Client::AccountRecovery& recovery = entered.value().wallet.recovery;
   EXPECT_TRUE(recovery.pending);
   EXPECT_EQ(recovery.nextPublicKeys, std::vector<std::string>{"announced-key"});
   // 60 s from slot 0 is slot 12: the first epoch starting there or later is epoch 2.

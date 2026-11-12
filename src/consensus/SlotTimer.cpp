@@ -4,8 +4,7 @@
 namespace pp {
 namespace consensus {
 
-SlotTimer::SlotTimer(uint64_t slotDuration)
-    : slotDuration_(slotDuration) {}
+SlotTimer::SlotTimer(uint64_t slotDuration) : slotDuration_(slotDuration) {}
 
 uint64_t SlotTimer::getCurrentSlot(int64_t genesisTime) const {
   int64_t currentTime = getCurrentTime();
@@ -23,12 +22,10 @@ int64_t SlotTimer::getSlotStartTime(uint64_t slot, int64_t genesisTime) const {
 }
 
 int64_t SlotTimer::getSlotEndTime(uint64_t slot, int64_t genesisTime) const {
-  return getSlotStartTime(slot, genesisTime) +
-         static_cast<int64_t>(slotDuration_);
+  return getSlotStartTime(slot, genesisTime) + static_cast<int64_t>(slotDuration_);
 }
 
-bool SlotTimer::isTimeInSlot(int64_t timestamp, uint64_t slot,
-                             int64_t genesisTime) const {
+bool SlotTimer::isTimeInSlot(int64_t timestamp, uint64_t slot, int64_t genesisTime) const {
   int64_t slotStart = getSlotStartTime(slot, genesisTime);
   int64_t slotEnd = getSlotEndTime(slot, genesisTime);
 
@@ -53,9 +50,7 @@ int64_t SlotTimer::getTimeUntilSlot(uint64_t slot, int64_t genesisTime) const {
 
 int64_t SlotTimer::getCurrentTime() const {
   auto now = std::chrono::system_clock::now();
-  return std::chrono::duration_cast<std::chrono::seconds>(
-             now.time_since_epoch())
-      .count();
+  return std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
 }
 
 void SlotTimer::setSlotDuration(uint64_t duration) {

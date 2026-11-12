@@ -6,11 +6,11 @@
 namespace pp {
 
 using pp::common::Array;
+using pp::common::asString;
 using pp::common::Object;
 using pp::common::Value;
-using pp::common::asString;
 
-pp::Roe<void> NodeConfig::fromJson(const Object &jd) {
+pp::Roe<void> NodeConfig::fromJson(const Object& jd) {
   if (jd.contains("port")) {
     auto value = jd.getNonNegInt("port");
     if (!value || *value == 0 || *value > 65535) {
@@ -50,7 +50,7 @@ pp::Roe<void> NodeConfig::fromJson(const Object &jd) {
   return {};
 }
 
-void NodeConfig::toJson(Object &j) const {
+void NodeConfig::toJson(Object& j) const {
   j.setJsonUInt("port", port);
   if (allowedPeers) {
     std::vector<Value> peers(allowedPeers->begin(), allowedPeers->end());
@@ -67,16 +67,16 @@ void NodeConfig::toJson(Object &j) const {
   }
 }
 
-pp::Roe<std::optional<std::set<std::string>>> NodeConfig::parseAllowedPeers(const Object &jd) {
+pp::Roe<std::optional<std::set<std::string>>> NodeConfig::parseAllowedPeers(const Object& jd) {
   if (!jd.contains("allowedPeers")) {
     return std::optional<std::set<std::string>>{};
   }
-  const Array *list = jd.getArray("allowedPeers");
+  const Array* list = jd.getArray("allowedPeers");
   if (!list) {
     return pp::Error("Field 'allowedPeers' must be an array of peer ids");
   }
   std::set<std::string> peers;
-  for (const auto &value : list->elements) {
+  for (const auto& value : list->elements) {
     auto id = asString(value);
     if (!id || id->empty()) {
       return pp::Error("Field 'allowedPeers' entries must be peer id strings");
@@ -86,12 +86,12 @@ pp::Roe<std::optional<std::set<std::string>>> NodeConfig::parseAllowedPeers(cons
   return std::optional<std::set<std::string>>(std::move(peers));
 }
 
-pp::Roe<void> FollowerConfig::fromJson(const Object &jd) {
+pp::Roe<void> FollowerConfig::fromJson(const Object& jd) {
   if (auto common = NodeConfig::fromJson(jd); !common) {
     return common;
   }
   upstreams.clear();
-  auto add = [this](const std::string &value, const std::string &field) -> pp::Roe<void> {
+  auto add = [this](const std::string& value, const std::string& field) -> pp::Roe<void> {
     auto multiaddr = network::ParseBeaconMultiaddrString(value);
     if (!multiaddr) {
       return pp::Error("Field '" + field + "': " + multiaddr.error().message);
@@ -111,7 +111,7 @@ pp::Roe<void> FollowerConfig::fromJson(const Object &jd) {
     }
   }
   if (jd.contains("beacons")) {
-    const Array *list = jd.getArray("beacons");
+    const Array* list = jd.getArray("beacons");
     if (!list) {
       return pp::Error("Field 'beacons' must be an array of upstream multiaddrs");
     }
@@ -130,7 +130,7 @@ pp::Roe<void> FollowerConfig::fromJson(const Object &jd) {
     return pp::Error("Field 'beacon' (or 'beacons'), the upstream multiaddr, is required");
   }
   anchor = {};
-  if (const Object *anchorJson = jd.getObject("networkAnchor")) {
+  if (const Object* anchorJson = jd.getObject("networkAnchor")) {
     auto parsed = NetworkAnchor::fromJson(*anchorJson);
     if (!parsed) {
       return parsed.error();
@@ -140,7 +140,7 @@ pp::Roe<void> FollowerConfig::fromJson(const Object &jd) {
   return {};
 }
 
-void FollowerConfig::toJson(Object &j, const std::string &placeholder) const {
+void FollowerConfig::toJson(Object& j, const std::string& placeholder) const {
   NodeConfig::toJson(j);
   std::vector<Value> values(upstreams.begin(), upstreams.end());
   if (values.empty()) {
@@ -151,7 +151,7 @@ void FollowerConfig::toJson(Object &j, const std::string &placeholder) const {
 
 std::vector<env_config::Field> FollowerConfig::envFields() {
   std::vector<env_config::Field> fields{{"PP_LEDGER_UPSTREAMS", "beacons", env_config::Kind::List, "", false}};
-  for (auto &field : env_config::anchorFields()) {
+  for (auto& field : env_config::anchorFields()) {
     fields.push_back(std::move(field));
   }
   return fields;

@@ -34,13 +34,13 @@ public:
   constexpr static uint64_t ID_RECYCLE = AccountIds::ID_RECYCLE;
   constexpr static uint64_t ID_FIRST_ISSUED = AccountIds::ID_FIRST_ISSUED;
   constexpr static uint64_t ID_FIRST_USER = AccountIds::ID_FIRST_USER;
-  constexpr static uint64_t INITIAL_TOKEN_SUPPLY =
-      AccountIds::INITIAL_TOKEN_SUPPLY;
+  constexpr static uint64_t INITIAL_TOKEN_SUPPLY = AccountIds::INITIAL_TOKEN_SUPPLY;
 
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
   };
-  template <typename T> using Roe = ResultOrError<T, Error>;
+  template <typename T>
+  using Roe = ResultOrError<T, Error>;
 
   constexpr static int32_t E_ACCOUNT = 1;
   constexpr static int32_t E_BALANCE = 2;
@@ -49,8 +49,7 @@ public:
   struct Account {
     uint64_t id{0};
     Client::Wallet wallet;
-    uint64_t blockId{
-        0}; // blockId of the last registration/renewal of the account
+    uint64_t blockId{0}; // blockId of the last registration/renewal of the account
     /**
      * attachmentHashOf the account's attachment (`UserAccount.meta`) as its last write recorded it
      * (beacon-authority B031). The attachment itself stays in that record, in the block log; the
@@ -60,28 +59,28 @@ public:
   };
 
   /** Raw SHA-256 committing to an attachment's bytes as recorded (B031). */
-  static std::string attachmentHashOf(const std::string &attachment);
+  static std::string attachmentHashOf(const std::string& attachment);
 
   /** Who a domain is bound to (projects/domains): its account, while that account lives. */
   struct DomainEntry {
     uint64_t accountId{0};
-    bool operator==(const DomainEntry &other) const = default;
+    bool operator==(const DomainEntry& other) const = default;
   };
 
   AccountBuffer();
   ~AccountBuffer() = default;
 
-  AccountBuffer(const AccountBuffer &) = delete;
-  AccountBuffer &operator=(const AccountBuffer &) = delete;
-  AccountBuffer(AccountBuffer &&) noexcept = default;
-  AccountBuffer &operator=(AccountBuffer &&) noexcept = default;
+  AccountBuffer(const AccountBuffer&) = delete;
+  AccountBuffer& operator=(const AccountBuffer&) = delete;
+  AccountBuffer(AccountBuffer&&) noexcept = default;
+  AccountBuffer& operator=(AccountBuffer&&) noexcept = default;
 
   bool isEmpty() const;
   bool hasAccount(uint64_t id) const;
   /** Returns account IDs whose blockId is strictly before the given blockId
    * (account.blockId < blockId). */
   std::vector<uint64_t> getAccountIdsBeforeBlockId(uint64_t blockId) const;
-  Roe<const Account &> getAccount(uint64_t id) const;
+  Roe<const Account&> getAccount(uint64_t id) const;
   int64_t getBalance(uint64_t accountId, uint64_t tokenId) const;
   /** Election candidates: registered miners (not system accounts) with a native balance of at
    *  least `minMinerStake` (and positive). */
@@ -90,8 +89,7 @@ public:
   /** Verify if an account has sufficient spending power for a transaction.
    *  Checks both the transfer amount and fee balance requirements.
    *  Returns error if insufficient balances or invalid inputs. */
-  Roe<void> verifySpendingPower(uint64_t accountId, uint64_t tokenId,
-                                uint64_t amount, uint64_t fee) const;
+  Roe<void> verifySpendingPower(uint64_t accountId, uint64_t tokenId, uint64_t amount, uint64_t fee) const;
 
   /** Verify that after applying amount and fee, the account balance in buffer
    * exactly matches given balance map. For non-genesis tokens, balances must
@@ -100,19 +98,17 @@ public:
    * validate that the buffer state before a transaction matches the expected
    * state after accounting for the transaction's amount and fee. Returns error
    * if balances don't match. */
-  Roe<void>
-  verifyBalance(uint64_t accountId, uint64_t amount, uint64_t fee,
-                const std::map<uint64_t, int64_t> &expectedBalances) const;
+  Roe<void> verifyBalance(uint64_t accountId, uint64_t amount, uint64_t fee,
+                          const std::map<uint64_t, int64_t>& expectedBalances) const;
 
-  Roe<void> add(const Account &account);
+  Roe<void> add(const Account& account);
 
-  Roe<void> update(const AccountBuffer &other);
+  Roe<void> update(const AccountBuffer& other);
 
   /** Ensure `accountId` exists in this buffer by copying it from `committed`
    * when missing. Returns TxError if the account is missing from committed or
    * cannot be inserted into this buffer. */
-  Roe<void> seedFromCommittedIfMissing(const AccountBuffer &committed,
-                                       uint64_t accountId);
+  Roe<void> seedFromCommittedIfMissing(const AccountBuffer& committed, uint64_t accountId);
 
   // Token-specific balance operations (tokenId: ID_GENESIS = native token,
   // custom tokens use their genesis wallet IDs)
@@ -120,30 +116,27 @@ public:
    * Replace an account's miner state in place (registration, liveness). Does not move the
    * account's blockId: renewal reads the account's meta from that block.
    */
-  Roe<void> setMinerState(uint64_t accountId, const Client::MinerState &miner);
+  Roe<void> setMinerState(uint64_t accountId, const Client::MinerState& miner);
   /** Replace an account's keys and threshold in place (a recovery replacing the admin set, ba7). */
-  Roe<void> setWalletKeys(uint64_t accountId, const std::vector<std::string> &publicKeys, uint8_t minSignatures);
+  Roe<void> setWalletKeys(uint64_t accountId, const std::vector<std::string>& publicKeys, uint8_t minSignatures);
   /**
    * The account's domain, in place (as setMinerState), given by the registrar (projects/domains). The
    * caller checks it is the account's to have and free.
    */
-  Roe<void> setDomain(uint64_t accountId, const std::string &domain);
+  Roe<void> setDomain(uint64_t accountId, const std::string& domain);
   /** Who `domain` is bound to in this buffer, if anyone. */
-  std::optional<DomainEntry> findDomain(const std::string &domain) const;
+  std::optional<DomainEntry> findDomain(const std::string& domain) const;
   /** Account recovery state, in place (as setMinerState): the account's blockId does not move. */
-  Roe<void> setRecovery(uint64_t accountId, const Client::AccountRecovery &recovery);
+  Roe<void> setRecovery(uint64_t accountId, const Client::AccountRecovery& recovery);
   /**
    * Every announcement due by `epoch` (applyEpoch <= epoch) applied, in id order: the account's keys
    * become the announced ones, the announcement cleared, its set and delay kept. The ids applied.
    */
   std::vector<uint64_t> applyDueRecoveries(uint64_t epoch);
 
-  Roe<void> depositBalance(uint64_t accountId, uint64_t tokenId,
-                           int64_t amount);
-  Roe<void> transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
-                            uint64_t amount, uint64_t fee);
-  Roe<void> withdrawBalance(uint64_t accountId, uint64_t tokenId,
-                            int64_t amount);
+  Roe<void> depositBalance(uint64_t accountId, uint64_t tokenId, int64_t amount);
+  Roe<void> transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId, uint64_t amount, uint64_t fee);
+  Roe<void> withdrawBalance(uint64_t accountId, uint64_t tokenId, int64_t amount);
   /**
    * End the account: its positive balances to the recycle account (which must be held); its domain,
    * if it has one, free again (projects/domains).
@@ -171,14 +164,14 @@ public:
    * once; the draft enforces the same rule so a leader never assembles a block it cannot seal.
    * Journaled with the account state (an overlay rollback drops keys added inside it).
    */
-  bool hasIdempotencyKey(const IdempotencyKey &key) const;
-  void addIdempotencyKey(const IdempotencyKey &key);
+  bool hasIdempotencyKey(const IdempotencyKey& key) const;
+  void addIdempotencyKey(const IdempotencyKey& key);
   /**
    * Once-per-block markers for a draft (e.g. "one beacon certificate per block"): what block apply
    * would refuse a second time, the draft refuses too. Journaled and cleared like the keys above.
    */
-  bool hasDraftTag(const std::string &tag) const;
-  void addDraftTag(const std::string &tag);
+  bool hasDraftTag(const std::string& tag) const;
+  void addDraftTag(const std::string& tag);
 
   /**
    * O(1) root of the account sparse Merkle tree (incremental updates only).
@@ -186,16 +179,16 @@ public:
   std::string calculateStateRoot() const;
 
   /** Leaf digest for one account (used by the SMT). */
-  static std::string accountLeafHash(const Account &account);
+  static std::string accountLeafHash(const Account& account);
   /**
    * Every leaf `account` puts in the state tree (to rebuild a root from accounts alone): its own and
    * its domain's (projects/domains).
    */
-  static void setLeaves(AccountStateTree &tree, const Account &account);
+  static void setLeaves(AccountStateTree& tree, const Account& account);
   /** The siblings along account `id`'s path in the state tree (AccountStateTree::siblings). */
   std::vector<std::string> stateSiblings(uint64_t id) const { return stateTree_.siblings(id); }
   /** The siblings along `domain`'s path in the state tree (its key: chain_domain::treeKey). */
-  std::vector<std::string> domainSiblings(const std::string &domain) const;
+  std::vector<std::string> domainSiblings(const std::string& domain) const;
 
   /**
    * Account `accountId` issues token `tokenId`: its balance of it may go negative (minus that is the
@@ -207,18 +200,18 @@ public:
   }
 
 private:
-  bool isNegativeBalanceAllowed(const Account &account, uint64_t tokenId) const;
+  bool isNegativeBalanceAllowed(const Account& account, uint64_t tokenId) const;
   /** The account's leaf, and its domain's. */
-  void touchTree(const Account &account);
+  void touchTree(const Account& account);
   /** The account's leaf and its domain's gone (its domain free again). */
-  void clearTree(const Account &account);
+  void clearTree(const Account& account);
   /** Bind `domain` to `entry`, or unbind it (none), in the index and the tree (journaled). */
-  void bindDomain(const std::string &domain, const std::optional<DomainEntry> &entry);
+  void bindDomain(const std::string& domain, const std::optional<DomainEntry>& entry);
   /**
    * Pointer into mAccounts_. ResultOrError cannot store references, so
    * mutators use Account* rather than Roe<Account&>.
    */
-  Roe<Account *> mutableAccount(uint64_t id);
+  Roe<Account*> mutableAccount(uint64_t id);
   /** Save the pre-mutation value of `id` into the innermost open journal. */
   void recordUndo(uint64_t id);
 

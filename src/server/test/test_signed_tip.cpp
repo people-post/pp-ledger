@@ -40,7 +40,7 @@ protected:
   BeaconCertificate cert_;
 };
 
-Client::SignedTip tipAt(uint64_t height, uint64_t generation = 1, const std::string &hash = "") {
+Client::SignedTip tipAt(uint64_t height, uint64_t generation = 1, const std::string& hash = "") {
   Client::SignedTip tip;
   tip.networkId = "test-net";
   tip.generation = generation;

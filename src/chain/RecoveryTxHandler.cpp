@@ -9,7 +9,7 @@
 
 namespace pp {
 
-chain_tx::Roe<uint64_t> RecoveryTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
+chain_tx::Roe<uint64_t> RecoveryTxHandler::getSignerAccountId(const Ledger::TypedTx& tx,
                                                               uint64_t /*slotLeaderId*/) const {
   // Indexed under the genesis account (the admin set it replaces); signatures are the recovery set's.
   auto pRoe = chain_tx::expectTx<Ledger::TxRecovery>(tx, "getSignerAccountId", "TxRecovery");
@@ -19,7 +19,7 @@ chain_tx::Roe<uint64_t> RecoveryTxHandler::getSignerAccountId(const Ledger::Type
   return AccountBuffer::ID_GENESIS;
 }
 
-chain_tx::Roe<bool> RecoveryTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx, uint64_t walletId) const {
+chain_tx::Roe<bool> RecoveryTxHandler::matchesWalletForIndex(const Ledger::TypedTx& tx, uint64_t walletId) const {
   auto pRoe = chain_tx::expectTx<Ledger::TxRecovery>(tx, "matchesWalletForIndex", "TxRecovery");
   if (!pRoe) {
     return pRoe.error();
@@ -27,20 +27,20 @@ chain_tx::Roe<bool> RecoveryTxHandler::matchesWalletForIndex(const Ledger::Typed
   return walletId == AccountBuffer::ID_GENESIS;
 }
 
-chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
-RecoveryTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
+chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>> RecoveryTxHandler::getIdempotencyKey(
+    const Ledger::TypedTx& tx) const {
   auto pRoe = chain_tx::expectTx<Ledger::TxRecovery>(tx, "getIdempotencyKey", "TxRecovery");
   if (!pRoe) {
     return pRoe.error();
   }
-  const auto *p = pRoe.value();
+  const auto* p = pRoe.value();
   if (p->idempotentId == 0) {
     return std::optional<std::pair<uint64_t, uint64_t>>{};
   }
   return std::optional<std::pair<uint64_t, uint64_t>>(std::make_pair(AccountBuffer::ID_GENESIS, p->idempotentId));
 }
 
-chain_tx::Roe<RecoveryAnnouncement> RecoveryTxHandler::decodeAnnouncement(const Ledger::TxRecovery &tx) {
+chain_tx::Roe<RecoveryAnnouncement> RecoveryTxHandler::decodeAnnouncement(const Ledger::TxRecovery& tx) {
   if (tx.fee != 0) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Recovery transaction must have fee 0");
   }
@@ -51,14 +51,14 @@ chain_tx::Roe<RecoveryAnnouncement> RecoveryTxHandler::decodeAnnouncement(const 
   return announcement;
 }
 
-chain_tx::Roe<RecoveryAnnouncement> RecoveryTxHandler::check(const Ledger::TxRecovery &tx, const TxContext &ctx,
+chain_tx::Roe<RecoveryAnnouncement> RecoveryTxHandler::check(const Ledger::TxRecovery& tx, const TxContext& ctx,
                                                              uint64_t blockId, uint64_t slot,
                                                              chain_block::BlockAdmissionMode admissionMode) const {
   if (blockId == 0) {
     return chain_tx::TxError(chain_err::E_TX_TYPE, "A recovery cannot be announced in the genesis block");
   }
-  if (auto idem = validateIdempotencyUsingContext(ctx, tx.idempotentId, AccountBuffer::ID_GENESIS,
-                                                  tx.validationTsMin, tx.validationTsMax, slot, admissionMode,
+  if (auto idem = validateIdempotencyUsingContext(ctx, tx.idempotentId, AccountBuffer::ID_GENESIS, tx.validationTsMin,
+                                                  tx.validationTsMax, slot, admissionMode,
                                                   /*requireNonZeroId=*/true);
       !idem) {
     return idem.error();
@@ -71,15 +71,15 @@ chain_tx::Roe<RecoveryAnnouncement> RecoveryTxHandler::check(const Ledger::TxRec
     return chain_tx::TxError(chain_err::E_STATE_INIT, "Chain authority not initialized");
   }
   if (auto valid = chain_tx::validateRecoveryAnnouncement(announcement.value(), ctx.optAuthority.value(),
-                                                         ctx.optChainConfig->networkId);
+                                                          ctx.optChainConfig->networkId);
       !valid) {
     return valid.error();
   }
   return announcement;
 }
 
-chain_tx::Roe<void> RecoveryTxHandler::applyBuffer(const Ledger::TypedTx &tx, AccountBuffer &bank,
-                                                   const BufferApplyContext &c) const {
+chain_tx::Roe<void> RecoveryTxHandler::applyBuffer(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                                   const BufferApplyContext& c) const {
   auto pRoe = chain_tx::expectTx<Ledger::TxRecovery>(tx, "applyBuffer", "TxRecovery");
   if (!pRoe) {
     return pRoe.error();
@@ -96,8 +96,8 @@ chain_tx::Roe<void> RecoveryTxHandler::applyBuffer(const Ledger::TypedTx &tx, Ac
   return {};
 }
 
-chain_tx::Roe<void> RecoveryTxHandler::applyBlock(const Ledger::TypedTx &tx, AccountBuffer & /*bank*/,
-                                                  const BlockApplyContext &c) const {
+chain_tx::Roe<void> RecoveryTxHandler::applyBlock(const Ledger::TypedTx& tx, AccountBuffer& /*bank*/,
+                                                  const BlockApplyContext& c) const {
   auto pRoe = chain_tx::expectTx<Ledger::TxRecovery>(tx, "applyBlock", "TxRecovery");
   if (!pRoe) {
     return pRoe.error();
@@ -106,7 +106,7 @@ chain_tx::Roe<void> RecoveryTxHandler::applyBlock(const Ledger::TypedTx &tx, Acc
   if (!announcement) {
     return announcement.error();
   }
-  auto &authority = c.ctx.optAuthority.value();
+  auto& authority = c.ctx.optAuthority.value();
   authority.hasPendingRecovery = true;
   authority.pendingRecovery.announcement = announcement.value();
   authority.pendingRecovery.announcedAt = c.blockId;

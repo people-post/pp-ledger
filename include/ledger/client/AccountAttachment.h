@@ -27,8 +27,9 @@ struct AccountAttachment {
     int64_t expires{0};
     std::string sig;
 
-    template <typename Archive> void serialize(Archive &ar) {
-      ar &publisher_wallet_id &domain &expires &sig;
+    template <typename Archive>
+    void serialize(Archive& ar) {
+      ar & publisher_wallet_id & domain & expires & sig;
     }
   };
 
@@ -39,19 +40,24 @@ struct AccountAttachment {
     bool has_attestation{false};
     Attestation attestation{};
 
-    template <typename Archive> void serialize(Archive &ar) {
-      ar &mode &data &seq &has_attestation &attestation;
+    template <typename Archive>
+    void serialize(Archive& ar) {
+      ar & mode & data & seq & has_attestation & attestation;
     }
   };
 
   std::map<uint64_t, ProfileSlot> profiles;
 
-  template <typename Archive> void serialize(Archive &ar) { ar &profiles; }
+  template <typename Archive>
+  void serialize(Archive& ar) {
+    ar & profiles;
+  }
 
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
   };
-  template <typename T> using Roe = ResultOrError<T, Error>;
+  template <typename T>
+  using Roe = ResultOrError<T, Error>;
 
   static constexpr int32_t E_FORMAT = 1;
   static constexpr int32_t E_PROFILE = 2;
@@ -60,19 +66,17 @@ struct AccountAttachment {
   static std::string emptySerialized();
 
   std::string ltsToString() const;
-  bool ltsFromString(const std::string &str);
+  bool ltsFromString(const std::string& str);
 
   /**
    * Structural validation. Does not verify attestation crypto or DomainIndex.
    * publisherExists(id) must be true for every profile map key.
    */
-  Roe<void> validateStructural(
-      const std::function<bool(uint64_t publisherId)> &publisherExists) const;
+  Roe<void> validateStructural(const std::function<bool(uint64_t publisherId)>& publisherExists) const;
 
   /** Empty input => empty attachment. Non-empty must parse + validate. */
-  static Roe<AccountAttachment> parseAndValidate(
-      const std::string &raw,
-      const std::function<bool(uint64_t publisherId)> &publisherExists);
+  static Roe<AccountAttachment> parseAndValidate(const std::string& raw,
+                                                 const std::function<bool(uint64_t publisherId)>& publisherExists);
 };
 
 } // namespace pp

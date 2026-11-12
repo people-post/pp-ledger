@@ -10,7 +10,7 @@ namespace pp::env_config {
 
 namespace {
 
-std::string trim(const std::string &text) {
+std::string trim(const std::string& text) {
   size_t begin = 0;
   size_t end = text.size();
   while (begin < end && std::isspace(static_cast<unsigned char>(text[begin]))) {
@@ -22,42 +22,43 @@ std::string trim(const std::string &text) {
   return text.substr(begin, end - begin);
 }
 
-Roe<common::Value> parse(const Field &field, const std::string &text) {
+Roe<common::Value> parse(const Field& field, const std::string& text) {
   switch (field.kind) {
-  case Kind::String:
-    return common::Value(text);
-  case Kind::UInt: {
-    if (text.empty() || text.find_first_not_of("0123456789") != std::string::npos || text.size() > 19) {
-      return Error(1, field.env + " must be a non-negative integer: '" + text + "'");
-    }
-    return common::Value(static_cast<uint64_t>(std::stoull(text)));
-  }
-  case Kind::List: {
-    std::vector<common::Value> items;
-    size_t start = 0;
-    while (start <= text.size()) {
-      const size_t comma = text.find_first_of(",\n", start);
-      const std::string item = trim(text.substr(start, comma == std::string::npos ? std::string::npos : comma - start));
-      if (!item.empty()) {
-        items.emplace_back(item);
+    case Kind::String:
+      return common::Value(text);
+    case Kind::UInt: {
+      if (text.empty() || text.find_first_not_of("0123456789") != std::string::npos || text.size() > 19) {
+        return Error(1, field.env + " must be a non-negative integer: '" + text + "'");
       }
-      if (comma == std::string::npos) {
-        break;
-      }
-      start = comma + 1;
+      return common::Value(static_cast<uint64_t>(std::stoull(text)));
     }
-    return common::Object::array(std::move(items));
-  }
+    case Kind::List: {
+      std::vector<common::Value> items;
+      size_t start = 0;
+      while (start <= text.size()) {
+        const size_t comma = text.find_first_of(",\n", start);
+        const std::string item =
+            trim(text.substr(start, comma == std::string::npos ? std::string::npos : comma - start));
+        if (!item.empty()) {
+          items.emplace_back(item);
+        }
+        if (comma == std::string::npos) {
+          break;
+        }
+        start = comma + 1;
+      }
+      return common::Object::array(std::move(items));
+    }
   }
   return Error(1, field.env + ": unknown kind");
 }
 
 } // namespace
 
-std::optional<std::string> get(const std::string &name) {
+std::optional<std::string> get(const std::string& name) {
 #ifdef _WIN32
   // MSVC deprecates getenv (C4996): _dupenv_s copies the value.
-  char *buffer = nullptr;
+  char* buffer = nullptr;
   size_t length = 0;
   if (_dupenv_s(&buffer, &length, name.c_str()) != 0 || buffer == nullptr) {
     return std::nullopt;
@@ -69,7 +70,7 @@ std::optional<std::string> get(const std::string &name) {
   }
   return value;
 #else
-  const char *value = std::getenv(name.c_str());
+  const char* value = std::getenv(name.c_str());
   if (!value || *value == '\0') {
     return std::nullopt;
   }
@@ -77,7 +78,7 @@ std::optional<std::string> get(const std::string &name) {
 #endif
 }
 
-Roe<std::optional<std::string>> secret(const std::string &name) {
+Roe<std::optional<std::string>> secret(const std::string& name) {
   auto direct = get(name);
   auto file = get(name + "_FILE");
   if (direct && file) {
@@ -99,9 +100,9 @@ Roe<std::optional<std::string>> secret(const std::string &name) {
   return std::optional<std::string>(trim(*read.value()));
 }
 
-Roe<size_t> overlay(common::Object &config, const std::vector<Field> &fields) {
+Roe<size_t> overlay(common::Object& config, const std::vector<Field>& fields) {
   size_t set = 0;
-  for (const auto &field : fields) {
+  for (const auto& field : fields) {
     std::optional<std::string> text;
     if (field.secret) {
       auto value = secret(field.env);
@@ -123,7 +124,7 @@ Roe<size_t> overlay(common::Object &config, const std::vector<Field> &fields) {
       config.set(field.key, value.value());
     } else {
       common::Object parent;
-      if (const common::Object *existing = config.getObject(field.parent)) {
+      if (const common::Object* existing = config.getObject(field.parent)) {
         parent = *existing;
       }
       parent.set(field.key, value.value());
@@ -134,7 +135,7 @@ Roe<size_t> overlay(common::Object &config, const std::vector<Field> &fields) {
   return set;
 }
 
-Roe<std::optional<common::Object>> loadConfig(const std::string &path, const std::vector<Field> &fields) {
+Roe<std::optional<common::Object>> loadConfig(const std::string& path, const std::vector<Field>& fields) {
   common::Object config;
   const bool fromFile = std::filesystem::exists(path);
   if (fromFile) {

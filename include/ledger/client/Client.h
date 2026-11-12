@@ -35,17 +35,17 @@ public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
     /** When the node said when to try again (Response::retryAfterMs); 0: it did not. */
-    uint32_t retryAfterMs{ 0 };
+    uint32_t retryAfterMs{0};
   };
 
-  template <typename T> using Roe = ResultOrError<T, Error>;
+  template <typename T>
+  using Roe = ResultOrError<T, Error>;
 
   // Default connection settings
-  static constexpr const char *DEFAULT_HOST = "localhost";
+  static constexpr const char* DEFAULT_HOST = "localhost";
   static constexpr const uint16_t DEFAULT_BEACON_PORT = 8517;
   static constexpr const uint16_t DEFAULT_MINER_PORT = 8518;
   static constexpr const uint16_t DEFAULT_RELAY_PORT = 8519;
-
 
   // Request types
   static constexpr const uint32_t T_REQ_STATUS = 1;
@@ -152,16 +152,16 @@ public:
   struct Request {
     static constexpr const uint32_t VERSION = 2;
 
-    uint32_t version{ VERSION };
-    uint32_t type{ 0 };
+    uint32_t version{VERSION};
+    uint32_t type{0};
     std::string payload;
     /** Milliseconds the client waits from sending (0: unknown). A node forwards with what remains. */
-    uint32_t deadlineMs{ 0 };
+    uint32_t deadlineMs{0};
     /** Set by the receiving node, not on the wire: the sender's authenticated peer id ("" unknown). */
     std::string from;
 
     template <typename Archive>
-    void serialize(Archive &ar) {
+    void serialize(Archive& ar) {
       ar & version & type & payload;
       if (version >= 2) {
         ar & deadlineMs;
@@ -180,18 +180,18 @@ public:
    */
   static bool isChainDuty(uint32_t type) {
     switch (type) {
-    case T_REQ_BLOCK_ADD:
-    case T_REQ_TX_PULL:
-    case T_REQ_BLOCK_GET:
-    case T_REQ_BLOCK_WAIT:
-    case T_REQ_STATUS:
-    case T_REQ_MINER_LIST:
-    case T_REQ_AUTHORITY_PROOF:
-    case T_REQ_EQUIVOCATION_ADD:
-    case T_REQ_CALIBRATION:
-      return true;
-    default:
-      return false;
+      case T_REQ_BLOCK_ADD:
+      case T_REQ_TX_PULL:
+      case T_REQ_BLOCK_GET:
+      case T_REQ_BLOCK_WAIT:
+      case T_REQ_STATUS:
+      case T_REQ_MINER_LIST:
+      case T_REQ_AUTHORITY_PROOF:
+      case T_REQ_EQUIVOCATION_ADD:
+      case T_REQ_CALIBRATION:
+        return true;
+      default:
+        return false;
     }
   }
 
@@ -201,9 +201,9 @@ public:
    * it started with — else a relay forwards with time its client no longer has. Bytes that are not
    * exactly a packed Request, a version 1 one, or one with no deadline are returned unchanged.
    */
-  static std::string withRemainingDeadline(const std::string &body, uint32_t remainingMs);
+  static std::string withRemainingDeadline(const std::string& body, uint32_t remainingMs);
 
-  static std::optional<uint32_t> peekRequestType(const std::string &body) {
+  static std::optional<uint32_t> peekRequestType(const std::string& body) {
     if (body.size() < 8) {
       return std::nullopt;
     }
@@ -221,14 +221,14 @@ public:
    */
   struct Response {
     static constexpr const uint32_t VERSION = 2;
-    uint32_t version{ VERSION };
-    uint16_t errorCode{ 0 };
+    uint32_t version{VERSION};
+    uint16_t errorCode{0};
     std::string payload;
     /** With an overload code: when to try again (milliseconds; 0: none said). */
-    uint32_t retryAfterMs{ 0 };
+    uint32_t retryAfterMs{0};
 
     template <typename Archive>
-    void serialize(Archive &ar) {
+    void serialize(Archive& ar) {
       ar & version & errorCode & payload;
       if (version >= 2) {
         ar & retryAfterMs;
@@ -244,13 +244,13 @@ public:
    * their relays, and transactions reach the leader by TX_PULL.
    */
   struct MinerInfo {
-    uint64_t id{ 0 };
+    uint64_t id{0};
     /** Set by the beacon when it records the registration (its clock). */
-    int64_t tLastMessage{ 0 };
+    int64_t tLastMessage{0};
     /** Signer's clock (Unix seconds) when signed; the beacon refuses stale or replayed records. */
-    int64_t issuedAt{ 0 };
+    int64_t issuedAt{0};
     /** issuedAt may differ from the receiving node's clock by at most this much. */
-    static constexpr std::chrono::minutes kMaxIssuedSkew{ 5 };
+    static constexpr std::chrono::minutes kMaxIssuedSkew{5};
     /**
      * The AMP peer id the miner sends from (its node's identity). Signed: a node trusts only the
      * peer a registration names, never whichever peer delivered it. Not in MINER_LIST.
@@ -260,26 +260,26 @@ public:
     std::vector<std::string> signatures;
 
     /** Domain-separated bytes the miner signs: network, id, issuedAt, peerId. */
-    std::string signingMessage(const std::string &networkId) const;
+    std::string signingMessage(const std::string& networkId) const;
 
     pp::common::Meta ltsToMeta() const;
-    Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
+    Roe<bool> ltsFromMeta(const pp::common::Meta& meta);
   };
 
   struct MinerStatus {
-    uint64_t minerId{ 0 };
-    uint64_t stake{ 0 };
-    uint64_t nextBlockId{ 0 };
-    uint64_t currentSlot{ 0 };
-    uint64_t currentEpoch{ 0 };
-    uint64_t pendingTransactions{ 0 };
-    uint64_t nStakeholders{ 0 };
-    bool isSlotLeader{ false };
+    uint64_t minerId{0};
+    uint64_t stake{0};
+    uint64_t nextBlockId{0};
+    uint64_t currentSlot{0};
+    uint64_t currentEpoch{0};
+    uint64_t pendingTransactions{0};
+    uint64_t nStakeholders{0};
+    bool isSlotLeader{false};
     /** The chain's network id (what transactions are signed for); the field BeaconState has too. */
     std::string networkId;
 
     pp::common::Meta ltsToMeta() const;
-    Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
+    Roe<bool> ltsFromMeta(const pp::common::Meta& meta);
   };
 
   /**
@@ -299,20 +299,21 @@ public:
     /** Domain-separated bytes the beacon signs: network, generation, height, block hash. */
     std::string signingMessage() const;
     /** True when `signature` is `publicKey`'s over signingMessage(). */
-    bool verify(const std::string &publicKey) const;
+    bool verify(const std::string& publicKey) const;
 
-    bool operator==(const SignedTip &other) const {
+    bool operator==(const SignedTip& other) const {
       return networkId == other.networkId && generation == other.generation && height == other.height &&
              blockHash == other.blockHash && signature == other.signature;
     }
 
-    template <typename Archive> void serialize(Archive &ar) {
+    template <typename Archive>
+    void serialize(Archive& ar) {
       ar & networkId & generation & height & blockHash & signature;
     }
 
     /** Versioned bytes (disk, and the `signedTip` field of STATUS). */
     std::string ltsToString() const;
-    bool ltsFromString(const std::string &str);
+    bool ltsFromString(const std::string& str);
   };
 
   /**
@@ -330,21 +331,24 @@ public:
 
     /** Evidence from two tips, or none if they are not one network, generation and height with
      *  different blocks. Signatures are not checked here (verify()). */
-    static std::optional<Equivocation> of(const SignedTip &a, const SignedTip &b);
+    static std::optional<Equivocation> of(const SignedTip& a, const SignedTip& b);
     /** Same shape as of() requires, and both tips signed by `publicKey`. */
-    bool verify(const std::string &publicKey) const;
+    bool verify(const std::string& publicKey) const;
 
-    const std::string &networkId() const { return first.networkId; }
+    const std::string& networkId() const { return first.networkId; }
     uint64_t generation() const { return first.generation; }
     uint64_t height() const { return first.height; }
 
-    bool operator==(const Equivocation &other) const { return first == other.first && second == other.second; }
+    bool operator==(const Equivocation& other) const { return first == other.first && second == other.second; }
 
-    template <typename Archive> void serialize(Archive &ar) { ar & first & second; }
+    template <typename Archive>
+    void serialize(Archive& ar) {
+      ar & first & second;
+    }
 
     /** Versioned bytes (disk, STATUS `equivocation`, EQUIVOCATION_ADD). */
     std::string ltsToString() const;
-    bool ltsFromString(const std::string &str);
+    bool ltsFromString(const std::string& str);
   };
 
   /**
@@ -357,12 +361,13 @@ public:
     SignedTip signedTip;
 
     std::optional<SignedTip> tip() const { return hasSignedTip ? std::optional<SignedTip>(signedTip) : std::nullopt; }
-    void setTip(const std::optional<SignedTip> &tip) {
+    void setTip(const std::optional<SignedTip>& tip) {
       hasSignedTip = tip.has_value();
       signedTip = tip.value_or(SignedTip{});
     }
 
-    template <typename Archive> void serialize(Archive &ar) {
+    template <typename Archive>
+    void serialize(Archive& ar) {
       ar & nextBlockId & hasSignedTip & signedTip;
     }
   };
@@ -376,7 +381,10 @@ public:
     uint64_t epoch{0};
     Ledger::Record record;
 
-    template <typename Archive> void serialize(Archive &ar) { ar & blockId & epoch & record; }
+    template <typename Archive>
+    void serialize(Archive& ar) {
+      ar & blockId & epoch & record;
+    }
   };
 
   /**
@@ -387,7 +395,10 @@ public:
   struct AuthorityProof {
     std::vector<AuthorityStep> steps;
 
-    template <typename Archive> void serialize(Archive &ar) { ar & steps; }
+    template <typename Archive>
+    void serialize(Archive& ar) {
+      ar & steps;
+    }
   };
 
   /**
@@ -405,16 +416,17 @@ public:
     /** An operator approved it past the finalized height: final blocks were undone (FN003). */
     bool crossedFinality{false};
 
-    bool operator==(const RewindReport &other) const {
+    bool operator==(const RewindReport& other) const {
       return keptUpTo == other.keptUpTo && droppedUpTo == other.droppedUpTo && generation == other.generation &&
              crossedFinality == other.crossedFinality;
     }
-    template <typename Archive> void serialize(Archive &ar) {
+    template <typename Archive>
+    void serialize(Archive& ar) {
       ar & keptUpTo & droppedUpTo & generation & crossedFinality;
     }
 
     std::string ltsToString() const;
-    bool ltsFromString(const std::string &str);
+    bool ltsFromString(const std::string& str);
   };
 
   /**
@@ -428,27 +440,28 @@ public:
     std::vector<std::string> adminPublicKeys;
     uint8_t adminMinSignatures{0};
 
-    bool operator==(const RecoveryStatus &other) const {
+    bool operator==(const RecoveryStatus& other) const {
       return announcedAt == other.announcedAt && applyEpoch == other.applyEpoch &&
              adminPublicKeys == other.adminPublicKeys && adminMinSignatures == other.adminMinSignatures;
     }
-    template <typename Archive> void serialize(Archive &ar) {
+    template <typename Archive>
+    void serialize(Archive& ar) {
       ar & announcedAt & applyEpoch & adminPublicKeys & adminMinSignatures;
     }
   };
 
   /** Beacon status: checkpoint, block, slot, epoch, timestamp and stakeholders (single round-trip). */
   struct BeaconState {
-    int64_t currentTimestamp { 0 };  /**< Unix time in seconds (server's view of now) */
-    uint64_t checkpointId{ 0 };
-    uint64_t nextBlockId { 0 };
-    uint64_t currentSlot { 0 };
-    uint64_t currentEpoch { 0 };
-    uint64_t nStakeholders { 0 };
+    int64_t currentTimestamp{0}; /**< Unix time in seconds (server's view of now) */
+    uint64_t checkpointId{0};
+    uint64_t nextBlockId{0};
+    uint64_t currentSlot{0};
+    uint64_t currentEpoch{0};
+    uint64_t nStakeholders{0};
     /** Optional STATUS v2 fields (see docs/architecture/LEDGER_TOPOLOGY.md). */
     std::string networkId;
     std::string headHash;
-    uint64_t registryVersion{ 0 };
+    uint64_t registryVersion{0};
     /** The beacon's latest signed tip (a relay serves the one it holds); absent before the first. */
     std::optional<SignedTip> signedTip;
     /**
@@ -475,7 +488,7 @@ public:
     uint64_t finalitySeconds{0};
 
     pp::common::Meta ltsToMeta() const;
-    Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
+    Roe<bool> ltsFromMeta(const pp::common::Meta& meta);
   };
 
   /**
@@ -490,38 +503,39 @@ public:
     std::string role;      ///< beacon | relay | miner
     std::string peerId;    ///< the node's network identity
     std::string networkId; ///< the chain's
-    bool ready{ false };
-    std::string notReady;  ///< why not, when !ready
-    uint64_t nextBlockId{ 0 };
+    bool ready{false};
+    std::string notReady; ///< why not, when !ready
+    uint64_t nextBlockId{0};
     std::optional<uint64_t> upstreamNextBlockId; ///< relay: from the upstream's signed tip
     std::optional<int64_t> lastSyncAgeSeconds;   ///< relay, miner: since the last successful sync
     std::optional<uint64_t> signedTipHeight;
-    uint64_t generation{ 0 };      ///< beacon generation in force
-    bool halted{ false };          ///< equivocation evidence held (beacon-authority ba6)
-    bool recoveryPending{ false }; ///< a recovery waits (ba7)
-    bool standingDown{ false };    ///< beacon: another key is certified
-    uint64_t requestQueueDepth{ 0 };
-    int64_t reportAgeMs{ -1 };     ///< since the server thread published; -1: never
+    uint64_t generation{0};      ///< beacon generation in force
+    bool halted{false};          ///< equivocation evidence held (beacon-authority ba6)
+    bool recoveryPending{false}; ///< a recovery waits (ba7)
+    bool standingDown{false};    ///< beacon: another key is certified
+    uint64_t requestQueueDepth{0};
+    int64_t reportAgeMs{-1}; ///< since the server thread published; -1: never
 
     // Load (load-resilience lr1). Counters run from the node's start.
     /** Requests of one type served (handled, whatever the answer). */
     struct RequestCount {
-      uint32_t type{ 0 };
-      uint64_t served{ 0 };
-      uint64_t waitMs{ 0 };    ///< summed: time in the queue before the handler ran
-      uint64_t serviceMs{ 0 }; ///< summed: time in the handler (to its reply, or to handing it on)
+      uint32_t type{0};
+      uint64_t served{0};
+      uint64_t waitMs{0};    ///< summed: time in the queue before the handler ran
+      uint64_t serviceMs{0}; ///< summed: time in the handler (to its reply, or to handing it on)
     };
     std::vector<RequestCount> requests;
-    uint64_t requestsBusy{ 0 };    ///< answered "busy" before queueing: queue full, or stopping
-    uint64_t requestsRefused{ 0 }; ///< refused unserved: too large, peer not allowed, malformed, unsupported, wrong direction
-    uint64_t requestsExpired{ 0 }; ///< waited longer than its client would, and answered unserved
-    uint64_t loopTurnsSlow{ 0 };   ///< run-loop turns longer than kSlowTurnMs (a slow handler or duty)
-    uint64_t loopTurnMaxMs{ 0 };   ///< the longest run-loop turn in the last 10 to 20 s
-    std::optional<uint64_t> rssBytes; ///< resident memory (where the platform tells)
+    uint64_t requestsBusy{0}; ///< answered "busy" before queueing: queue full, or stopping
+    uint64_t requestsRefused{
+        0}; ///< refused unserved: too large, peer not allowed, malformed, unsupported, wrong direction
+    uint64_t requestsExpired{0};                   ///< waited longer than its client would, and answered unserved
+    uint64_t loopTurnsSlow{0};                     ///< run-loop turns longer than kSlowTurnMs (a slow handler or duty)
+    uint64_t loopTurnMaxMs{0};                     ///< the longest run-loop turn in the last 10 to 20 s
+    std::optional<uint64_t> rssBytes;              ///< resident memory (where the platform tells)
     std::optional<uint64_t> udpReceiveBufferBytes; ///< the socket's receive buffer, as the OS granted it
     std::optional<uint64_t> udpReceiveDrops;       ///< datagrams the OS dropped for want of room (Linux)
-    uint64_t minerPeers{ 0 }; ///< peers that registered a miner through this node lately: trusted (LR009)
-    std::optional<uint64_t> links;                 ///< peer links held (at most maxLinks)
+    uint64_t minerPeers{0};        ///< peers that registered a miner through this node lately: trusted (LR009)
+    std::optional<uint64_t> links; ///< peer links held (at most maxLinks)
     // Miner
     std::optional<uint64_t> blocksSealed;    ///< blocks it produced and broadcast
     std::optional<uint64_t> blocksCommitted; ///< of those, committed on the beacon's signed tip
@@ -531,9 +545,9 @@ public:
     std::optional<uint64_t> txPoolRecords;
     std::optional<uint64_t> txPoolBytes;
     std::optional<int64_t> txPoolOldestAgeSeconds;
-    std::optional<uint64_t> txPoolAdded;      ///< counters, from the start
+    std::optional<uint64_t> txPoolAdded; ///< counters, from the start
     std::optional<uint64_t> txPoolDuplicates;
-    std::optional<uint64_t> txPoolFull;       ///< refused: the pool was full
+    std::optional<uint64_t> txPoolFull; ///< refused: the pool was full
     std::optional<uint64_t> txPoolExpired;
     std::optional<uint64_t> txPoolIncluded;   ///< left the pool in a committed block
     std::optional<uint64_t> txPoolSenderFull; ///< refused: its payer had its share pooled
@@ -548,25 +562,25 @@ public:
     bool readyNow() const { return live() && ready; }
 
     pp::common::Meta ltsToMeta() const;
-    Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
+    Roe<bool> ltsFromMeta(const pp::common::Meta& meta);
   };
 
   struct TxGetByWalletRequest {
-    uint64_t walletId{ 0 };
-    uint64_t beforeBlockId{ 0 };
+    uint64_t walletId{0};
+    uint64_t beforeBlockId{0};
 
     template <typename Archive>
-    void serialize(Archive &ar) {
+    void serialize(Archive& ar) {
       ar & walletId & beforeBlockId;
     }
   };
 
   struct TxGetByWalletResponse {
     std::vector<Ledger::Record> transactions;
-    uint64_t nextBlockId{ 0 };
+    uint64_t nextBlockId{0};
 
     template <typename Archive>
-    void serialize(Archive &ar) {
+    void serialize(Archive& ar) {
       ar & transactions & nextBlockId;
     }
 
@@ -580,18 +594,18 @@ public:
    * height h's, leaf level first).
    */
   struct AccountProof {
-    uint64_t accountId{ 0 };
-    uint64_t blockId{ 0 };
+    uint64_t accountId{0};
+    uint64_t blockId{0};
     std::string stateRoot;
-    bool present{ false };
+    bool present{false};
     Wallet wallet;
-    uint64_t lastWriteBlockId{ 0 };
+    uint64_t lastWriteBlockId{0};
     std::string attachmentHash;
-    uint64_t siblingMask{ 0 };
+    uint64_t siblingMask{0};
     std::vector<std::string> siblings;
 
     template <typename Archive>
-    void serialize(Archive &ar) {
+    void serialize(Archive& ar) {
       ar & accountId & blockId & stateRoot & present & wallet & lastWriteBlockId & attachmentHash & siblingMask &
           siblings;
     }
@@ -603,76 +617,76 @@ public:
    */
   struct DomainProof {
     std::string domain;
-    uint64_t blockId{ 0 };
+    uint64_t blockId{0};
     std::string stateRoot;
-    bool present{ false };
-    uint64_t accountId{ 0 };
-    uint64_t siblingMask{ 0 };
+    bool present{false};
+    uint64_t accountId{0};
+    uint64_t siblingMask{0};
     std::vector<std::string> siblings;
 
     template <typename Archive>
-    void serialize(Archive &ar) {
+    void serialize(Archive& ar) {
       ar & domain & blockId & stateRoot & present & accountId & siblingMask & siblings;
     }
   };
 
   /** Blocks [fromBlockId, toBlockId) (block 0 is not counted). */
   struct ProducerStatsRequest {
-    uint64_t fromBlockId{ 0 };
-    uint64_t toBlockId{ 0 };
+    uint64_t fromBlockId{0};
+    uint64_t toBlockId{0};
 
     template <typename Archive>
-    void serialize(Archive &ar) {
+    void serialize(Archive& ar) {
       ar & fromBlockId & toBlockId;
     }
   };
 
   /** One account's part in a range of blocks. */
   struct ProducerStats {
-    uint64_t accountId{ 0 };
-    uint64_t blocks{ 0 };        ///< blocks it produced (its slotLeader)
-    uint64_t fees{ 0 };          ///< fees of the transactions in those blocks
-    uint64_t missesCharged{ 0 }; ///< slots it led while due and skipped (miner liveness)
+    uint64_t accountId{0};
+    uint64_t blocks{0};        ///< blocks it produced (its slotLeader)
+    uint64_t fees{0};          ///< fees of the transactions in those blocks
+    uint64_t missesCharged{0}; ///< slots it led while due and skipped (miner liveness)
 
     template <typename Archive>
-    void serialize(Archive &ar) {
+    void serialize(Archive& ar) {
       ar & accountId & blocks & fees & missesCharged;
     }
   };
 
   struct ProducerStatsResponse {
-    uint64_t fromBlockId{ 0 };
+    uint64_t fromBlockId{0};
     /** Where the reply stops: toBlockId, the node's tip, or earlier when capped (ask again from here). */
-    uint64_t nextBlockId{ 0 };
-    uint64_t blocks{ 0 };
-    uint64_t fees{ 0 };
+    uint64_t nextBlockId{0};
+    uint64_t blocks{0};
+    uint64_t fees{0};
     /** Slots of the first and last block counted (0 when none). */
-    uint64_t firstSlot{ 0 };
-    uint64_t lastSlot{ 0 };
+    uint64_t firstSlot{0};
+    uint64_t lastSlot{0};
     /** By account id. */
     std::vector<ProducerStats> producers;
 
     template <typename Archive>
-    void serialize(Archive &ar) {
+    void serialize(Archive& ar) {
       ar & fromBlockId & nextBlockId & blocks & fees & firstSlot & lastSlot & producers;
     }
   };
 
   struct TxGetByIndexRequest {
-    uint64_t txIndex{ 0 };
+    uint64_t txIndex{0};
 
     template <typename Archive>
-    void serialize(Archive &ar) {
+    void serialize(Archive& ar) {
       ar & txIndex;
     }
   };
 
   struct CalibrationResponse {
-    int64_t msTimestamp{ 0 };
-    uint64_t nextBlockId{ 0 };
-    
+    int64_t msTimestamp{0};
+    uint64_t nextBlockId{0};
+
     template <typename Archive>
-    void serialize(Archive &ar) {
+    void serialize(Archive& ar) {
       ar & msTimestamp & nextBlockId;
     }
 
@@ -697,8 +711,8 @@ public:
    */
   void setRequestTimeout(std::chrono::milliseconds timeout) { requestTimeout_ = timeout; }
 
-  ILedgerTransport *transport() { return transport_.get(); }
-  const ILedgerTransport *transport() const { return transport_.get(); }
+  ILedgerTransport* transport() { return transport_.get(); }
+  const ILedgerTransport* transport() const { return transport_.get(); }
 
   Roe<BeaconState> fetchBeaconState();
   /**
@@ -710,7 +724,7 @@ public:
   Roe<NodeHealth> fetchHealth();
   /** Fetch server's current time in milliseconds since Unix epoch (for calibration). */
   Roe<CalibrationResponse> fetchCalibration();
-  Roe<BeaconState> registerMinerServer(const MinerInfo &minerInfo);
+  Roe<BeaconState> registerMinerServer(const MinerInfo& minerInfo);
   Roe<std::vector<MinerInfo>> fetchMinerList();
   Roe<MinerStatus> fetchMinerStatus();
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
@@ -719,16 +733,16 @@ public:
   /** CONFIG_GET: the genesis meta in force at the node's tip (Chain::genesisMetaInForce). */
   Roe<GenesisAccountMeta> fetchGenesisMeta();
   Roe<UserAccount> fetchUserAccount(const uint64_t accountId);
-  Roe<TxGetByWalletResponse> fetchTransactionsByWallet(const TxGetByWalletRequest &request);
+  Roe<TxGetByWalletResponse> fetchTransactionsByWallet(const TxGetByWalletRequest& request);
   /** T_REQ_ACCOUNT_PROOF: account `accountId` in the node's tip state, with its Merkle path. */
   Roe<AccountProof> fetchAccountProof(uint64_t accountId);
   /** T_REQ_DOMAIN_GET: `domain` (as stored: capital letters) in the node's tip state, with its path. */
-  Roe<DomainProof> fetchDomainProof(const std::string &domain);
+  Roe<DomainProof> fetchDomainProof(const std::string& domain);
   /** T_REQ_PRODUCER_STATS: one page (capped at kMaxProducerStatsBlocks). */
-  Roe<ProducerStatsResponse> fetchProducerStats(const ProducerStatsRequest &request);
-  Roe<Ledger::Record> fetchTransactionByIndex(const TxGetByIndexRequest &request);
+  Roe<ProducerStatsResponse> fetchProducerStats(const ProducerStatsRequest& request);
+  Roe<Ledger::Record> fetchTransactionByIndex(const TxGetByIndexRequest& request);
 
-  Roe<void> addTransaction(const Ledger::Record &record);
+  Roe<void> addTransaction(const Ledger::Record& record);
   Roe<TipReply> addBlock(const Ledger::ChainNode& block);
 
   /**
@@ -736,18 +750,25 @@ public:
    * result, possibly on a transport thread (AMP io lane) — hop to your own
    * thread before touching state.
    */
-  template <typename T> using Done = std::function<void(Roe<T>)>;
+  template <typename T>
+  using Done = std::function<void(Roe<T>)>;
   // `timeout` 0: the default for the request; else the budget a forwarding node has left (LR006).
-  void registerMinerServerAsync(const MinerInfo &minerInfo, Done<BeaconState> done, std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
-  void fetchMinerListAsync(Done<std::vector<MinerInfo>> done, std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
-  void addTransactionAsync(const Ledger::Record &record, Done<void> done, std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
+  void registerMinerServerAsync(const MinerInfo& minerInfo, Done<BeaconState> done,
+                                std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
+  void fetchMinerListAsync(Done<std::vector<MinerInfo>> done,
+                           std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
+  void addTransactionAsync(const Ledger::Record& record, Done<void> done,
+                           std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
   /** EQUIVOCATION_ADD: push equivocation evidence up (beacon-authority ba6). Returns the reply text. */
-  Roe<std::string> addEquivocation(const Equivocation &evidence);
-  void addEquivocationAsync(const Equivocation &evidence, Done<std::string> done, std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
+  Roe<std::string> addEquivocation(const Equivocation& evidence);
+  void addEquivocationAsync(const Equivocation& evidence, Done<std::string> done,
+                            std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
   /** BLOCK_ADD: the reply carries the beacon's signed tip once it has committed the block. */
-  void addBlockAsync(const Ledger::ChainNode &block, Done<TipReply> done, std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
+  void addBlockAsync(const Ledger::ChainNode& block, Done<TipReply> done,
+                     std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
   /** TX_PULL: pending transactions for the leader of `slot`. */
-  void pullTransactionsAsync(uint64_t slot, Done<std::vector<Ledger::Record>> done, std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
+  void pullTransactionsAsync(uint64_t slot, Done<std::vector<Ledger::Record>> done,
+                             std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
   void fetchCalibrationAsync(Done<CalibrationResponse> done);
   void fetchBlockAsync(uint64_t blockId, Done<Ledger::ChainNode> done);
   void fetchBeaconStateAsync(Done<BeaconState> done);
@@ -758,7 +779,7 @@ public:
    * Any request, async: `done` gets the reply payload, or the server's error message (E_SERVER_ERROR)
    * or the transport's (E_REQUEST_FAILED). For tools that look at every reply (pp-client load).
    */
-  void requestAsync(uint32_t type, const std::string &payload, Done<std::string> done,
+  void requestAsync(uint32_t type, const std::string& payload, Done<std::string> done,
                     std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
 
   /**
@@ -768,33 +789,29 @@ public:
    * or `maxWait` (and the transaction's validity window) ends. The reply text, or the last error.
    * Never re-sign to retry: a new signature is a new transaction.
    */
-  Roe<std::string> submitTransaction(const Ledger::Record &record,
+  Roe<std::string> submitTransaction(const Ledger::Record& record,
                                      std::chrono::milliseconds maxWait = std::chrono::minutes(2));
   /** Whether `error` says the same request may be sent again. */
-  static bool isRetryable(const Error &error) {
-    return isOverloadCode(error.code) || isTransportError(error.code);
-  }
+  static bool isRetryable(const Error& error) { return isOverloadCode(error.code) || isTransportError(error.code); }
 
   /** True when the call failed before a server answered (worth retrying later). */
-  static bool isTransportError(int32_t code) {
-    return code == E_NOT_CONNECTED || code == E_REQUEST_FAILED;
-  }
+  static bool isTransportError(int32_t code) { return code == E_NOT_CONNECTED || code == E_REQUEST_FAILED; }
 
 private:
-  static Roe<BeaconState> parseBeaconState(const std::string &payload);
-  static Roe<CalibrationResponse> parseCalibration(const std::string &payload);
-  static Roe<Ledger::ChainNode> parseBlock(const std::string &payload);
-  static Roe<TipReply> parseTipReply(const std::string &payload);
-  static Roe<std::vector<MinerInfo>> parseMinerList(const std::string &payload);
-  std::string packRequest(uint32_t type, const std::string &payload, std::chrono::milliseconds timeout);
-  static Roe<std::string> parseResponse(const ILedgerTransport::Roe<std::string> &result);
-  void sendRequestAsync(uint32_t type, const std::string &payload,
-                        std::chrono::milliseconds timeout, Done<std::string> done);
+  static Roe<BeaconState> parseBeaconState(const std::string& payload);
+  static Roe<CalibrationResponse> parseCalibration(const std::string& payload);
+  static Roe<Ledger::ChainNode> parseBlock(const std::string& payload);
+  static Roe<TipReply> parseTipReply(const std::string& payload);
+  static Roe<std::vector<MinerInfo>> parseMinerList(const std::string& payload);
+  std::string packRequest(uint32_t type, const std::string& payload, std::chrono::milliseconds timeout);
+  static Roe<std::string> parseResponse(const ILedgerTransport::Roe<std::string>& result);
+  void sendRequestAsync(uint32_t type, const std::string& payload, std::chrono::milliseconds timeout,
+                        Done<std::string> done);
   /** `timeout` when set, else `fallback`. */
   static std::chrono::milliseconds orDefault(std::chrono::milliseconds timeout, std::chrono::milliseconds fallback) {
     return timeout.count() > 0 ? timeout : fallback;
   }
-  Roe<std::string> sendRequest(uint32_t type, const std::string &payload, std::chrono::milliseconds timeout);
+  Roe<std::string> sendRequest(uint32_t type, const std::string& payload, std::chrono::milliseconds timeout);
   std::chrono::milliseconds fastTimeout() const { return requestTimeout_; }
   std::chrono::milliseconds dataTimeout() const { return network::NetworkTuning::dataTimeoutFor(requestTimeout_); }
 

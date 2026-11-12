@@ -17,33 +17,31 @@
 
 namespace pp {
 
-namespace {
-
-
-} // namespace
+namespace {} // namespace
 
 // Ostream operators for easy logging
-std::ostream &operator<<(std::ostream &os, const Beacon::InitConfig &config) {
+std::ostream& operator<<(std::ostream& os, const Beacon::InitConfig& config) {
   os << "InitConfig{workDir=\"" << config.workDir << "\", "
      << "chain=" << config.chain << "}";
   return os;
 }
 
-std::ostream &operator<<(std::ostream &os, const Beacon::MountConfig &config) {
+std::ostream& operator<<(std::ostream& os, const Beacon::MountConfig& config) {
   os << "MountConfig{workDir=\"" << config.workDir << "\"}";
   return os;
 }
 
 Beacon::Beacon() : NodeCore("Beacon") {}
 
-bool Beacon::isInDeliveryWindow(uint64_t slot) const { return chain_.isInDeliveryWindow(slot); }
+bool Beacon::isInDeliveryWindow(uint64_t slot) const {
+  return chain_.isInDeliveryWindow(slot);
+}
 
-Beacon::Roe<void> Beacon::verifyMinerRegistration(const Client::MinerInfo &miner,
-                                                 const std::string &networkId) const {
+Beacon::Roe<void> Beacon::verifyMinerRegistration(const Client::MinerInfo& miner, const std::string& networkId) const {
   auto signed_ = verifyAccountSignatures(miner.id, miner.signingMessage(networkId), miner.signatures);
   if (!signed_) {
-    return Error(signed_.error().code, "Registration not signed by miner " + std::to_string(miner.id) + ": " +
-                                           signed_.error().message);
+    return Error(signed_.error().code,
+                 "Registration not signed by miner " + std::to_string(miner.id) + ": " + signed_.error().message);
   }
   // Only a miner the chain registered (T_MINER_REGISTER: stake and fee) is one: any other account's
   // registration would earn a peer the trusted lane.
@@ -54,14 +52,13 @@ Beacon::Roe<void> Beacon::verifyMinerRegistration(const Client::MinerInfo &miner
   return {};
 }
 
-Beacon::Roe<void> Beacon::init(const InitConfig &config) {
+Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "Initializing Beacon";
   log().debug << "Init config: " << config;
 
   // Verify work directory does NOT exist (fresh initialization)
   if (std::filesystem::exists(config.workDir)) {
-    return Error("Work directory already exists: " + config.workDir +
-                 ". Use mount() to load existing beacon.");
+    return Error("Work directory already exists: " + config.workDir + ". Use mount() to load existing beacon.");
   }
 
   // Create work directory
@@ -95,8 +92,7 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
 
   auto ledgerResult = chain_.initLedger(ledgerConfig);
   if (!ledgerResult) {
-    return Error(2, "Failed to initialize ledger: " +
-                        ledgerResult.error().message);
+    return Error(2, "Failed to initialize ledger: " + ledgerResult.error().message);
   }
   // The beacon signs what it commits: every block is durable before it is signed (B009).
   chain_.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock());
@@ -115,18 +111,16 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
                                 ? createImportingGenesisBlock(chainConfig, config.key, authority, *config.import)
                                 : createGenesisBlock(chainConfig, config.key, config.miners, authority);
   if (!genesisBlockResult) {
-    return Error(2, "Failed to create genesis block: " +
-                        genesisBlockResult.error().message);
+    return Error(2, "Failed to create genesis block: " + genesisBlockResult.error().message);
   }
   auto genesisBlock = genesisBlockResult.value();
   auto addBlockResult = addBlock(genesisBlock);
   if (!addBlockResult) {
-    return Error(2, "Failed to add genesis block: " +
-                        addBlockResult.error().message);
+    return Error(2, "Failed to add genesis block: " + addBlockResult.error().message);
   }
 
-  log().info << "Genesis block created with checkpoint transaction (version "
-             << Chain::GenesisAccountMeta::VERSION << ")";
+  log().info << "Genesis block created with checkpoint transaction (version " << Chain::GenesisAccountMeta::VERSION
+             << ")";
   if (config.import.has_value()) {
     if (auto imported = addImportBlocks(*config.import, chainConfig.genesisTime, chainConfig.maxBlockBytes);
         !imported) {
@@ -139,29 +133,24 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
   log().info << "  Time offset: " << consensusConfig.timeOffsetMs << " ms";
   log().info << "  Slot duration: " << consensusConfig.slotDuration;
   log().info << "  Slots per epoch: " << consensusConfig.slotsPerEpoch;
-  log().info << "  Max custom meta size: "
-             << chainConfig.maxCustomMetaSize;
-  log().info << "  Max transactions per block: "
-             << chainConfig.maxTransactionsPerBlock;
-  log().info << "  Free custom meta size: "
-             << chainConfig.freeCustomMetaSize;
+  log().info << "  Max custom meta size: " << chainConfig.maxCustomMetaSize;
+  log().info << "  Max transactions per block: " << chainConfig.maxTransactionsPerBlock;
+  log().info << "  Free custom meta size: " << chainConfig.freeCustomMetaSize;
   log().info << "  Min fee coefficients: "
-             << "[" << utl::join(chainConfig.minFeeCoefficients, ", ")
-             << "]";
+             << "[" << utl::join(chainConfig.minFeeCoefficients, ", ") << "]";
   log().info << "  Current slot: " << getCurrentSlot();
   log().info << "  Current epoch: " << getCurrentEpoch();
 
   return {};
 }
 
-Beacon::Roe<void> Beacon::mount(const MountConfig &config) {
+Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
   log().info << "Mounting Beacon at: " << config.workDir;
   log().debug << "Mount config: " << config;
 
   // Verify work directory exists (loading existing state)
   if (!std::filesystem::exists(config.workDir)) {
-    return Error(3, "Work directory does not exist: " + config.workDir +
-                        ". Use init() to create new beacon.");
+    return Error(3, "Work directory does not exist: " + config.workDir + ". Use init() to create new beacon.");
   }
 
   setWorkDir(config.workDir);
@@ -174,16 +163,14 @@ Beacon::Roe<void> Beacon::mount(const MountConfig &config) {
   // Mount the ledger
   auto ledgerMountResult = chain_.mountLedger(ledgerPath);
   if (!ledgerMountResult) {
-    return Error(3, "Failed to mount ledger: " +
-                        ledgerMountResult.error().message);
+    return Error(3, "Failed to mount ledger: " + ledgerMountResult.error().message);
   }
   // The beacon signs what it commits: every block is durable before it is signed (B009).
   chain_.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock());
 
   auto loadResult = chain_.loadFromLedger(0);
   if (!loadResult) {
-    return Error(3, "Failed to load data from ledger: " +
-                        loadResult.error().message);
+    return Error(3, "Failed to load data from ledger: " + loadResult.error().message);
   }
 
   uint64_t blockCount = loadResult.value();
@@ -200,7 +187,7 @@ Beacon::Roe<void> Beacon::mount(const MountConfig &config) {
   return {};
 }
 
-Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
+Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode& block) {
   if (const auto above = haltedAbove(); above && block.block.index > *above) {
     return Error(4, "Halted: beacon generation " + std::to_string(chain_.equivocation()->generation()) +
                         " signed two blocks at height " + std::to_string(*above) + " (equivocation)");
@@ -221,13 +208,13 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
   return {};
 }
 
-Beacon::Roe<void> Beacon::openTipSigning(const std::vector<utl::MlDsaKeyPair> &keys, bool acceptLedgerTip) {
+Beacon::Roe<void> Beacon::openTipSigning(const std::vector<utl::MlDsaKeyPair>& keys, bool acceptLedgerTip) {
   auto signer = std::make_unique<TipSigner>(workDir() + "/" + FILE_SIGNED_TIP, keys);
   signer->redirectLogger(log().getFullName() + ".TipSigner");
   if (auto loaded = signer->load(); !loaded) {
     return Error(5, loaded.error().message);
   }
-  if (const auto &tip = signer->latest()) {
+  if (const auto& tip = signer->latest()) {
     if (auto held = checkLedgerHoldsSignedTip(*tip); !held) {
       return held;
     }
@@ -239,7 +226,7 @@ Beacon::Roe<void> Beacon::openTipSigning(const std::vector<utl::MlDsaKeyPair> &k
     tipSigner_.reset();
     return Error(5, signed_.error().message);
   }
-  if (const auto &tip = tipSigner_->latest()) {
+  if (const auto& tip = tipSigner_->latest()) {
     log().info << "Signed tip: block " << tip->height << ", generation " << tip->generation;
   }
   return {};
@@ -249,7 +236,7 @@ std::optional<Client::SignedTip> Beacon::getSignedTip() const {
   return tipSigner_ ? tipSigner_->latest() : std::nullopt;
 }
 
-TipSigner::Roe<std::string> Beacon::signAsCertified(const std::string &message) const {
+TipSigner::Roe<std::string> Beacon::signAsCertified(const std::string& message) const {
   const auto authority = chain_.getAuthority();
   if (!tipSigner_ || !authority) {
     return TipSigner::Error(TipSigner::E_NOT_CERTIFIED, "Tip signing is not open");
@@ -263,7 +250,7 @@ std::optional<uint64_t> Beacon::supersededBy() const {
     return std::nullopt;
   }
   // The latest certificate decides: one held out of band (not on chain yet) above the one in force.
-  if (const auto &seen = chain_.seenCertificate()) {
+  if (const auto& seen = chain_.seenCertificate()) {
     return tipSigner_->holdsKey(seen->publicKey) ? std::nullopt : std::optional<uint64_t>(seen->generation);
   }
   if (!tipSigner_->holdsKey(authority->beacon.publicKey)) {
@@ -276,26 +263,26 @@ std::optional<uint64_t> Beacon::takingOver() const {
   if (!tipSigner_) {
     return std::nullopt;
   }
-  return takeoverFor([this](const std::string &publicKey) { return tipSigner_->holdsKey(publicKey); });
+  return takeoverFor([this](const std::string& publicKey) { return tipSigner_->holdsKey(publicKey); });
 }
 
-std::optional<uint64_t> Beacon::takeoverWith(const std::vector<utl::MlDsaKeyPair> &keys) const {
-  return takeoverFor([&keys](const std::string &publicKey) {
+std::optional<uint64_t> Beacon::takeoverWith(const std::vector<utl::MlDsaKeyPair>& keys) const {
+  return takeoverFor([&keys](const std::string& publicKey) {
     return std::any_of(keys.begin(), keys.end(),
-                       [&publicKey](const utl::MlDsaKeyPair &key) { return key.publicKey == publicKey; });
+                       [&publicKey](const utl::MlDsaKeyPair& key) { return key.publicKey == publicKey; });
   });
 }
 
-std::optional<uint64_t> Beacon::takeoverFor(const std::function<bool(const std::string &publicKey)> &holds) const {
+std::optional<uint64_t> Beacon::takeoverFor(const std::function<bool(const std::string& publicKey)>& holds) const {
   const auto authority = chain_.getAuthority();
-  const auto &seen = chain_.seenCertificate();
+  const auto& seen = chain_.seenCertificate();
   if (!authority || !seen || !holds(seen->publicKey) || holds(authority->beacon.publicKey)) {
     return std::nullopt; // a staged rotation holds the key in force too: it is not a takeover
   }
   return seen->generation;
 }
 
-Beacon::Roe<Chain::CertificateOffer> Beacon::offerCertificate(const Ledger::Record &record) {
+Beacon::Roe<Chain::CertificateOffer> Beacon::offerCertificate(const Ledger::Record& record) {
   if (!certificates_) {
     return Error(6, "Beacon not mounted");
   }
@@ -316,11 +303,11 @@ Beacon::Roe<Chain::CertificateOffer> Beacon::offerCertificate(const Ledger::Reco
 }
 
 std::optional<uint64_t> Beacon::haltedAbove() const {
-  const auto &evidence = chain_.equivocation();
+  const auto& evidence = chain_.equivocation();
   return evidence ? std::optional<uint64_t>(evidence->height()) : std::nullopt;
 }
 
-Beacon::Roe<Chain::EquivocationOffer> Beacon::offerEquivocation(const Client::Equivocation &evidence) {
+Beacon::Roe<Chain::EquivocationOffer> Beacon::offerEquivocation(const Client::Equivocation& evidence) {
   if (!equivocations_) {
     return Error(6, "Beacon not mounted");
   }
@@ -329,17 +316,17 @@ Beacon::Roe<Chain::EquivocationOffer> Beacon::offerEquivocation(const Client::Eq
     return Error(offered.error().code, offered.error().message);
   }
   if (offered.value() == Chain::EquivocationOffer::Newer) {
-    log().error << "Beacon generation " << evidence.generation() << " signed two blocks at height "
-                << evidence.height() << ": this beacon commits nothing above it and serves reads only until "
+    log().error << "Beacon generation " << evidence.generation() << " signed two blocks at height " << evidence.height()
+                << ": this beacon commits nothing above it and serves reads only until "
                 << "a later generation is certified";
   }
   return offered.value();
 }
 
-Beacon::Roe<void> Beacon::checkLedgerHoldsSignedTip(const Client::SignedTip &tip) const {
+Beacon::Roe<void> Beacon::checkLedgerHoldsSignedTip(const Client::SignedTip& tip) const {
   if (tip.networkId != getNetworkId()) {
-    return Error(5, std::string(FILE_SIGNED_TIP) + " is for network '" + tip.networkId + "', not '" +
-                        getNetworkId() + "'");
+    return Error(
+        5, std::string(FILE_SIGNED_TIP) + " is for network '" + tip.networkId + "', not '" + getNetworkId() + "'");
   }
   if (tip.height >= getNextBlockId()) {
     return Error(5, "The ledger ends at block " + std::to_string(getNextBlockId() - 1) +
@@ -362,8 +349,8 @@ TipSigner::Roe<void> Beacon::signCommittedTip() {
   const uint64_t height = getNextBlockId() - 1;
   auto block = readBlock(height);
   if (!block) {
-    return TipSigner::Error(TipSigner::E_IO, "Failed to read block " + std::to_string(height) + ": " +
-                                                 block.error().message);
+    return TipSigner::Error(TipSigner::E_IO,
+                            "Failed to read block " + std::to_string(height) + ": " + block.error().message);
   }
   auto signed_ = tipSigner_->sign(authority->beacon, height, block.value().hash);
   if (!signed_ && signed_.error().code == TipSigner::E_NOT_CERTIFIED &&
@@ -381,24 +368,20 @@ TipSigner::Roe<void> Beacon::signCommittedTip() {
 
 // Private helper methods
 
-Beacon::Roe<void>
-Beacon::signWithGenesisKeys(Ledger::Record &record,
-                            const std::vector<std::string> &genesisSigners,
-                            const std::string &networkId,
-                            const std::string &errorContext) const {
+Beacon::Roe<void> Beacon::signWithGenesisKeys(Ledger::Record& record, const std::vector<std::string>& genesisSigners,
+                                              const std::string& networkId, const std::string& errorContext) const {
   const std::string message = record.signingMessage(networkId);
-  for (const auto &privateKey : genesisSigners) {
+  for (const auto& privateKey : genesisSigners) {
     auto result = utl::mlDsaSign(privateKey, message);
     if (!result) {
-      return Error(18, "Failed to sign " + errorContext + ": " +
-                           result.error().message);
+      return Error(18, "Failed to sign " + errorContext + ": " + result.error().message);
     }
     record.signatures.push_back(*result);
   }
   return {};
 }
 
-Beacon::Roe<void> Beacon::checkInitKeys(const InitKeyConfig &key) const {
+Beacon::Roe<void> Beacon::checkInitKeys(const InitKeyConfig& key) const {
   if (auto shape = chain_genesis::checkKeys(key); !shape) {
     return Error(2, shape.error().message);
   }
@@ -406,7 +389,7 @@ Beacon::Roe<void> Beacon::checkInitKeys(const InitKeyConfig &key) const {
   // Each signer must be a distinct genesis key: sign a probe and match it.
   const std::string probe = "pp-ledger/genesis-signer-probe/v1";
   std::set<size_t> matched;
-  for (const auto &privateKey : key.genesisSigners) {
+  for (const auto& privateKey : key.genesisSigners) {
     auto sig = utl::mlDsaSign(privateKey, probe);
     if (!sig) {
       return Error(2, "Invalid genesis signing key: " + sig.error().message);
@@ -424,8 +407,7 @@ Beacon::Roe<void> Beacon::checkInitKeys(const InitKeyConfig &key) const {
       return Error(2, "A genesis signing key does not match any genesis public key");
     }
   }
-  const size_t needed =
-      key.genesis.minSignatures != 0 ? key.genesis.minSignatures : key.genesis.publicKeys.size();
+  const size_t needed = key.genesis.minSignatures != 0 ? key.genesis.minSignatures : key.genesis.publicKeys.size();
   if (matched.size() < needed) {
     return Error(2, "Genesis needs " + std::to_string(needed) + " signing key(s) (--genesis-key), got " +
                         std::to_string(matched.size()));
@@ -433,10 +415,10 @@ Beacon::Roe<void> Beacon::checkInitKeys(const InitKeyConfig &key) const {
   return {};
 }
 
-Beacon::Roe<Ledger::ChainNode> Beacon::createImportingGenesisBlock(const Chain::BlockChainConfig &config,
-                                                                  const InitKeyConfig &key,
-                                                                  const Chain::ChainAuthority &authority,
-                                                                  const StateSnapshot &snapshot) {
+Beacon::Roe<Ledger::ChainNode> Beacon::createImportingGenesisBlock(const Chain::BlockChainConfig& config,
+                                                                   const InitKeyConfig& key,
+                                                                   const Chain::ChainAuthority& authority,
+                                                                   const StateSnapshot& snapshot) {
   log().info << "Creating an importing genesis block: " << snapshot.accounts.size() << " accounts of network '"
              << snapshot.predecessor.networkId << "' at block " << snapshot.predecessor.height;
   if (auto keysOk = checkInitKeys(key); !keysOk) {
@@ -458,7 +440,7 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createImportingGenesisBlock(const Chain::
   gm.hasImport = true;
   gm.import.predecessor = snapshot.predecessor;
   gm.import.accountCount = snapshot.accounts.size();
-  for (const auto &[id, keys] : {std::pair<uint64_t, const AccountKeys *>{AccountBuffer::ID_RESERVE, &key.reserve},
+  for (const auto& [id, keys] : {std::pair<uint64_t, const AccountKeys*>{AccountBuffer::ID_RESERVE, &key.reserve},
                                  {AccountBuffer::ID_REGISTRAR, &key.registrar},
                                  {AccountBuffer::ID_FEE, &key.fee},
                                  {AccountBuffer::ID_RECYCLE, &key.recycle}}) {
@@ -484,7 +466,7 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createImportingGenesisBlock(const Chain::
   return genesisBlock;
 }
 
-Beacon::Roe<void> Beacon::addImportBlocks(const StateSnapshot &snapshot, int64_t genesisTime, uint64_t maxBlockBytes) {
+Beacon::Roe<void> Beacon::addImportBlocks(const StateSnapshot& snapshot, int64_t genesisTime, uint64_t maxBlockBytes) {
   // Room for the records: the block's header fields around them (a few hundred bytes).
   constexpr uint64_t kHeaderRoom = 4096;
   const uint64_t budget = maxBlockBytes > kHeaderRoom ? maxBlockBytes - kHeaderRoom : 0;
@@ -499,12 +481,12 @@ Beacon::Roe<void> Beacon::addImportBlocks(const StateSnapshot &snapshot, int64_t
     records.clear();
     bytes = 0;
     if (auto sealed = chain_.sealBlock(block); !sealed) {
-      return Error(2, "Failed to seal import block " + std::to_string(block.block.index) + ": " +
-                          sealed.error().message);
+      return Error(2,
+                   "Failed to seal import block " + std::to_string(block.block.index) + ": " + sealed.error().message);
     }
     return addBlock(block);
   };
-  for (const auto &account : snapshot.accounts) {
+  for (const auto& account : snapshot.accounts) {
     Ledger::Record record = ImportTxHandler::makeRecord(account);
     const uint64_t size = utl::binaryPack(record).size();
     if (size > budget) {
@@ -528,11 +510,10 @@ Beacon::Roe<void> Beacon::addImportBlocks(const StateSnapshot &snapshot, int64_t
   return {};
 }
 
-Beacon::Roe<Ledger::ChainNode>
-Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
-                           const InitKeyConfig &key,
-                           const std::vector<GenesisMiner> &miners,
-                           const Chain::ChainAuthority &authority) {
+Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const Chain::BlockChainConfig& config,
+                                                          const InitKeyConfig& key,
+                                                          const std::vector<GenesisMiner>& miners,
+                                                          const Chain::ChainAuthority& authority) {
   // Roles of genesis block:
   // 1. Mark initial checkpoint with blockchain parameters
   // 2. Create the system accounts (fee, reserve, registrar, recycle)
@@ -551,7 +532,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   if (!records) {
     return Error(2, records.error().message);
   }
-  for (auto &record : records.value()) {
+  for (auto& record : records.value()) {
     if (auto signedRec = signWithGenesisKeys(record, key.genesisSigners, config.networkId, "genesis record");
         !signedRec) {
       return signedRec.error();
@@ -560,7 +541,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   return sealGenesisBlock(std::move(records.value()), config.genesisTime);
 }
 
-Beacon::Roe<Ledger::ChainNode> Beacon::createSignedGenesisBlock(const std::vector<Ledger::Record> &records) {
+Beacon::Roe<Ledger::ChainNode> Beacon::createSignedGenesisBlock(const std::vector<Ledger::Record>& records) {
   log().info << "Creating the genesis block signed offline (" << records.size() << " records)";
   if (records.empty()) {
     return Error(2, "The signed genesis has no records");
@@ -596,7 +577,7 @@ Beacon::Roe<void> Beacon::onRewound(uint64_t keptUpTo) {
   return dropSignedTipAbove(keptUpTo);
 }
 
-Beacon::Roe<void> Beacon::checkUnsignedLedger(const TipSigner &signer, bool acceptLedgerTip) const {
+Beacon::Roe<void> Beacon::checkUnsignedLedger(const TipSigner& signer, bool acceptLedgerTip) const {
   const auto authority = chain_.getAuthority();
   const uint64_t nextBlockId = getNextBlockId();
   if (nextBlockId <= 1 || droppedTipThisStart_ || !authority || !signer.holdsKey(authority->beacon.publicKey)) {

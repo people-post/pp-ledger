@@ -19,7 +19,7 @@ constexpr int64_t kGenesis = 1'700'000'000;
 constexpr uint64_t kSlotSeconds = 2;
 
 /** A record's key is in its data: "wallet:id"; "-" has none; "!" cannot be worked out. */
-chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>> keyOf(const Ledger::Record &record) {
+chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>> keyOf(const Ledger::Record& record) {
   if (record.data == "!") {
     return chain_tx::TxError(1, "undecodable record");
   }
@@ -47,7 +47,7 @@ protected:
     std::filesystem::remove_all(dir_, ec);
   }
 
-  Ledger &ledger() { return *ledger_; }
+  Ledger& ledger() { return *ledger_; }
 
   /** Append a block for `slot` (sealed as its slot ends) holding `records`. */
   void add(uint64_t slot, std::vector<std::string> records) {
@@ -55,7 +55,7 @@ protected:
     node.block.index = ledger().getNextBlockId();
     node.block.slot = slot;
     node.block.timestamp = consensus_.getSlotStartTime(slot) + static_cast<int64_t>(kSlotSeconds);
-    for (auto &data : records) {
+    for (auto& data : records) {
       Ledger::Record record;
       record.data = std::move(data);
       node.block.records.push_back(std::move(record));
@@ -65,7 +65,7 @@ protected:
   }
 
   /** Both scans over every query in a grid; returns how many found a duplicate. */
-  size_t expectSameAnswers(chain_tx::IdempotencyScanCache &cache, uint64_t maxSlot) {
+  size_t expectSameAnswers(chain_tx::IdempotencyScanCache& cache, uint64_t maxSlot) {
     size_t duplicates = 0;
     for (uint64_t wallet = 1; wallet <= 3; ++wallet) {
       for (uint64_t id = 1; id <= 6; ++id) {

@@ -25,15 +25,15 @@ public:
   /** Recovery delay when init-config omits `recovery.delayEpochs`: about 30 days (beacon-authority B007). */
   constexpr static const uint64_t DEFAULT_RECOVERY_DELAY_SECONDS = chain_genesis::defaults::kRecoveryDelaySeconds;
   /** Beacon signing key pair under the work dir (same format as `pp-client keygen -o`). */
-  constexpr static const char *FILE_BEACON_SIGNING_KEY = "keys/beacon-signing.key";
-  constexpr static const char *FILE_BEACON_SIGNING_PUB = "keys/beacon-signing.pub";
+  constexpr static const char* FILE_BEACON_SIGNING_KEY = "keys/beacon-signing.key";
+  constexpr static const char* FILE_BEACON_SIGNING_PUB = "keys/beacon-signing.pub";
   /** Optional: a key staged for a rotation; signs once a certificate names it. */
-  constexpr static const char *FILE_BEACON_SIGNING_NEXT_KEY = "keys/beacon-signing.next.key";
-  constexpr static const char *FILE_BEACON_SIGNING_NEXT_PUB = "keys/beacon-signing.next.pub";
+  constexpr static const char* FILE_BEACON_SIGNING_NEXT_KEY = "keys/beacon-signing.next.key";
+  constexpr static const char* FILE_BEACON_SIGNING_NEXT_PUB = "keys/beacon-signing.next.pub";
   /** The secret of the beacon's seed hash chain (hex, 32 bytes); its last link is the certificate's anchor. */
-  constexpr static const char *FILE_BEACON_SEED_SECRET = "keys/beacon-seed.secret";
+  constexpr static const char* FILE_BEACON_SEED_SECRET = "keys/beacon-seed.secret";
   /** Optional: the secret of a seed chain staged for a rotation; used once a certificate's anchor is its. */
-  constexpr static const char *FILE_BEACON_SEED_NEXT_SECRET = "keys/beacon-seed.next.secret";
+  constexpr static const char* FILE_BEACON_SEED_NEXT_SECRET = "keys/beacon-seed.next.secret";
 
   BeaconServer();
   ~BeaconServer() override = default;
@@ -64,9 +64,7 @@ public:
    */
   Roe<void> initSigned(const std::string& workDir, const std::string& operationPath, bool force = false);
 
-  Service::Roe<void> run(const std::string &workDir) override {
-    return Server::run(workDir);
-  }
+  Service::Roe<void> run(const std::string& workDir) override { return Server::run(workDir); }
 
   /**
    * pp-beacon --promote (beacon-authority bp3): this start turns a relay's work directory into the
@@ -92,7 +90,7 @@ public:
    * Tests: open `workDir` as a start does (the chain, the signing keys, the seed secrets) with no
    * config or network, the chain reading `clockSeconds` (none: the real clock).
    */
-  Roe<void> openForTest(const std::string &workDir, std::optional<int64_t> clockSeconds);
+  Roe<void> openForTest(const std::string& workDir, std::optional<int64_t> clockSeconds);
   /** Tests: what the pool holds for the slot leader. */
   std::vector<Ledger::Record> pooledForTest() const { return txPool_.pending(SIZE_MAX); }
 
@@ -101,9 +99,9 @@ protected:
   std::string getSignatureFileName() const override { return FILE_SIGNATURE; }
   std::string getLogFileName() const override { return FILE_LOG; }
   std::string getServerName() const override { return "BeaconServer"; }
-  void fillHealth(Client::NodeHealth &health) const override;
+  void fillHealth(Client::NodeHealth& health) const override;
   /** Writes only a beacon in charge takes (BLOCK_ADD, TX_PULL, REGISTER): refused once it stood down or halted. */
-  Roe<void> admit(const Client::Request &request) const override;
+  Roe<void> admit(const Client::Request& request) const override;
 
   void runLoop() override;
 
@@ -130,7 +128,8 @@ private:
   constexpr static const uint64_t DEFAULT_SLOT_DURATION = chain_genesis::defaults::kSlotDuration;
   constexpr static const uint64_t DEFAULT_SLOTS_PER_EPOCH = chain_genesis::defaults::kSlotsPerEpoch;
   constexpr static const uint64_t DEFAULT_MAX_CUSTOM_META_SIZE = chain_genesis::defaults::kMaxCustomMetaSize;
-  constexpr static const uint64_t DEFAULT_MAX_TRANSACTIONS_PER_BLOCK = chain_genesis::defaults::kMaxTransactionsPerBlock;
+  constexpr static const uint64_t DEFAULT_MAX_TRANSACTIONS_PER_BLOCK =
+      chain_genesis::defaults::kMaxTransactionsPerBlock;
   constexpr static const uint64_t DEFAULT_MAX_BLOCK_BYTES = chain_genesis::defaults::kMaxBlockBytes;
   constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_A = chain_genesis::defaults::kMinFeeCoefficients[0];
   constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_B = chain_genesis::defaults::kMinFeeCoefficients[1];
@@ -139,8 +138,10 @@ private:
 
   // Checkpoint configuration values
   constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_BLOCKS = chain_genesis::defaults::kCheckpointMinBlocks;
-  constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_AGE_SECONDS = chain_genesis::defaults::kCheckpointMinAgeSeconds;
-  constexpr static const uint64_t DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS = chain_genesis::defaults::kMaxValidationTimespanSeconds;
+  constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_AGE_SECONDS =
+      chain_genesis::defaults::kCheckpointMinAgeSeconds;
+  constexpr static const uint64_t DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS =
+      chain_genesis::defaults::kMaxValidationTimespanSeconds;
   /** Default miner due period when omitted: one day of slots. */
   constexpr static const uint64_t DEFAULT_MINER_DUE_SECONDS = chain_genesis::defaults::kMinerDueSeconds;
   constexpr static const uint64_t DEFAULT_MINER_MAX_MISSED_SLOTS = chain_genesis::defaults::kMinerMaxMissedSlots;
@@ -149,21 +150,19 @@ private:
 
   struct InitFileConfig {
     /** This chain's name; part of genesis (signatures and the epoch seed bind to it). */
-    std::string networkId{ "local-devnet" };
-    uint64_t slotDuration{ DEFAULT_SLOT_DURATION };
-    uint64_t slotsPerEpoch{ DEFAULT_SLOTS_PER_EPOCH };
-    uint64_t maxCustomMetaSize{ DEFAULT_MAX_CUSTOM_META_SIZE };
-    uint64_t maxTransactionsPerBlock{ DEFAULT_MAX_TRANSACTIONS_PER_BLOCK };
-    uint64_t maxBlockBytes{ DEFAULT_MAX_BLOCK_BYTES };
-    std::vector<uint16_t> minFeeCoefficients{ DEFAULT_MIN_FEE_COEFF_A,
-                                              DEFAULT_MIN_FEE_COEFF_B,
-                                              DEFAULT_MIN_FEE_COEFF_C };
-    uint64_t freeCustomMetaSize{ DEFAULT_FREE_CUSTOM_META_SIZE };
-    uint64_t checkpointMinBlocks{ DEFAULT_CHECKPOINT_MIN_BLOCKS };
-    uint64_t checkpointMinAgeSeconds{ DEFAULT_CHECKPOINT_MIN_AGE_SECONDS };
-    uint64_t maxValidationTimespanSeconds{ DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS };
+    std::string networkId{"local-devnet"};
+    uint64_t slotDuration{DEFAULT_SLOT_DURATION};
+    uint64_t slotsPerEpoch{DEFAULT_SLOTS_PER_EPOCH};
+    uint64_t maxCustomMetaSize{DEFAULT_MAX_CUSTOM_META_SIZE};
+    uint64_t maxTransactionsPerBlock{DEFAULT_MAX_TRANSACTIONS_PER_BLOCK};
+    uint64_t maxBlockBytes{DEFAULT_MAX_BLOCK_BYTES};
+    std::vector<uint16_t> minFeeCoefficients{DEFAULT_MIN_FEE_COEFF_A, DEFAULT_MIN_FEE_COEFF_B, DEFAULT_MIN_FEE_COEFF_C};
+    uint64_t freeCustomMetaSize{DEFAULT_FREE_CUSTOM_META_SIZE};
+    uint64_t checkpointMinBlocks{DEFAULT_CHECKPOINT_MIN_BLOCKS};
+    uint64_t checkpointMinAgeSeconds{DEFAULT_CHECKPOINT_MIN_AGE_SECONDS};
+    uint64_t maxValidationTimespanSeconds{DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS};
     /** Empty-seal lag; default (here and at parse time when omitted) = slotsPerEpoch. */
-    uint64_t heartbeatSlots{ DEFAULT_SLOTS_PER_EPOCH };
+    uint64_t heartbeatSlots{DEFAULT_SLOTS_PER_EPOCH};
     /** Genesis issuance cap per epoch (0 = none until a config update allows it). */
     uint64_t maxIssuancePerEpoch{0};
     /** Flat fee per account created after genesis (0 = none). */
@@ -172,11 +171,11 @@ private:
     uint64_t minerMinStake{0};
     uint64_t minerRegistrationFee{0};
     /** Default (here and at parse time when omitted): one day of slots. */
-    uint64_t minerDueAfterSlots{ (DEFAULT_MINER_DUE_SECONDS + DEFAULT_SLOT_DURATION - 1) / DEFAULT_SLOT_DURATION };
-    uint64_t minerMaxMissedSlots{ DEFAULT_MINER_MAX_MISSED_SLOTS };
+    uint64_t minerDueAfterSlots{(DEFAULT_MINER_DUE_SECONDS + DEFAULT_SLOT_DURATION - 1) / DEFAULT_SLOT_DURATION};
+    uint64_t minerMaxMissedSlots{DEFAULT_MINER_MAX_MISSED_SLOTS};
     uint64_t minerReregisterCooldownEpochs{0};
     /** Seconds of slot time before a block is final (FN001); default when omitted: a day. */
-    uint64_t finalitySeconds{ DEFAULT_FINALITY_SECONDS };
+    uint64_t finalitySeconds{DEFAULT_FINALITY_SECONDS};
     /**
      * Miner accounts created in the genesis block (`genesisMiners`): the only
      * stake at start, since system accounts never lead. Stake defaults to an
@@ -206,7 +205,7 @@ private:
   };
 
   struct NetworkConfig {
-    uint16_t udp_port{ Client::DEFAULT_BEACON_PORT };
+    uint16_t udp_port{Client::DEFAULT_BEACON_PORT};
   };
 
   struct Config {
@@ -232,7 +231,7 @@ private:
    * certificate held, with a cutover, names one of `keys` and the one in force none; block C held as
    * vouched.
    */
-  Roe<void> checkPromotion(const std::vector<utl::MlDsaKeyPair> &keys) const;
+  Roe<void> checkPromotion(const std::vector<utl::MlDsaKeyPair>& keys) const;
   /**
    * --promote: this host's clock against what the relay's upstreams and the certificate's gateways
    * answer to CALIBRATION (their median); refused beyond the delivery window. None answering: warned.
@@ -245,13 +244,13 @@ private:
    * A start, before tip signing opens: mount the chain under `workDir` and load the signing keys
    * (returned) and the seed secrets.
    */
-  Roe<std::vector<utl::MlDsaKeyPair>> openBeacon(const std::string &workDir);
+  Roe<std::vector<utl::MlDsaKeyPair>> openBeacon(const std::string& workDir);
 
   /**
    * Record (or renew) a miner. Stamped with the beacon's clock; the registry
    * version changes only when the list does, so renewals cost nothing.
    */
-  void registerServer(const Client::MinerInfo &minerInfo);
+  void registerServer(const Client::MinerInfo& minerInfo);
   /** Drop miners that have not renewed within MINER_RECORD_TTL. */
   void expireMinerRecords();
   Client::BeaconState buildStateResponse() const;
@@ -264,27 +263,27 @@ private:
   /** Why a write is refused while halted on equivocation evidence above `above` (ba6). */
   std::string haltedMessage(uint64_t above) const;
 
-  Roe<std::string> hBlockAdd(const Client::Request &request);
-  Roe<std::string> hStatus(const Client::Request &request);
-  Roe<std::string> hRegister(const Client::Request &request);
-  Roe<std::string> hMinerList(const Client::Request &request);
+  Roe<std::string> hBlockAdd(const Client::Request& request);
+  Roe<std::string> hStatus(const Client::Request& request);
+  Roe<std::string> hRegister(const Client::Request& request);
+  Roe<std::string> hMinerList(const Client::Request& request);
   /**
    * What every record the pool takes passes (load-resilience lr4): admission on the committed
    * state, then the pool's own limits. Signatures are checked here.
    */
-  Roe<TxPool::Add> admitToPool(const Ledger::Record &record);
+  Roe<TxPool::Add> admitToPool(const Ledger::Record& record);
   /** TX_ADD reached the top of the tree: hold it in the pool for the slot leader (E_POOL_FULL when it cannot). */
-  void dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply);
+  void dTxAdd(const Client::Request& request, const RequestQueue::Reply& reply);
   /** When a full pool asks a client to try again (LR007): the blocks it takes to drain, in slots. */
   uint32_t poolRetryAfterMs() const;
   /** EQUIVOCATION_ADD (ba6): keep the evidence if it verifies; the beacon halts on it. */
-  Roe<std::string> hEquivocationAdd(const Client::Request &request);
+  Roe<std::string> hEquivocationAdd(const Client::Request& request);
   /** A T_BEACON_CERT in a TX_ADD (ba5c): kept if it is the highest seen; refused if it is not above. */
-  Roe<void> offerCertificate(const Ledger::Record &record);
+  Roe<void> offerCertificate(const Ledger::Record& record);
   /** TX_PULL: pending transactions for the slot leader (through its relay). */
-  Roe<std::string> hTxPull(const Client::Request &request);
+  Roe<std::string> hTxPull(const Client::Request& request);
   /** After a commit: drop pooled records that can no longer apply (load-resilience lr4). */
-  void dropStalePoolRecords(const std::vector<Ledger::Record> &committed);
+  void dropStalePoolRecords(const std::vector<Ledger::Record>& committed);
 
   Config config_;
   Beacon beacon_;

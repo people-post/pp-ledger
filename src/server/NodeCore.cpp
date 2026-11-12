@@ -3,7 +3,7 @@
 
 namespace pp {
 
-NodeCore::NodeCore(const std::string &name) {
+NodeCore::NodeCore(const std::string& name) {
   redirectLogger(name);
   chain_.redirectLogger(log().getFullName() + ".Chain");
 }
@@ -49,7 +49,7 @@ NodeCore::Roe<Client::AuthorityProof> NodeCore::authorityProof(uint64_t upToBloc
   return proof.value();
 }
 
-NodeCore::Roe<Client::DomainProof> NodeCore::domainProof(const std::string &domain) const {
+NodeCore::Roe<Client::DomainProof> NodeCore::domainProof(const std::string& domain) const {
   auto result = chain_.domainProof(domain);
   if (!result) {
     return Error(result.error().code, result.error().message);
@@ -74,7 +74,7 @@ NodeCore::Roe<Client::ProducerStatsResponse> NodeCore::producerStats(uint64_t fr
 }
 
 NodeCore::Roe<std::vector<Ledger::Record>> NodeCore::findTransactionsByWalletId(uint64_t walletId,
-                                                                                uint64_t &ioBlockId) const {
+                                                                                uint64_t& ioBlockId) const {
   auto result = chain_.findTransactionsByWalletId(walletId, ioBlockId);
   if (!result) {
     return Error(result.error().code, result.error().message);
@@ -90,8 +90,8 @@ NodeCore::Roe<Ledger::Record> NodeCore::findTransactionByIndex(uint64_t txIndex)
   return result.value();
 }
 
-NodeCore::Roe<void> NodeCore::verifyAccountSignatures(uint64_t accountId, const std::string &message,
-                                                      const std::vector<std::string> &signatures) const {
+NodeCore::Roe<void> NodeCore::verifyAccountSignatures(uint64_t accountId, const std::string& message,
+                                                      const std::vector<std::string>& signatures) const {
   auto verified = chain_.verifyAccountSignatures(accountId, message, signatures);
   if (!verified) {
     return Error(verified.error().code, verified.error().message);
@@ -99,7 +99,7 @@ NodeCore::Roe<void> NodeCore::verifyAccountSignatures(uint64_t accountId, const 
   return {};
 }
 
-NodeCore::Roe<void> NodeCore::checkAdmission(const Ledger::Record &record, int64_t nowSec,
+NodeCore::Roe<void> NodeCore::checkAdmission(const Ledger::Record& record, int64_t nowSec,
                                              bool verifySignatures) const {
   auto checked = chain_.checkAdmission(record, nowSec, verifySignatures);
   if (!checked) {
@@ -118,10 +118,9 @@ NodeCore::Roe<void> NodeCore::applyPendingRewind() {
   if (!applied) {
     return Error(E_OPEN, "Failed to apply the pending rewind: " + applied.error().message);
   }
-  if (const auto &order = applied.value()) {
-    log().error << "Rewound: kept blocks up to " << order->keptUpTo << ", dropped " << order->keptUpTo + 1
-                << " to " << order->droppedUpTo << " (past the cutover of beacon generation " << order->generation
-                << ")";
+  if (const auto& order = applied.value()) {
+    log().error << "Rewound: kept blocks up to " << order->keptUpTo << ", dropped " << order->keptUpTo + 1 << " to "
+                << order->droppedUpTo << " (past the cutover of beacon generation " << order->generation << ")";
     if (auto handled = onRewound(order->keptUpTo); !handled) {
       return handled;
     }
@@ -134,7 +133,9 @@ NodeCore::Roe<void> NodeCore::applyPendingRewind() {
   return {};
 }
 
-NodeCore::Roe<void> NodeCore::onRewound(uint64_t /*keptUpTo*/) { return {}; }
+NodeCore::Roe<void> NodeCore::onRewound(uint64_t /*keptUpTo*/) {
+  return {};
+}
 
 std::optional<uint64_t> NodeCore::getFinalizedHeight() const {
   auto finalized = chain_.finalizedHeight();
@@ -146,41 +147,40 @@ NodeCore::Roe<bool> NodeCore::scheduleRewind(uint64_t approvedGeneration) {
   if (!scheduled) {
     return Error(E_OPEN, "Failed to write the rewind order: " + scheduled.error().message);
   }
-  const auto &order = scheduled.value().order;
+  const auto& order = scheduled.value().order;
   switch (scheduled.value().kind) {
-  case rewind::Scheduled::Kind::None:
-    return false;
-  case rewind::Scheduled::Kind::HeldBack:
-    if (heldBackGeneration_ != order->generation) {
-      heldBackGeneration_ = order->generation;
-      const auto &depth = scheduled.value().depthSeconds;
-      const auto finalized = getFinalizedHeight();
-      log().error << "Not rewinding on its own: beacon generation " << order->generation << " orders a cut to block "
-                  << order->keptUpTo << ", "
-                  << (depth ? std::to_string(*depth / 3600) + " h" : std::string("an unknown time"))
-                  << " of slots back — below the finalized height "
-                  << (finalized ? std::to_string(*finalized) : std::string("(unknown)"))
-                  << ": it would undo final blocks (a node never does that unattended). Check the certificate; "
-                  << "to apply it — an emergency, reported to every client — restart with --approve-rewind "
-                  << order->generation;
-    }
-    return false;
-  case rewind::Scheduled::Kind::Forked:
-    if (heldBackGeneration_ != order->generation) {
-      heldBackGeneration_ = order->generation;
-      log().error << "Not rewinding: beacon generation " << order->generation << " vouches for another block "
-                  << order->keptUpTo << " than this node holds — its history forked at or below it, or the "
-                  << "certificate names the wrong block. Its tips past the cutover are refused; an operator "
-                  << "must look";
-    }
-    return false;
-  case rewind::Scheduled::Kind::Ordered:
-    break;
+    case rewind::Scheduled::Kind::None:
+      return false;
+    case rewind::Scheduled::Kind::HeldBack:
+      if (heldBackGeneration_ != order->generation) {
+        heldBackGeneration_ = order->generation;
+        const auto& depth = scheduled.value().depthSeconds;
+        const auto finalized = getFinalizedHeight();
+        log().error << "Not rewinding on its own: beacon generation " << order->generation << " orders a cut to block "
+                    << order->keptUpTo << ", "
+                    << (depth ? std::to_string(*depth / 3600) + " h" : std::string("an unknown time"))
+                    << " of slots back — below the finalized height "
+                    << (finalized ? std::to_string(*finalized) : std::string("(unknown)"))
+                    << ": it would undo final blocks (a node never does that unattended). Check the certificate; "
+                    << "to apply it — an emergency, reported to every client — restart with --approve-rewind "
+                    << order->generation;
+      }
+      return false;
+    case rewind::Scheduled::Kind::Forked:
+      if (heldBackGeneration_ != order->generation) {
+        heldBackGeneration_ = order->generation;
+        log().error << "Not rewinding: beacon generation " << order->generation << " vouches for another block "
+                    << order->keptUpTo << " than this node holds — its history forked at or below it, or the "
+                    << "certificate names the wrong block. Its tips past the cutover are refused; an operator "
+                    << "must look";
+      }
+      return false;
+    case rewind::Scheduled::Kind::Ordered:
+      break;
   }
   log().error << "Rewinding to block " << order->keptUpTo << ": blocks " << order->keptUpTo + 1 << " to "
               << order->droppedUpTo << " are past the cutover of beacon generation " << order->generation
-              << (order->crossedFinality ? " — approved past finality: final blocks are undone" : "")
-              << "; restarting";
+              << (order->crossedFinality ? " — approved past finality: final blocks are undone" : "") << "; restarting";
   return true;
 }
 

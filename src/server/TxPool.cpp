@@ -11,13 +11,13 @@ namespace pp {
 namespace {
 
 /** The transaction's own validity end, if it has one (TxIdempotencyWindow). */
-int64_t validUntil(const Ledger::Record &record) {
+int64_t validUntil(const Ledger::Record& record) {
   auto typed = record.decode();
   if (!typed) {
     return 0;
   }
   return std::visit(
-      [](const auto &tx) -> int64_t {
+      [](const auto& tx) -> int64_t {
         using T = std::decay_t<decltype(tx)>;
         if constexpr (std::is_base_of_v<Ledger::TxIdempotencyWindow, T>) {
           return tx.validationTsMax;
@@ -30,16 +30,18 @@ int64_t validUntil(const Ledger::Record &record) {
 
 } // namespace
 
-std::string TxPool::keyOf(const Ledger::Record &record) { return utl::sha256Raw(utl::binaryPack(record)); }
+std::string TxPool::keyOf(const Ledger::Record& record) {
+  return utl::sha256Raw(utl::binaryPack(record));
+}
 
-TxPool::Add TxPool::add(const Ledger::Record &record, int64_t nowSec, std::optional<uint64_t> sender) {
+TxPool::Add TxPool::add(const Ledger::Record& record, int64_t nowSec, std::optional<uint64_t> sender) {
   std::string key = keyOf(record);
   if (byKey_.contains(key)) {
     ++counters_.duplicates;
     return Add::Duplicate;
   }
   size_t bytes = record.data.size();
-  for (const auto &sig : record.signatures) {
+  for (const auto& sig : record.signatures) {
     bytes += sig.size();
   }
   if (byOrder_.size() >= limits_.maxRecords || bytes_ + bytes > limits_.maxBytes) {
@@ -54,8 +56,8 @@ TxPool::Add TxPool::add(const Ledger::Record &record, int64_t nowSec, std::optio
   const int64_t ttlEnd = nowSec + limits_.ttlSeconds;
   const uint64_t seq = nextSeq_++;
   byKey_.emplace(key, seq);
-  byOrder_.emplace(seq, Entry{record, std::move(key), bytes, nowSec,
-                              windowEnd > 0 ? std::min(windowEnd, ttlEnd) : ttlEnd, sender});
+  byOrder_.emplace(
+      seq, Entry{record, std::move(key), bytes, nowSec, windowEnd > 0 ? std::min(windowEnd, ttlEnd) : ttlEnd, sender});
   if (sender) {
     ++bySender_[*sender];
   }
@@ -85,7 +87,7 @@ void TxPool::erase(uint64_t seq) {
   }
   bytes_ -= it->second.bytes;
   byKey_.erase(it->second.key);
-  if (const auto &sender = it->second.sender) {
+  if (const auto& sender = it->second.sender) {
     if (auto s = bySender_.find(*sender); s != bySender_.end() && --s->second == 0) {
       bySender_.erase(s);
     }
@@ -93,8 +95,8 @@ void TxPool::erase(uint64_t seq) {
   byOrder_.erase(it);
 }
 
-void TxPool::removeIncluded(const std::vector<Ledger::Record> &records) {
-  for (const auto &record : records) {
+void TxPool::removeIncluded(const std::vector<Ledger::Record>& records) {
+  for (const auto& record : records) {
     if (auto it = byKey_.find(keyOf(record)); it != byKey_.end()) {
       erase(it->second);
       ++counters_.included;
@@ -104,7 +106,7 @@ void TxPool::removeIncluded(const std::vector<Ledger::Record> &records) {
 
 size_t TxPool::expire(int64_t nowSec) {
   std::vector<uint64_t> expired;
-  for (const auto &[seq, entry] : byOrder_) {
+  for (const auto& [seq, entry] : byOrder_) {
     if (nowSec > entry.expiresAt) {
       expired.push_back(seq);
     }
@@ -116,9 +118,9 @@ size_t TxPool::expire(int64_t nowSec) {
   return expired.size();
 }
 
-size_t TxPool::removeIf(const std::function<bool(const Ledger::Record &)> &drop) {
+size_t TxPool::removeIf(const std::function<bool(const Ledger::Record&)>& drop) {
   std::vector<uint64_t> doomed;
-  for (const auto &[seq, entry] : byOrder_) {
+  for (const auto& [seq, entry] : byOrder_) {
     if (drop(entry.record)) {
       doomed.push_back(seq);
     }

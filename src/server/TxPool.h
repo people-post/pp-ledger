@@ -50,15 +50,15 @@ public:
   explicit TxPool(Limits limits) : limits_(limits) {}
 
   /** `sender`: the payer it counts against (maxPerSender); none for records without one. */
-  Add add(const Ledger::Record &record, int64_t nowSec, std::optional<uint64_t> sender = std::nullopt);
+  Add add(const Ledger::Record& record, int64_t nowSec, std::optional<uint64_t> sender = std::nullopt);
   /** Oldest first, at most `max` records and `maxBytes` packed (stops at the first that would pass). */
   std::vector<Ledger::Record> pending(size_t max, size_t maxBytes = SIZE_MAX) const;
   /** Drop records a committed block included. */
-  void removeIncluded(const std::vector<Ledger::Record> &records);
+  void removeIncluded(const std::vector<Ledger::Record>& records);
   /** Drop records past their validity window (or TTL); returns how many. */
   size_t expire(int64_t nowSec);
   /** Drop the records `drop` names (they can no longer apply); returns how many. */
-  size_t removeIf(const std::function<bool(const Ledger::Record &)> &drop);
+  size_t removeIf(const std::function<bool(const Ledger::Record&)>& drop);
   /** Records `sender` has pooled. */
   size_t pooledBy(uint64_t sender) const;
 
@@ -66,7 +66,7 @@ public:
   size_t bytes() const { return bytes_; }
   /** Seconds the oldest record has waited; none when empty. */
   std::optional<int64_t> oldestAgeSeconds(int64_t nowSec) const;
-  const Counters &counters() const { return counters_; }
+  const Counters& counters() const { return counters_; }
 
 private:
   struct Entry {
@@ -77,7 +77,7 @@ private:
     int64_t expiresAt{0};
     std::optional<uint64_t> sender;
   };
-  static std::string keyOf(const Ledger::Record &record);
+  static std::string keyOf(const Ledger::Record& record);
   void erase(uint64_t seq);
 
   Limits limits_;

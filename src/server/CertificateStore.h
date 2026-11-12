@@ -27,11 +27,12 @@ public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
   };
-  template <typename T> using Roe = ResultOrError<T, Error>;
+  template <typename T>
+  using Roe = ResultOrError<T, Error>;
 
   static constexpr const int32_t E_IO = 1;
 
-  CertificateStore(Chain &chain, std::string path);
+  CertificateStore(Chain& chain, std::string path);
 
   /**
    * After mount: offer the stored certificate to the chain again. The file is removed when the
@@ -40,13 +41,13 @@ public:
   Roe<void> load();
 
   /** Offer `record` to the chain; persist it when kept. */
-  Roe<Chain::CertificateOffer> offer(const Ledger::Record &record);
+  Roe<Chain::CertificateOffer> offer(const Ledger::Record& record);
 
   /**
    * offer() a certificate a peer serves or submits (`from`): a refusal is logged, once per record
    * (STATUS repeats it). None when refused.
    */
-  std::optional<Chain::CertificateOffer> note(const Ledger::Record &record, const std::string &from);
+  std::optional<Chain::CertificateOffer> note(const Ledger::Record& record, const std::string& from);
 
   /** A stored certificate the chain could not take yet (no blocks): offer it again. */
   void retryPending();
@@ -59,11 +60,11 @@ public:
 
 private:
   /** Offer the stored record; remove the file when the chain will never keep it. */
-  void offerStored(const Ledger::Record &record);
-  Roe<void> persist(const Ledger::Record &record);
+  void offerStored(const Ledger::Record& record);
+  Roe<void> persist(const Ledger::Record& record);
   void remove();
 
-  Chain &chain_;
+  Chain& chain_;
   std::string path_;
   std::optional<Ledger::Record> pending_;
   /** The file holds a certificate (it may be removed). */

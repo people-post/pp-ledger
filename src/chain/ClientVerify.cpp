@@ -10,11 +10,13 @@ namespace pp::verify {
 
 namespace {
 
-chain_tx::TxError refused(const std::string &message) { return chain_tx::TxError(chain_err::E_TX_VALIDATION, message); }
+chain_tx::TxError refused(const std::string& message) {
+  return chain_tx::TxError(chain_err::E_TX_VALIDATION, message);
+}
 
 } // namespace
 
-chain_tx::Roe<void> checkGenesis(const Ledger::ChainNode &genesis, const std::string &genesisHash) {
+chain_tx::Roe<void> checkGenesis(const Ledger::ChainNode& genesis, const std::string& genesisHash) {
   if (genesis.block.index != 0) {
     return refused("Not block 0");
   }
@@ -24,8 +26,8 @@ chain_tx::Roe<void> checkGenesis(const Ledger::ChainNode &genesis, const std::st
   return {};
 }
 
-chain_tx::Roe<AuthorityTrail> authorityAt(const Ledger::ChainNode &genesis, const std::string &genesisHash,
-                                          const Client::AuthorityProof &proof, uint64_t upToBlockId,
+chain_tx::Roe<AuthorityTrail> authorityAt(const Ledger::ChainNode& genesis, const std::string& genesisHash,
+                                          const Client::AuthorityProof& proof, uint64_t upToBlockId,
                                           uint64_t upToEpoch) {
   if (auto ok = checkGenesis(genesis, genesisHash); !ok) {
     return ok.error();
@@ -33,7 +35,7 @@ chain_tx::Roe<AuthorityTrail> authorityAt(const Ledger::ChainNode &genesis, cons
   return AuthorityTrail::replayProof(genesis.block, proof, upToBlockId, upToEpoch);
 }
 
-chain_tx::Roe<void> checkBlocksUnderTip(const Client::SignedTip &tip, const std::vector<Ledger::ChainNode> &blocks) {
+chain_tx::Roe<void> checkBlocksUnderTip(const Client::SignedTip& tip, const std::vector<Ledger::ChainNode>& blocks) {
   if (blocks.empty()) {
     return refused("No blocks to check");
   }
@@ -41,12 +43,12 @@ chain_tx::Roe<void> checkBlocksUnderTip(const Client::SignedTip &tip, const std:
     return refused("The first block is not the signed tip's");
   }
   for (size_t i = 0; i < blocks.size(); ++i) {
-    const auto &node = blocks[i];
+    const auto& node = blocks[i];
     if (chain_block::calculateBlockHash(node.block) != node.hash) {
       return refused("Block " + std::to_string(node.block.index) + " does not hash to its hash");
     }
     if (i + 1 < blocks.size()) {
-      const auto &below = blocks[i + 1];
+      const auto& below = blocks[i + 1];
       if (below.block.index + 1 != node.block.index || node.block.previousHash != below.hash) {
         return refused("Block " + std::to_string(below.block.index) + " is not the one below block " +
                        std::to_string(node.block.index));
@@ -59,7 +61,7 @@ chain_tx::Roe<void> checkBlocksUnderTip(const Client::SignedTip &tip, const std:
 namespace {
 
 /** A proof's path: the siblings carried, the empty subtree's where the mask leaves them out. */
-chain_tx::Roe<std::vector<std::string>> unpackPath(uint64_t mask, const std::vector<std::string> &carried) {
+chain_tx::Roe<std::vector<std::string>> unpackPath(uint64_t mask, const std::vector<std::string>& carried) {
   std::vector<std::string> siblings(AccountStateTree::kDepth);
   size_t next = 0;
   for (int h = 0; h < AccountStateTree::kDepth; ++h) {
@@ -80,11 +82,10 @@ chain_tx::Roe<std::vector<std::string>> unpackPath(uint64_t mask, const std::vec
 
 } // namespace
 
-chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block &block, const Client::AccountProof &proof,
+chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block& block, const Client::AccountProof& proof,
                                                uint64_t accountId) {
   if (proof.accountId != accountId) {
-    return refused("The proof is of account " + std::to_string(proof.accountId) + ", not " +
-                   std::to_string(accountId));
+    return refused("The proof is of account " + std::to_string(proof.accountId) + ", not " + std::to_string(accountId));
   }
   if (proof.blockId != block.index || proof.stateRoot != block.stateRoot) {
     return refused("The proof is of another block");
@@ -119,8 +120,8 @@ chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block &block, const
   return out;
 }
 
-chain_tx::Roe<ProvenDomain> checkDomainProof(const Ledger::Block &block, const Client::DomainProof &proof,
-                                             const std::string &domain) {
+chain_tx::Roe<ProvenDomain> checkDomainProof(const Ledger::Block& block, const Client::DomainProof& proof,
+                                             const std::string& domain) {
   if (proof.domain != domain) {
     return refused("The proof is of domain " + proof.domain + ", not " + domain);
   }

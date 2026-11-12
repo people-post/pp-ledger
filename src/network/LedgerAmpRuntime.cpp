@@ -8,7 +8,9 @@
 namespace pp {
 namespace network {
 
-LedgerAmpRuntime::~LedgerAmpRuntime() { Stop(); }
+LedgerAmpRuntime::~LedgerAmpRuntime() {
+  Stop();
+}
 
 pp::Roe<void> LedgerAmpRuntime::Start(LedgerAmpConfig config) {
   auto clock = std::make_shared<pp::adp::WallClock>();
@@ -107,7 +109,9 @@ std::optional<pp::adp::DatagramIoStats> LedgerAmpRuntime::socketStats() const {
   return io ? io->Stats() : std::nullopt;
 }
 
-pp::amp::MeshRuntime& LedgerAmpRuntime::runtime() { return stack_->Runtime(); }
+pp::amp::MeshRuntime& LedgerAmpRuntime::runtime() {
+  return stack_->Runtime();
+}
 
 void LedgerAmpRuntime::post(IoTask task) {
   std::shared_ptr<pp::SerialExecutor> lane;

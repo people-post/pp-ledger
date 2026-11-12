@@ -27,20 +27,21 @@ public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
   };
-  template <typename T> using Roe = ResultOrError<T, Error>;
+  template <typename T>
+  using Roe = ResultOrError<T, Error>;
 
   static constexpr const int32_t E_IO = 1;
 
-  EquivocationStore(Chain &chain, std::string path);
+  EquivocationStore(Chain& chain, std::string path);
 
   /** After mount: offer the stored evidence to the chain again (removed if superseded). */
   Roe<void> load();
 
   /** Offer `evidence` to the chain; persist it when kept. */
-  Roe<Chain::EquivocationOffer> offer(const Client::Equivocation &evidence);
+  Roe<Chain::EquivocationOffer> offer(const Client::Equivocation& evidence);
 
   /** offer() evidence a peer serves or pushes (`from`): a refusal is logged once. None when refused. */
-  std::optional<Chain::EquivocationOffer> note(const Client::Equivocation &evidence, const std::string &from);
+  std::optional<Chain::EquivocationOffer> note(const Client::Equivocation& evidence, const std::string& from);
 
   /** Stored evidence the chain could not take yet (no blocks): offer it again. */
   void retryPending();
@@ -49,10 +50,10 @@ public:
   void refresh();
 
 private:
-  void offerStored(const Client::Equivocation &evidence);
+  void offerStored(const Client::Equivocation& evidence);
   void remove();
 
-  Chain &chain_;
+  Chain& chain_;
   std::string path_;
   bool stored_{false};
   std::optional<Client::Equivocation> pending_;

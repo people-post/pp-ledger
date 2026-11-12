@@ -11,57 +11,49 @@
 
 namespace pp {
 
-chain_tx::Roe<void>
-UserAccountUpsertBase::applyUserUpdateBlockCommon(
-    const Ledger::TxUserUpdate &tx, AccountBuffer &bank,
-    const BlockApplyContext &c, UpsertKind kind) const {
+chain_tx::Roe<void> UserAccountUpsertBase::applyUserUpdateBlockCommon(const Ledger::TxUserUpdate& tx,
+                                                                      AccountBuffer& bank, const BlockApplyContext& c,
+                                                                      UpsertKind kind) const {
   // User-signed updates must carry a non-zero id (0 would skip replay
   // protection). Chain-generated renewals: their id is always 0 and
   // validateAccountRenewals bounds them per block instead.
-  if (auto idem = validateIdempotencyUsingContext(
-          c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin,
-          tx.validationTsMax, c.blockSlot, c.admissionMode, kind == UpsertKind::Update);
+  if (auto idem =
+          validateIdempotencyUsingContext(c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin, tx.validationTsMax,
+                                          c.blockSlot, c.admissionMode, kind == UpsertKind::Update);
       !idem) {
     return idem;
   }
-  return applyUserAccountUpsert(tx, c.ctx, bank, c.blockId, false,
-                                c.admissionMode, kind);
+  return applyUserAccountUpsert(tx, c.ctx, bank, c.blockId, false, c.admissionMode, kind);
 }
 
-chain_tx::Roe<void>
-UserAccountUpsertBase::applyUserUpdateBufferCommon(
-    const Ledger::TxUserUpdate &tx, AccountBuffer &bank,
-    const BufferApplyContext &c, UpsertKind kind) const {
-  if (auto idem = validateIdempotencyUsingContext(
-          c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin,
-          tx.validationTsMax, c.effectiveSlot, c.admissionMode,
-          kind == UpsertKind::Update);
+chain_tx::Roe<void> UserAccountUpsertBase::applyUserUpdateBufferCommon(const Ledger::TxUserUpdate& tx,
+                                                                       AccountBuffer& bank, const BufferApplyContext& c,
+                                                                       UpsertKind kind) const {
+  if (auto idem =
+          validateIdempotencyUsingContext(c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin, tx.validationTsMax,
+                                          c.effectiveSlot, c.admissionMode, kind == UpsertKind::Update);
       !idem) {
     return idem;
   }
 
-  if (auto seeded =
-          chain_tx::seedCommittedAccount(bank, c.ctx.bank, tx.walletId);
-      !seeded) {
+  if (auto seeded = chain_tx::seedCommittedAccount(bank, c.ctx.bank, tx.walletId); !seeded) {
     return seeded;
   }
   if (tx.walletId != AccountBuffer::ID_FEE) {
-    if (auto seeded =
-            chain_tx::seedFeeAccountIfNeeded(bank, c.ctx.bank, tx.fee);
-        !seeded) {
+    if (auto seeded = chain_tx::seedFeeAccountIfNeeded(bank, c.ctx.bank, tx.fee); !seeded) {
       return seeded;
     }
   }
 
   // Preserve existing semantics: buffer-path user-update applies in Full mode.
-  return applyUserAccountUpsert(tx, c.ctx, bank, c.blockId, true,
-                                chain_block::BlockAdmissionMode::Full, kind);
+  return applyUserAccountUpsert(tx, c.ctx, bank, c.blockId, true, chain_block::BlockAdmissionMode::Full, kind);
 }
 
-chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
-    const Ledger::TxUserUpdate &tx, const TxContext &ctx, AccountBuffer &bank,
-    uint64_t blockId, bool isBufferMode,
-    chain_block::BlockAdmissionMode admissionMode, UpsertKind kind) const {
+chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(const Ledger::TxUserUpdate& tx, const TxContext& ctx,
+                                                                  AccountBuffer& bank, uint64_t blockId,
+                                                                  bool isBufferMode,
+                                                                  chain_block::BlockAdmissionMode admissionMode,
+                                                                  UpsertKind kind) const {
   if (kind == UpsertKind::SystemRenewal) {
     if (tx.fee != 0) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
@@ -90,23 +82,20 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
                                                              " cannot pay its renewal fee (it is ended instead)");
     }
   } else if (chain_block::admissionTxStrict(admissionMode)) {
-    if (auto feeGate = chain_tx::requireMinimumFee(
-            ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,
-            Ledger::TypedTx(tx), tx.fee,
-            "Chain config required for Full-mode user-update fee validation",
-            "User update transaction fee below minimum: ");
+    if (auto feeGate =
+            chain_tx::requireMinimumFee(ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee, Ledger::TypedTx(tx),
+                                        tx.fee, "Chain config required for Full-mode user-update fee validation",
+                                        "User update transaction fee below minimum: ");
         !feeGate) {
       return feeGate;
     }
   }
 
-  const std::string deserializeError =
-      "Failed to deserialize user meta for account " +
-      std::to_string(tx.walletId) + ": " + std::to_string(tx.meta.size()) +
-      " bytes";
+  const std::string deserializeError = "Failed to deserialize user meta for account " + std::to_string(tx.walletId) +
+                                       ": " + std::to_string(tx.meta.size()) + " bytes";
   auto userAccountRoe = chain_tx::loadAndValidateUserAccountMeta(
-      tx.meta, ctx.crypto, bank, isBufferMode ? &ctx.bank : nullptr,
-      tx.walletId, deserializeError, chain_block::admissionTxStrict(admissionMode));
+      tx.meta, ctx.crypto, bank, isBufferMode ? &ctx.bank : nullptr, tx.walletId, deserializeError,
+      chain_block::admissionTxStrict(admissionMode));
   if (!userAccountRoe) {
     return userAccountRoe.error();
   }
@@ -116,15 +105,14 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
   if (!bufferAccountResult) {
     if (chain_block::admissionTxStrict(admissionMode)) {
       return chain_tx::TxError(chain_err::E_ACCOUNT_NOT_FOUND,
-                               "User account not found in buffer: " +
-                                   std::to_string(tx.walletId));
+                               "User account not found in buffer: " + std::to_string(tx.walletId));
     }
   } else if (kind == UpsertKind::Update) {
     // The balances are the chain's: they move while the account's holders sign (transfers in,
     // renewals, its own issuing). An update replaces the keys, key type and meta; the fee comes out
     // of the native balance held now. The balances it carries are not used.
     auto balances = bufferAccountResult.value().wallet.mBalances;
-    int64_t &native = balances[AccountBuffer::ID_GENESIS];
+    int64_t& native = balances[AccountBuffer::ID_GENESIS];
     if (native < 0 || static_cast<uint64_t>(native) < tx.fee) {
       return chain_tx::TxError(chain_err::E_TX_TRANSFER,
                                "Account " + std::to_string(tx.walletId) + " cannot pay the update's fee");
@@ -132,11 +120,9 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
     native -= static_cast<int64_t>(tx.fee);
     userAccount.wallet.mBalances = std::move(balances);
   } else {
-    auto balanceVerifyResult = bank.verifyBalance(
-        tx.walletId, 0, tx.fee, userAccount.wallet.mBalances);
+    auto balanceVerifyResult = bank.verifyBalance(tx.walletId, 0, tx.fee, userAccount.wallet.mBalances);
     if (!balanceVerifyResult) {
-      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                               balanceVerifyResult.error().message);
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION, balanceVerifyResult.error().message);
     }
   }
   if (bufferAccountResult) {
@@ -154,17 +140,17 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
     // Recovery (projects/account-recovery): the recovery set stands above the account's keys. They
     // name the first one; after that only the set changes itself (T_ACCOUNT_RECOVERY), and every
     // update or renewal carries the recovery as the chain holds it.
-    const Client::AccountRecovery &held = bufferAccountResult.value().wallet.recovery;
+    const Client::AccountRecovery& held = bufferAccountResult.value().wallet.recovery;
     if (kind == UpsertKind::Update && !held.hasSet()) {
       if (auto valid = chain_tx::validateRecoverySet(userAccount.wallet.recovery, tx.walletId, ctx.optChainConfig);
           !valid) {
         return valid;
       }
     } else if (userAccount.wallet.recovery != held) {
-      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                               std::string(kind == UpsertKind::Update ? "Only its recovery set changes"
-                                                                      : "Renewal cannot change") +
-                                   " the recovery of account " + std::to_string(tx.walletId));
+      return chain_tx::TxError(
+          chain_err::E_TX_VALIDATION,
+          std::string(kind == UpsertKind::Update ? "Only its recovery set changes" : "Renewal cannot change") +
+              " the recovery of account " + std::to_string(tx.walletId));
     }
     if (kind != UpsertKind::Update && chain_block::admissionTxStrict(admissionMode)) {
       if (auto kept = checkRenewalKeepsAccount(userAccount, bufferAccountResult.value()); !kept) {
@@ -173,19 +159,17 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
     }
   }
 
-  if (auto replaced = chain_tx::replaceAccount(
-          bank, tx.walletId, blockId, userAccount.wallet, userAccount.meta,
-          "Failed to add user account to buffer: ");
+  if (auto replaced = chain_tx::replaceAccount(bank, tx.walletId, blockId, userAccount.wallet, userAccount.meta,
+                                               "Failed to add user account to buffer: ");
       !replaced) {
     return replaced;
   }
 
-  return chain_tx::creditFeeToFeeAccount(
-      bank, tx.fee, "Failed to credit fee to fee account: ");
+  return chain_tx::creditFeeToFeeAccount(bank, tx.fee, "Failed to credit fee to fee account: ");
 }
 
-chain_tx::Roe<void> UserAccountUpsertBase::checkRenewalKeepsAccount(const Client::UserAccount &carried,
-                                                                    const AccountBuffer::Account &held) const {
+chain_tx::Roe<void> UserAccountUpsertBase::checkRenewalKeepsAccount(const Client::UserAccount& carried,
+                                                                    const AccountBuffer::Account& held) const {
   // The slot leader signs renewals: it may re-record an account, never choose any of it — every
   // wallet field (the balances are verifyBalance's) and the meta.
   const std::string who = std::to_string(held.id);

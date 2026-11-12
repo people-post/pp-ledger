@@ -26,7 +26,8 @@ public:
     using RoeErrorBase::RoeErrorBase;
   };
 
-  template <typename T> using Roe = ResultOrError<T, Error>;
+  template <typename T>
+  using Roe = ResultOrError<T, Error>;
 
   explicit VRF();
   ~VRF() override = default;
@@ -35,8 +36,7 @@ public:
     std::string value; // VRF output value
     std::string proof; // Proof of correctness
 
-    VRFOutput(const std::string &val, const std::string &prf)
-        : value(val), proof(prf) {}
+    VRFOutput(const std::string& val, const std::string& prf) : value(val), proof(prf) {}
   };
 
   /**
@@ -46,8 +46,7 @@ public:
    * @param privateKey Stakeholder's private key (simplified as string)
    * @return VRF output and proof
    */
-  Roe<VRFOutput> evaluate(const std::string &seed, uint64_t slot,
-                          const std::string &privateKey) const;
+  Roe<VRFOutput> evaluate(const std::string& seed, uint64_t slot, const std::string& privateKey) const;
 
   /**
    * Verify VRF proof
@@ -58,9 +57,8 @@ public:
    * @param publicKey Stakeholder's public key (simplified as string)
    * @return True if proof is valid
    */
-  Roe<bool> verify(const std::string &output, const std::string &proof,
-                   const std::string &seed, uint64_t slot,
-                   const std::string &publicKey) const;
+  Roe<bool> verify(const std::string& output, const std::string& proof, const std::string& seed, uint64_t slot,
+                   const std::string& publicKey) const;
 
   /**
    * Check if VRF output wins slot leadership
@@ -70,13 +68,12 @@ public:
    * @param difficulty Difficulty parameter (lower = harder to win)
    * @return True if stakeholder wins the slot
    */
-  bool checkLeadership(const std::string &vrfOutput, uint64_t stake,
-                       uint64_t totalStake, double difficulty = 0.05) const;
+  bool checkLeadership(const std::string& vrfOutput, uint64_t stake, uint64_t totalStake,
+                       double difficulty = 0.05) const;
 
 private:
-  std::string hashInput(const std::string &seed, uint64_t slot,
-                        const std::string &key) const;
-  uint64_t outputToNumber(const std::string &output) const;
+  std::string hashInput(const std::string& seed, uint64_t slot, const std::string& key) const;
+  uint64_t outputToNumber(const std::string& output) const;
 };
 
 /**
@@ -95,8 +92,8 @@ public:
    * @param blockHashes Hashes of blocks from previous epoch
    * @return New epoch nonce
    */
-  std::string generate(uint64_t epochNumber, const std::string &previousNonce,
-                       const std::vector<std::string> &blockHashes) const;
+  std::string generate(uint64_t epochNumber, const std::string& previousNonce,
+                       const std::vector<std::string>& blockHashes) const;
 
   /**
    * Get genesis nonce (for epoch 0)
@@ -104,7 +101,7 @@ public:
   std::string getGenesisNonce() const;
 
 private:
-  std::string combineHashes(const std::vector<std::string> &hashes) const;
+  std::string combineHashes(const std::vector<std::string>& hashes) const;
 };
 
 } // namespace consensus

@@ -14,7 +14,7 @@ namespace pp {
 
 FileDirStore::FileDirStore() {}
 
-FileDirStore::~FileDirStore() { 
+FileDirStore::~FileDirStore() {
   close();
 }
 
@@ -30,7 +30,7 @@ void FileDirStore::close() {
   config_ = {};
 }
 
-FileDirStore::Roe<void> FileDirStore::init(const InitConfig &config) {
+FileDirStore::Roe<void> FileDirStore::init(const InitConfig& config) {
   auto sizeResult = validateMinFileSize(config.maxFileSize);
   if (!sizeResult.isOk()) {
     return sizeResult;
@@ -70,14 +70,13 @@ FileDirStore::Roe<void> FileDirStore::init(const InitConfig &config) {
     return Error(synced.error().message);
   }
 
-  log().info << "FileDirStore initialized at " << config_.dirPath
-             << " (maxFileCount: " << config_.maxFileCount
+  log().info << "FileDirStore initialized at " << config_.dirPath << " (maxFileCount: " << config_.maxFileCount
              << ", maxFileSize: " << config_.maxFileSize << ")";
 
   return {};
 }
 
-FileDirStore::Roe<void> FileDirStore::mount(const std::string &dirPath) {
+FileDirStore::Roe<void> FileDirStore::mount(const std::string& dirPath) {
   // Verify directory exists (mounting existing directory)
   if (!std::filesystem::exists(dirPath)) {
     return Error("Directory does not exist: " + dirPath + ". Use init() to create new directory.");
@@ -119,9 +118,8 @@ FileDirStore::Roe<void> FileDirStore::mount(const std::string &dirPath) {
 
   recalculateTotalBlockCount();
 
-  log().info << "FileDirStore mounted from " << config_.dirPath
-             << " with " << fileInfoMap_.size()
-             << " files and " << totalBlockCount_ << " blocks";
+  log().info << "FileDirStore mounted from " << config_.dirPath << " with " << fileInfoMap_.size() << " files and "
+             << totalBlockCount_ << " blocks";
 
   return {};
 }
@@ -156,7 +154,9 @@ bool FileDirStore::canFit(uint64_t size) const {
   return true;
 }
 
-uint64_t FileDirStore::getBlockCount() const { return totalBlockCount_; }
+uint64_t FileDirStore::getBlockCount() const {
+  return totalBlockCount_;
+}
 
 FileDirStore::Roe<std::string> FileDirStore::readBlock(uint64_t index) const {
   auto [fileId, indexWithinFile] = findBlockFile(index);
@@ -168,8 +168,8 @@ FileDirStore::Roe<std::string> FileDirStore::readBlock(uint64_t index) const {
   auto it = fileInfoMap_.find(fileId);
   if (it == fileInfoMap_.end() || !it->second.blockFile) {
     // Try to open the file
-    FileDirStore *nonConstThis = const_cast<FileDirStore *>(this);
-    FileStore *blockFile = nonConstThis->getBlockFile(fileId);
+    FileDirStore* nonConstThis = const_cast<FileDirStore*>(this);
+    FileStore* blockFile = nonConstThis->getBlockFile(fileId);
     if (!blockFile) {
       return Error("Block file " + std::to_string(fileId) + " not found");
     }
@@ -179,8 +179,7 @@ FileDirStore::Roe<std::string> FileDirStore::readBlock(uint64_t index) const {
   // Read block using FileStore's index-based read
   auto readResult = it->second.blockFile->readBlock(indexWithinFile);
   if (!readResult.isOk()) {
-    return Error("Failed to read block " + std::to_string(index) + ": " +
-                 readResult.error().message);
+    return Error("Failed to read block " + std::to_string(index) + ": " + readResult.error().message);
   }
 
   return readResult.value();
@@ -194,11 +193,11 @@ uint64_t FileDirStore::countSizeFromBlockId(uint64_t blockId) const {
   if (fileId == 0 && indexWithinFile == 0 && blockId != 0) {
     return 0;
   }
-  FileDirStore *self = const_cast<FileDirStore *>(this);
+  FileDirStore* self = const_cast<FileDirStore*>(this);
   uint64_t total = 0;
 
   // Sum sizes in the file containing blockId, from indexWithinFile to end
-  FileStore *blockFile = self->getBlockFile(fileId);
+  FileStore* blockFile = self->getBlockFile(fileId);
   if (!blockFile) {
     return 0;
   }
@@ -217,7 +216,7 @@ uint64_t FileDirStore::countSizeFromBlockId(uint64_t blockId) const {
     ++orderIt;
     for (; orderIt != fileIdOrder_.end(); ++orderIt) {
       uint32_t fid = *orderIt;
-      FileStore *f = self->getBlockFile(fid);
+      FileStore* f = self->getBlockFile(fid);
       if (!f) {
         return 0;
       }
@@ -234,9 +233,9 @@ uint64_t FileDirStore::countSizeFromBlockId(uint64_t blockId) const {
   return total;
 }
 
-FileDirStore::Roe<uint64_t> FileDirStore::appendBlock(const std::string &block) {
+FileDirStore::Roe<uint64_t> FileDirStore::appendBlock(const std::string& block) {
   // Get active block file for writing
-  FileStore *blockFile = getActiveBlockFile(block.size());
+  FileStore* blockFile = getActiveBlockFile(block.size());
   if (!blockFile) {
     log().error << "Failed to get active block file";
     return Error("Failed to get active block file");
@@ -252,8 +251,7 @@ FileDirStore::Roe<uint64_t> FileDirStore::appendBlock(const std::string &block) 
   // Update total block count
   totalBlockCount_++;
 
-  log().debug << "Wrote block " << totalBlockCount_ - 1 << " to file "
-              << currentFileId_ << " (size: " << block.size()
+  log().debug << "Wrote block " << totalBlockCount_ - 1 << " to file " << currentFileId_ << " (size: " << block.size()
               << " bytes, total blocks: " << totalBlockCount_ << ")";
 
   return totalBlockCount_ - 1;
@@ -274,8 +272,8 @@ FileDirStore::Roe<void> FileDirStore::commit() {
 
 FileDirStore::Roe<void> FileDirStore::rewindTo(uint64_t index) {
   if (index > totalBlockCount_) {
-    return Error("Cannot rewind to index " + std::to_string(index) +
-                 " (max: " + std::to_string(totalBlockCount_) + ")");
+    return Error("Cannot rewind to index " + std::to_string(index) + " (max: " + std::to_string(totalBlockCount_) +
+                 ")");
   }
   if (index == totalBlockCount_) {
     return {}; // nothing to drop (and no file holds `index` to look up)
@@ -314,7 +312,7 @@ FileDirStore::Roe<void> FileDirStore::rewindTo(uint64_t index) {
     return Error("Failed to rewind file: " + rewound.error().message);
   }
   // 3. Delete the unlisted files; new files continue after the one kept.
-  for (auto &file : closing) {
+  for (auto& file : closing) {
     if (file) {
       file->close(); // Windows cannot delete an open file
     }
@@ -330,7 +328,7 @@ FileDirStore::Roe<void> FileDirStore::rewindTo(uint64_t index) {
 
 // Private methods
 
-FileStore *FileDirStore::createBlockFile(uint32_t fileId, uint64_t startBlockId) {
+FileStore* FileDirStore::createBlockFile(uint32_t fileId, uint64_t startBlockId) {
   std::string filepath = getBlockFilePath(fileId);
   auto ukpBlockFile = std::make_unique<FileStore>();
   ukpBlockFile->redirectLogger(log().getFullName() + ".File" + std::to_string(fileId));
@@ -344,10 +342,9 @@ FileStore *FileDirStore::createBlockFile(uint32_t fileId, uint64_t startBlockId)
     return nullptr;
   }
 
-  log().info << "Created new block file: " << filepath
-             << " (startBlockId: " << startBlockId << ")";
+  log().info << "Created new block file: " << filepath << " (startBlockId: " << startBlockId << ")";
 
-  FileStore *pBlockFile = ukpBlockFile.get();
+  FileStore* pBlockFile = ukpBlockFile.get();
   FileInfo fileInfo;
   fileInfo.blockFile = std::move(ukpBlockFile);
   fileInfo.startBlockId = startBlockId;
@@ -365,11 +362,10 @@ FileStore *FileDirStore::createBlockFile(uint32_t fileId, uint64_t startBlockId)
   return pBlockFile;
 }
 
-FileStore *FileDirStore::getActiveBlockFile(uint64_t dataSize) {
+FileStore* FileDirStore::getActiveBlockFile(uint64_t dataSize) {
   // Check if current file exists and can fit the data
   auto it = fileInfoMap_.find(currentFileId_);
-  if (it != fileInfoMap_.end() && it->second.blockFile &&
-      it->second.blockFile->canFit(dataSize)) {
+  if (it != fileInfoMap_.end() && it->second.blockFile && it->second.blockFile->canFit(dataSize)) {
     return it->second.blockFile.get();
   }
 
@@ -384,7 +380,7 @@ FileStore *FileDirStore::getActiveBlockFile(uint64_t dataSize) {
   return createBlockFile(currentFileId_, totalBlockCount_);
 }
 
-FileStore *FileDirStore::getBlockFile(uint32_t fileId) {
+FileStore* FileDirStore::getBlockFile(uint32_t fileId) {
   auto it = fileInfoMap_.find(fileId);
   if (it != fileInfoMap_.end() && it->second.blockFile) {
     return it->second.blockFile.get();
@@ -397,7 +393,7 @@ FileStore *FileDirStore::getBlockFile(uint32_t fileId) {
     ukpBlockFile->redirectLogger(log().getFullName() + ".File" + std::to_string(fileId));
     auto result = ukpBlockFile->mount(filepath, config_.maxFileSize);
     if (result.isOk()) {
-      FileStore *pBlockFile = ukpBlockFile.get();
+      FileStore* pBlockFile = ukpBlockFile.get();
       if (fileInfoMap_.find(fileId) == fileInfoMap_.end()) {
         FileInfo fileInfo;
         fileInfo.blockFile = std::move(ukpBlockFile);
@@ -419,7 +415,7 @@ std::string FileDirStore::getBlockFilePath(uint32_t fileId) const {
 
 std::pair<uint32_t, uint64_t> FileDirStore::findBlockFile(uint64_t blockId) const {
   // Find the file containing this blockId
-  for (const auto &[fileId, fileInfo] : fileInfoMap_) {
+  for (const auto& [fileId, fileInfo] : fileInfoMap_) {
     uint64_t startBlockId = fileInfo.startBlockId;
     uint64_t blockCount = 0;
 
@@ -462,7 +458,7 @@ bool FileDirStore::loadIndex() {
       break;
 
     InputArchive ar(indexFile);
-    ar &entry;
+    ar & entry;
     if (ar.failed()) {
       if (indexFile.gcount() == 0)
         break;
@@ -506,31 +502,30 @@ bool FileDirStore::saveIndex() {
   return true;
 }
 
-bool FileDirStore::writeIndexHeader(std::ostream &os) {
+bool FileDirStore::writeIndexHeader(std::ostream& os) {
   IndexFileHeader header;
   header.maxFileCount = config_.maxFileCount;
   header.maxFileSize = config_.maxFileSize;
   OutputArchive ar(os);
-  ar &header;
+  ar & header;
 
   if (!os.good()) {
     log().error << "Failed to write index file header";
     return false;
   }
 
-  log().debug << "Wrote index file header (magic: 0x" << std::hex << header.magic
-              << std::dec << ", version: " << header.version
-              << ", maxFileCount: " << header.maxFileCount
+  log().debug << "Wrote index file header (magic: 0x" << std::hex << header.magic << std::dec
+              << ", version: " << header.version << ", maxFileCount: " << header.maxFileCount
               << ", maxFileSize: " << header.maxFileSize << ")";
 
   return true;
 }
 
-bool FileDirStore::readIndexHeader(std::istream &is) {
+bool FileDirStore::readIndexHeader(std::istream& is) {
   IndexFileHeader header;
 
   InputArchive ar(is);
-  ar &header;
+  ar & header;
   if (ar.failed()) {
     log().error << "Failed to read index file header";
     return false;
@@ -538,8 +533,7 @@ bool FileDirStore::readIndexHeader(std::istream &is) {
 
   // Validate header
   if (header.magic != IndexFileHeader::MAGIC) {
-    log().error << "Invalid magic number in index file header: 0x" << std::hex
-                << header.magic << std::dec;
+    log().error << "Invalid magic number in index file header: 0x" << std::hex << header.magic << std::dec;
     return false;
   }
 
@@ -553,16 +547,15 @@ bool FileDirStore::readIndexHeader(std::istream &is) {
   config_.maxFileCount = header.maxFileCount;
   config_.maxFileSize = header.maxFileSize;
 
-  log().debug << "Read index file header (magic: 0x" << std::hex << header.magic
-              << std::dec << ", version: " << header.version
-              << ", maxFileCount: " << header.maxFileCount
+  log().debug << "Read index file header (magic: 0x" << std::hex << header.magic << std::dec
+              << ", version: " << header.version << ", maxFileCount: " << header.maxFileCount
               << ", maxFileSize: " << header.maxFileSize << ")";
 
   return true;
 }
 
 FileDirStore::Roe<void> FileDirStore::openExistingBlockFiles() {
-  for (auto &[fileId, fileInfo] : fileInfoMap_) {
+  for (auto& [fileId, fileInfo] : fileInfoMap_) {
     std::string filepath = getBlockFilePath(fileId);
     if (!std::filesystem::exists(filepath)) {
       // Skipping it would shift every later block id.
@@ -573,22 +566,20 @@ FileDirStore::Roe<void> FileDirStore::openExistingBlockFiles() {
     ukpBlockFile->redirectLogger(log().getFullName() + ".File" + std::to_string(fileId));
     auto result = ukpBlockFile->mount(filepath, config_.maxFileSize);
     if (!result.isOk()) {
-      log().error << "Failed to open block file: " << filepath << ": "
-                  << result.error().message;
-      return Error("Failed to open block file: " + filepath + ": " +
-                   result.error().message);
+      log().error << "Failed to open block file: " << filepath << ": " << result.error().message;
+      return Error("Failed to open block file: " + filepath + ": " + result.error().message);
     }
 
     fileInfo.blockFile = std::move(ukpBlockFile);
-    log().debug << "Opened existing block file: " << filepath
-                << " (blocks: " << fileInfo.blockFile->getBlockCount() << ")";
+    log().debug << "Opened existing block file: " << filepath << " (blocks: " << fileInfo.blockFile->getBlockCount()
+                << ")";
   }
   return {};
 }
 
 void FileDirStore::recalculateTotalBlockCount() {
   totalBlockCount_ = 0;
-  for (const auto &[fileId, fileInfo] : fileInfoMap_) {
+  for (const auto& [fileId, fileInfo] : fileInfoMap_) {
     if (fileInfo.blockFile) {
       totalBlockCount_ += fileInfo.blockFile->getBlockCount();
     }
@@ -596,7 +587,7 @@ void FileDirStore::recalculateTotalBlockCount() {
 }
 
 void FileDirStore::updateCurrentFileId() {
-  for (const auto &[fileId, _] : fileInfoMap_) {
+  for (const auto& [fileId, _] : fileInfoMap_) {
     if (fileId > currentFileId_) {
       currentFileId_ = fileId;
     }

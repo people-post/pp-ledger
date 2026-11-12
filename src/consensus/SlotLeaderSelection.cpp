@@ -8,9 +8,7 @@ namespace consensus {
 
 VRF::VRF() {}
 
-VRF::Roe<VRF::VRFOutput> VRF::evaluate(const std::string &seed, uint64_t slot,
-                                       const std::string &privateKey) const {
-
+VRF::Roe<VRF::VRFOutput> VRF::evaluate(const std::string& seed, uint64_t slot, const std::string& privateKey) const {
   if (privateKey.empty()) {
     return VRF::Error(1, "Private key cannot be empty");
   }
@@ -31,10 +29,8 @@ VRF::Roe<VRF::VRFOutput> VRF::evaluate(const std::string &seed, uint64_t slot,
   return VRFOutput(value, proof);
 }
 
-VRF::Roe<bool> VRF::verify(const std::string & /*output*/, const std::string &proof,
-                           const std::string &seed, uint64_t slot,
-                           const std::string &publicKey) const {
-
+VRF::Roe<bool> VRF::verify(const std::string& /*output*/, const std::string& proof, const std::string& seed,
+                           uint64_t slot, const std::string& publicKey) const {
   if (publicKey.empty()) {
     return VRF::Error(2, "Public key cannot be empty");
   }
@@ -48,15 +44,12 @@ VRF::Roe<bool> VRF::verify(const std::string & /*output*/, const std::string &pr
   std::stringstream expectedProof;
   expectedProof << "proof:" << expectedInput << ":slot:" << slot;
 
-  bool valid = (proof.find("proof:") == 0) &&
-               (proof.find(std::to_string(slot)) != std::string::npos);
+  bool valid = (proof.find("proof:") == 0) && (proof.find(std::to_string(slot)) != std::string::npos);
 
   return valid;
 }
 
-bool VRF::checkLeadership(const std::string &vrfOutput, uint64_t stake,
-                          uint64_t totalStake, double difficulty) const {
-
+bool VRF::checkLeadership(const std::string& vrfOutput, uint64_t stake, uint64_t totalStake, double difficulty) const {
   if (totalStake == 0 || stake == 0) {
     return false;
   }
@@ -66,17 +59,14 @@ bool VRF::checkLeadership(const std::string &vrfOutput, uint64_t stake,
 
   // Calculate threshold based on stake ratio
   // Higher stake = higher probability of winning
-  double stakeRatio =
-      static_cast<double>(stake) / static_cast<double>(totalStake);
-  uint64_t threshold =
-      static_cast<uint64_t>(static_cast<double>(UINT64_MAX) * stakeRatio * difficulty);
+  double stakeRatio = static_cast<double>(stake) / static_cast<double>(totalStake);
+  uint64_t threshold = static_cast<uint64_t>(static_cast<double>(UINT64_MAX) * stakeRatio * difficulty);
 
   bool isLeader = outputNum < threshold;
   return isLeader;
 }
 
-std::string VRF::hashInput(const std::string &seed, uint64_t slot,
-                           const std::string &key) const {
+std::string VRF::hashInput(const std::string& seed, uint64_t slot, const std::string& key) const {
   // Simple hash function for demonstration
   std::stringstream ss;
   ss << seed << ":" << slot << ":" << key;
@@ -93,7 +83,7 @@ std::string VRF::hashInput(const std::string &seed, uint64_t slot,
   return ss.str();
 }
 
-uint64_t VRF::outputToNumber(const std::string &output) const {
+uint64_t VRF::outputToNumber(const std::string& output) const {
   uint64_t result = 0;
 
   // Convert hex string to number
@@ -121,10 +111,8 @@ EpochNonce::EpochNonce() {
   log().info << "Epoch nonce module initialized";
 }
 
-std::string
-EpochNonce::generate(uint64_t epochNumber, const std::string &previousNonce,
-                     const std::vector<std::string> &blockHashes) const {
-
+std::string EpochNonce::generate(uint64_t epochNumber, const std::string& previousNonce,
+                                 const std::vector<std::string>& blockHashes) const {
   // Combine previous nonce with block hashes from the epoch
   std::stringstream ss;
   ss << "epoch:" << epochNumber << ":prev:" << previousNonce;
@@ -154,8 +142,7 @@ std::string EpochNonce::getGenesisNonce() const {
   return "genesis_nonce_0x0000000000000000";
 }
 
-std::string
-EpochNonce::combineHashes(const std::vector<std::string> &hashes) const {
+std::string EpochNonce::combineHashes(const std::vector<std::string>& hashes) const {
   if (hashes.empty()) {
     return "";
   }
@@ -163,7 +150,7 @@ EpochNonce::combineHashes(const std::vector<std::string> &hashes) const {
   // XOR all hashes together
   std::stringstream result;
 
-  for (const auto &hash : hashes) {
+  for (const auto& hash : hashes) {
     result << hash;
   }
 

@@ -19,7 +19,7 @@ inline constexpr uint64_t kMinMinerDueSeconds = 12 * 3600;
  *  - `minerDueAfterSlots` 0 (never due) or at least `kMinMinerDueSeconds` of slots, so miners
  *    are not due — owing an empty block — in nearly every slot they lead.
  */
-Roe<void> validateLivenessSettings(const BlockChainConfig &config);
+Roe<void> validateLivenessSettings(const BlockChainConfig& config);
 
 /** The most `maxBlockBytes` may be: what the ledger RPC carries in one message (B034). */
 inline constexpr uint64_t kMaxBlockBytesCeiling = 4 * 1024 * 1024;
@@ -33,7 +33,7 @@ inline constexpr uint64_t kBlockOverheadBytes = 64 * 1024;
  * `kMaxBlockBytesCeiling`, and room for the largest record (`maxCustomMetaSize` plus
  * `kRecordOverheadBytes`) in a block (plus `kBlockOverheadBytes`).
  */
-Roe<void> validateBlockLimits(const BlockChainConfig &config);
+Roe<void> validateBlockLimits(const BlockChainConfig& config);
 
 /** The finality bound's range (projects/finality FN001): an hour to 30 days. */
 inline constexpr uint64_t kMinFinalitySeconds = 3600;
@@ -44,7 +44,7 @@ inline constexpr uint64_t kMaxFinalitySeconds = 30ULL * 24 * 3600;
  * cannot take the network's way back from a takeover — to `kMaxFinalitySeconds`, so "final" means
  * something.
  */
-Roe<void> validateFinality(const BlockChainConfig &config);
+Roe<void> validateFinality(const BlockChainConfig& config);
 
 } // namespace pp::chain_tx
 

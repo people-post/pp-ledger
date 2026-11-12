@@ -23,29 +23,34 @@ using pp::common::Value;
 
 namespace {
 
-const std::vector<std::pair<Kind, std::string>> &kindNames() {
-  static const std::vector<std::pair<Kind, std::string>> names = {
-      {Kind::Transfer, "transfer"},       {Kind::Batch, "batch"},           {Kind::Mint, "mint"},
-      {Kind::NewAccount, "new-account"},  {Kind::AccountUpdate, "account-update"},
-      {Kind::AccountRecovery, "account-recovery"}, {Kind::DomainAssign, "domain-assign"},
-      {Kind::ConfigUpdate, "config-update"},
-      {Kind::BeaconCertificate, "beacon-certificate"}, {Kind::Recovery, "recovery"},
-      {Kind::Genesis, "genesis"},         {Kind::Other, "record"}};
+const std::vector<std::pair<Kind, std::string>>& kindNames() {
+  static const std::vector<std::pair<Kind, std::string>> names = {{Kind::Transfer, "transfer"},
+                                                                  {Kind::Batch, "batch"},
+                                                                  {Kind::Mint, "mint"},
+                                                                  {Kind::NewAccount, "new-account"},
+                                                                  {Kind::AccountUpdate, "account-update"},
+                                                                  {Kind::AccountRecovery, "account-recovery"},
+                                                                  {Kind::DomainAssign, "domain-assign"},
+                                                                  {Kind::ConfigUpdate, "config-update"},
+                                                                  {Kind::BeaconCertificate, "beacon-certificate"},
+                                                                  {Kind::Recovery, "recovery"},
+                                                                  {Kind::Genesis, "genesis"},
+                                                                  {Kind::Other, "record"}};
   return names;
 }
 
-std::string toBase64(const std::string &bytes) {
+std::string toBase64(const std::string& bytes) {
   std::string out(sodium_base64_encoded_len(bytes.size(), sodium_base64_VARIANT_ORIGINAL), '\0');
-  sodium_bin2base64(out.data(), out.size(), reinterpret_cast<const unsigned char *>(bytes.data()), bytes.size(),
+  sodium_bin2base64(out.data(), out.size(), reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size(),
                     sodium_base64_VARIANT_ORIGINAL);
   out.resize(out.find('\0'));
   return out;
 }
 
-std::optional<std::string> fromBase64(const std::string &text) {
+std::optional<std::string> fromBase64(const std::string& text) {
   std::string out(text.size(), '\0');
   size_t length = 0;
-  if (sodium_base642bin(reinterpret_cast<unsigned char *>(out.data()), out.size(), text.data(), text.size(), nullptr,
+  if (sodium_base642bin(reinterpret_cast<unsigned char*>(out.data()), out.size(), text.data(), text.size(), nullptr,
                         &length, nullptr, sodium_base64_VARIANT_ORIGINAL) != 0) {
     return std::nullopt;
   }
@@ -62,11 +67,11 @@ uint64_t randomNonZero() {
 }
 
 /** Each of `signatures` matched to the first of `keys` it verifies under (of `message`) not yet matched. */
-std::vector<std::optional<size_t>> matchSignatures(const std::vector<std::string> &keys, const std::string &message,
-                                                   const std::vector<std::string> &signatures) {
+std::vector<std::optional<size_t>> matchSignatures(const std::vector<std::string>& keys, const std::string& message,
+                                                   const std::vector<std::string>& signatures) {
   std::vector<bool> used(keys.size(), false);
   std::vector<std::optional<size_t>> matched;
-  for (const auto &signature : signatures) {
+  for (const auto& signature : signatures) {
     std::optional<size_t> key;
     for (size_t i = 0; i < keys.size(); ++i) {
       if (!used[i] && utl::mlDsaVerify(keys[i], message, signature)) {
@@ -81,8 +86,8 @@ std::vector<std::optional<size_t>> matchSignatures(const std::vector<std::string
 }
 
 /** The valid ones of `signatures`, one per key, in key order. */
-std::vector<std::string> validSignatures(const std::vector<std::string> &keys, const std::string &message,
-                                         const std::vector<std::string> &signatures) {
+std::vector<std::string> validSignatures(const std::vector<std::string>& keys, const std::string& message,
+                                         const std::vector<std::string>& signatures) {
   const auto matched = matchSignatures(keys, message, signatures);
   std::vector<std::pair<size_t, std::string>> byKey;
   for (size_t i = 0; i < matched.size(); ++i) {
@@ -90,25 +95,27 @@ std::vector<std::string> validSignatures(const std::vector<std::string> &keys, c
       byKey.emplace_back(*matched[i], signatures[i]);
     }
   }
-  std::sort(byKey.begin(), byKey.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+  std::sort(byKey.begin(), byKey.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
   std::vector<std::string> out;
-  for (auto &entry : byKey) {
+  for (auto& entry : byKey) {
     out.push_back(std::move(entry.second));
   }
   return out;
 }
 
 /** A record of an operation and the signatures collected for it. */
-template <typename Signatures> struct Part {
-  const Ledger::Record *record;
-  Signatures *signatures;
+template <typename Signatures>
+struct Part {
+  const Ledger::Record* record;
+  Signatures* signatures;
 };
 
 /** `record` with `signatures`, then each of `moreRecords` with its own (const as `op` is). */
-template <typename Op> auto partsOf(Op &op) {
+template <typename Op>
+auto partsOf(Op& op) {
   using Signatures = std::conditional_t<std::is_const_v<Op>, const std::vector<std::string>, std::vector<std::string>>;
   std::vector<Part<Signatures>> parts{{&op.record, &op.signatures}};
-  for (auto &more : op.moreRecords) {
+  for (auto& more : op.moreRecords) {
     parts.push_back({&more, &more.signatures});
   }
   return parts;
@@ -116,32 +123,32 @@ template <typename Op> auto partsOf(Op &op) {
 
 std::string accountName(uint64_t id) {
   switch (id) {
-  case AccountIds::ID_GENESIS:
-    return "Genesis (admin)";
-  case AccountIds::ID_RESERVE:
-    return "Reserve";
-  case AccountIds::ID_REGISTRAR:
-    return "Registrar";
-  case AccountIds::ID_FEE:
-    return "Fee";
-  case AccountIds::ID_RECYCLE:
-    return "Recycle";
-  default:
-    return "Account " + std::to_string(id);
+    case AccountIds::ID_GENESIS:
+      return "Genesis (admin)";
+    case AccountIds::ID_RESERVE:
+      return "Reserve";
+    case AccountIds::ID_REGISTRAR:
+      return "Registrar";
+    case AccountIds::ID_FEE:
+      return "Fee";
+    case AccountIds::ID_RECYCLE:
+      return "Recycle";
+    default:
+      return "Account " + std::to_string(id);
   }
 }
 
-std::string keysLine(const std::vector<std::string> &keys, uint32_t minSignatures);
+std::string keysLine(const std::vector<std::string>& keys, uint32_t minSignatures);
 
 /** A recovery set: its keys, how many act, and how long an announcement waits at least. */
-std::string recoveryLine(const std::vector<std::string> &keys, uint32_t minSignatures, uint64_t delaySeconds) {
-  const std::string delay = delaySeconds % 86400 == 0   ? std::to_string(delaySeconds / 86400) + " day(s)"
+std::string recoveryLine(const std::vector<std::string>& keys, uint32_t minSignatures, uint64_t delaySeconds) {
+  const std::string delay = delaySeconds % 86400 == 0  ? std::to_string(delaySeconds / 86400) + " day(s)"
                             : delaySeconds % 3600 == 0 ? std::to_string(delaySeconds / 3600) + " hour(s)"
                                                        : std::to_string(delaySeconds) + " s";
   return keysLine(keys, minSignatures) + "; new keys wait at least " + delay + ", to an epoch start";
 }
 
-std::string keysLine(const std::vector<std::string> &keys, uint32_t minSignatures) {
+std::string keysLine(const std::vector<std::string>& keys, uint32_t minSignatures) {
   std::ostringstream out;
   out << minSignatures << " of " << keys.size() << ":";
   for (size_t i = 0; i < keys.size(); ++i) {
@@ -150,15 +157,16 @@ std::string keysLine(const std::vector<std::string> &keys, uint32_t minSignature
   return out.str();
 }
 
-template <typename Tx> void windowOf(const Tx &tx, Summary &summary) {
+template <typename Tx>
+void windowOf(const Tx& tx, Summary& summary) {
   if constexpr (std::is_base_of_v<Ledger::TxIdempotencyWindow, Tx>) {
     summary.validFrom = tx.validationTsMin;
     summary.validUntil = tx.validationTsMax;
   }
 }
 
-void describeConfig(const BlockChainConfig &c, Summary &s) {
-  auto line = [&s](const std::string &label, uint64_t value) { s.lines.emplace_back(label, groupDigits(value)); };
+void describeConfig(const BlockChainConfig& c, Summary& s) {
+  auto line = [&s](const std::string& label, uint64_t value) { s.lines.emplace_back(label, groupDigits(value)); };
   line("Slot (seconds)", c.slotDuration);
   line("Slots per epoch", c.slotsPerEpoch);
   line("Transactions per block", c.maxTransactionsPerBlock);
@@ -186,7 +194,7 @@ void describeConfig(const BlockChainConfig &c, Summary &s) {
 } // namespace
 
 std::string kindName(Kind kind) {
-  for (const auto &[k, name] : kindNames()) {
+  for (const auto& [k, name] : kindNames()) {
     if (k == kind) {
       return name;
     }
@@ -194,8 +202,8 @@ std::string kindName(Kind kind) {
   return "record";
 }
 
-std::optional<Kind> kindFromName(const std::string &name) {
-  for (const auto &[k, n] : kindNames()) {
+std::optional<Kind> kindFromName(const std::string& name) {
+  for (const auto& [k, n] : kindNames()) {
     if (n == name) {
       return k;
     }
@@ -203,91 +211,93 @@ std::optional<Kind> kindFromName(const std::string &name) {
   return std::nullopt;
 }
 
-Kind kindOf(const Ledger::Record &record) {
+Kind kindOf(const Ledger::Record& record) {
   switch (record.type) {
-  case Ledger::T_DEFAULT: {
-    auto tx = utl::binaryUnpack<Ledger::TxDefault>(record.data);
-    if (tx && tx.value().fromWalletId == AccountIds::ID_GENESIS && tx.value().toWalletId == AccountIds::ID_RESERVE) {
-      return Kind::Mint;
+    case Ledger::T_DEFAULT: {
+      auto tx = utl::binaryUnpack<Ledger::TxDefault>(record.data);
+      if (tx && tx.value().fromWalletId == AccountIds::ID_GENESIS && tx.value().toWalletId == AccountIds::ID_RESERVE) {
+        return Kind::Mint;
+      }
+      return Kind::Transfer;
     }
-    return Kind::Transfer;
-  }
-  case Ledger::T_NEW_USER:
-    return Kind::NewAccount;
-  case Ledger::T_USER_UPDATE:
-    return Kind::AccountUpdate;
-  case Ledger::T_ACCOUNT_RECOVERY:
-    return Kind::AccountRecovery;
-  case Ledger::T_DOMAIN_ASSIGN:
-    return Kind::DomainAssign;
-  case Ledger::T_CONFIG:
-    return Kind::ConfigUpdate;
-  case Ledger::T_BEACON_CERT:
-    return Kind::BeaconCertificate;
-  case Ledger::T_RECOVERY:
-    return Kind::Recovery;
-  case Ledger::T_GENESIS:
-    return Kind::Genesis;
-  case Ledger::T_BEACON_SEED:
-    return Kind::Other; // the beacon publishes it itself, never through an operation file
-  default:
-    return Kind::Other;
+    case Ledger::T_NEW_USER:
+      return Kind::NewAccount;
+    case Ledger::T_USER_UPDATE:
+      return Kind::AccountUpdate;
+    case Ledger::T_ACCOUNT_RECOVERY:
+      return Kind::AccountRecovery;
+    case Ledger::T_DOMAIN_ASSIGN:
+      return Kind::DomainAssign;
+    case Ledger::T_CONFIG:
+      return Kind::ConfigUpdate;
+    case Ledger::T_BEACON_CERT:
+      return Kind::BeaconCertificate;
+    case Ledger::T_RECOVERY:
+      return Kind::Recovery;
+    case Ledger::T_GENESIS:
+      return Kind::Genesis;
+    case Ledger::T_BEACON_SEED:
+      return Kind::Other; // the beacon publishes it itself, never through an operation file
+    default:
+      return Kind::Other;
   }
 }
 
-Kind kindOf(const Operation &op) {
+Kind kindOf(const Operation& op) {
   const Kind kind = kindOf(op.record);
   return kind == Kind::Transfer && !op.moreRecords.empty() ? Kind::Batch : kind;
 }
 
-std::optional<uint64_t> signerAccountOf(const Ledger::Record &record) {
+std::optional<uint64_t> signerAccountOf(const Ledger::Record& record) {
   switch (record.type) {
-  case Ledger::T_DEFAULT: {
-    auto tx = utl::binaryUnpack<Ledger::TxDefault>(record.data);
-    return tx ? std::optional<uint64_t>(tx.value().fromWalletId) : std::nullopt;
-  }
-  case Ledger::T_NEW_USER: {
-    auto tx = utl::binaryUnpack<Ledger::TxNewUser>(record.data);
-    return tx ? std::optional<uint64_t>(tx.value().fromWalletId) : std::nullopt;
-  }
-  case Ledger::T_USER_UPDATE: {
-    auto tx = utl::binaryUnpack<Ledger::TxUserUpdate>(record.data);
-    return tx ? std::optional<uint64_t>(tx.value().walletId) : std::nullopt;
-  }
-  case Ledger::T_DOMAIN_ASSIGN:
-    return AccountIds::ID_REGISTRAR; // the registrar signs and pays
-  case Ledger::T_ACCOUNT_RECOVERY: {
-    // The recovered account; its recovery set signs (the signers name that set's keys).
-    auto tx = utl::binaryUnpack<Ledger::TxAccountRecovery>(record.data);
-    return tx ? std::optional<uint64_t>(tx.value().walletId) : std::nullopt;
-  }
-  case Ledger::T_CONFIG:
-  case Ledger::T_BEACON_CERT:
-  case Ledger::T_GENESIS:
-    return AccountIds::ID_GENESIS;
-  case Ledger::T_BEACON_SEED:
-    return std::nullopt; // the beacon key signs it, not an account
-  default:
-    return std::nullopt;
+    case Ledger::T_DEFAULT: {
+      auto tx = utl::binaryUnpack<Ledger::TxDefault>(record.data);
+      return tx ? std::optional<uint64_t>(tx.value().fromWalletId) : std::nullopt;
+    }
+    case Ledger::T_NEW_USER: {
+      auto tx = utl::binaryUnpack<Ledger::TxNewUser>(record.data);
+      return tx ? std::optional<uint64_t>(tx.value().fromWalletId) : std::nullopt;
+    }
+    case Ledger::T_USER_UPDATE: {
+      auto tx = utl::binaryUnpack<Ledger::TxUserUpdate>(record.data);
+      return tx ? std::optional<uint64_t>(tx.value().walletId) : std::nullopt;
+    }
+    case Ledger::T_DOMAIN_ASSIGN:
+      return AccountIds::ID_REGISTRAR; // the registrar signs and pays
+    case Ledger::T_ACCOUNT_RECOVERY: {
+      // The recovered account; its recovery set signs (the signers name that set's keys).
+      auto tx = utl::binaryUnpack<Ledger::TxAccountRecovery>(record.data);
+      return tx ? std::optional<uint64_t>(tx.value().walletId) : std::nullopt;
+    }
+    case Ledger::T_CONFIG:
+    case Ledger::T_BEACON_CERT:
+    case Ledger::T_GENESIS:
+      return AccountIds::ID_GENESIS;
+    case Ledger::T_BEACON_SEED:
+      return std::nullopt; // the beacon key signs it, not an account
+    default:
+      return std::nullopt;
   }
 }
 
-std::string signingMessage(const Operation &op) { return op.record.signingMessage(op.networkId); }
+std::string signingMessage(const Operation& op) {
+  return op.record.signingMessage(op.networkId);
+}
 
-static std::vector<Value> base64All(const std::vector<std::string> &items) {
+static std::vector<Value> base64All(const std::vector<std::string>& items) {
   std::vector<Value> out;
-  for (const auto &item : items) {
+  for (const auto& item : items) {
     out.emplace_back(toBase64(item));
   }
   return out;
 }
 
-static pp::Roe<std::vector<std::string>> fromBase64All(const pp::common::Array *array, const std::string &what) {
+static pp::Roe<std::vector<std::string>> fromBase64All(const pp::common::Array* array, const std::string& what) {
   std::vector<std::string> out;
   if (!array) {
     return out;
   }
-  for (const auto &value : array->elements) {
+  for (const auto& value : array->elements) {
     auto bytes = fromBase64(pp::common::asString(value).value_or(""));
     if (!bytes) {
       return pp::Error("Operation file has a malformed " + what);
@@ -297,7 +307,7 @@ static pp::Roe<std::vector<std::string>> fromBase64All(const pp::common::Array *
   return out;
 }
 
-std::string toJson(const Operation &op) {
+std::string toJson(const Operation& op) {
   Object record;
   record.setJsonUInt("type", op.record.type);
   record.set("data", toBase64(op.record.data));
@@ -307,12 +317,12 @@ std::string toJson(const Operation &op) {
   }
   signers.setJsonUInt("minSignatures", op.signers.minSignatures);
   std::vector<Value> keys;
-  for (const auto &key : op.signers.publicKeys) {
+  for (const auto& key : op.signers.publicKeys) {
     keys.emplace_back(toBase64(key));
   }
   signers.set("publicKeys", Object::array(std::move(keys)));
   std::vector<Value> signatures;
-  for (const auto &signature : op.signatures) {
+  for (const auto& signature : op.signatures) {
     signatures.emplace_back(toBase64(signature));
   }
   Object root;
@@ -326,7 +336,7 @@ std::string toJson(const Operation &op) {
   root.set("signatures", Object::array(std::move(signatures)));
   if (!op.moreRecords.empty()) {
     std::vector<Value> more;
-    for (const auto &extra : op.moreRecords) {
+    for (const auto& extra : op.moreRecords) {
       auto entry = std::make_shared<Object>();
       entry->setJsonUInt("type", extra.type);
       entry->set("data", toBase64(extra.data));
@@ -341,7 +351,7 @@ std::string toJson(const Operation &op) {
 }
 
 /** The signers' account must be the one the chain checks the signatures against. */
-static pp::Roe<void> checkSignerAccount(const Ledger::Record &record, const std::optional<uint64_t> &account) {
+static pp::Roe<void> checkSignerAccount(const Ledger::Record& record, const std::optional<uint64_t>& account) {
   const Kind kind = kindOf(record);
   if (kind == Kind::Other) {
     return {};
@@ -356,7 +366,7 @@ static pp::Roe<void> checkSignerAccount(const Ledger::Record &record, const std:
                    (account ? "account " + std::to_string(*account) : std::string("no account")));
 }
 
-pp::Roe<Operation> fromJson(const std::string &json) {
+pp::Roe<Operation> fromJson(const std::string& json) {
   Object root;
   if (!pp::common::io::objectFromJsonString(root, json)) {
     return pp::Error("Not an operation file: not JSON");
@@ -380,7 +390,7 @@ pp::Roe<Operation> fromJson(const std::string &json) {
       return pp::Error("Operation file genesisHash is not a 32-byte hex hash");
     }
   }
-  const Object *record = root.getObject("record");
+  const Object* record = root.getObject("record");
   if (!record) {
     return pp::Error("Operation file has no record");
   }
@@ -394,7 +404,7 @@ pp::Roe<Operation> fromJson(const std::string &json) {
   if (!op.record.decode()) {
     return pp::Error("Operation file record does not decode as a type " + std::to_string(*type) + " transaction");
   }
-  const Object *signers = root.getObject("signers");
+  const Object* signers = root.getObject("signers");
   if (!signers) {
     return pp::Error("Operation file names no signers");
   }
@@ -405,12 +415,12 @@ pp::Roe<Operation> fromJson(const std::string &json) {
     }
   }
   const auto minSignatures = signers->getNonNegInt("minSignatures");
-  const auto *keys = signers->getArray("publicKeys");
+  const auto* keys = signers->getArray("publicKeys");
   if (!minSignatures || *minSignatures == 0 || !keys) {
     return pp::Error("Operation file signers are malformed");
   }
   op.signers.minSignatures = static_cast<uint32_t>(*minSignatures);
-  for (const auto &value : keys->elements) {
+  for (const auto& value : keys->elements) {
     auto key = fromBase64(pp::common::asString(value).value_or(""));
     if (!key || key->size() != utl::kMlDsaPublicKeyBytes) {
       return pp::Error("Operation file has a signer key that is not an ML-DSA-65 public key");
@@ -423,8 +433,8 @@ pp::Roe<Operation> fromJson(const std::string &json) {
   if (auto ok = checkSignerAccount(op.record, op.signers.account); !ok) {
     return pp::Error("Operation file: " + ok.error().message);
   }
-  if (const auto *signatures = root.getArray("signatures")) {
-    for (const auto &value : signatures->elements) {
+  if (const auto* signatures = root.getArray("signatures")) {
+    for (const auto& value : signatures->elements) {
       auto signature = fromBase64(pp::common::asString(value).value_or(""));
       if (!signature) {
         return pp::Error("Operation file has a malformed signature");
@@ -433,15 +443,15 @@ pp::Roe<Operation> fromJson(const std::string &json) {
     }
   }
   const Kind recordKind = kindOf(op.record);
-  if (const auto *more = root.getArray("moreRecords")) {
+  if (const auto* more = root.getArray("moreRecords")) {
     if (recordKind != Kind::Genesis && recordKind != Kind::Transfer) {
       return pp::Error("Operation file: only a genesis or a batch of transfers carries more records");
     }
     if (recordKind == Kind::Transfer && (more->elements.empty() || more->elements.size() >= kMaxBatchTransfers)) {
       return pp::Error("Operation file: a batch carries 2 to " + std::to_string(kMaxBatchTransfers) + " transfers");
     }
-    for (const auto &value : more->elements) {
-      const Object *entry = pp::common::asObject(value);
+    for (const auto& value : more->elements) {
+      const Object* entry = pp::common::asObject(value);
       const auto moreType = entry ? entry->getNonNegInt("type") : std::nullopt;
       const auto moreData = entry ? fromBase64(entry->getString("data").value_or("")) : std::nullopt;
       if (!moreType || *moreType > UINT16_MAX || !moreData) {
@@ -463,7 +473,7 @@ pp::Roe<Operation> fromJson(const std::string &json) {
         }
         const bool repeated = extra.data == op.record.data ||
                               std::any_of(op.moreRecords.begin(), op.moreRecords.end(),
-                                          [&extra](const Ledger::Record &r) { return r.data == extra.data; });
+                                          [&extra](const Ledger::Record& r) { return r.data == extra.data; });
         if (repeated) {
           return pp::Error("Operation file: a batch carries the same transfer twice");
         }
@@ -486,7 +496,7 @@ pp::Roe<Operation> fromJson(const std::string &json) {
   return op;
 }
 
-pp::Roe<Operation> load(const std::string &path) {
+pp::Roe<Operation> load(const std::string& path) {
   std::ifstream in(path, std::ios::binary);
   if (!in) {
     return pp::Error("Cannot read " + path);
@@ -500,7 +510,7 @@ pp::Roe<Operation> load(const std::string &path) {
   return op;
 }
 
-pp::Roe<void> save(const Operation &op, const std::string &path, bool overwrite) {
+pp::Roe<void> save(const Operation& op, const std::string& path, bool overwrite) {
   const std::string json = toJson(op);
   if (!overwrite) {
     return utl::writeToNewFile(path, json);
@@ -518,20 +528,20 @@ pp::Roe<void> save(const Operation &op, const std::string &path, bool overwrite)
   return {};
 }
 
-std::string fingerprint(const std::string &publicKey) {
+std::string fingerprint(const std::string& publicKey) {
   const std::string hex = utl::hexEncode(utl::sha256Raw(publicKey)).substr(0, 16);
   return hex.substr(0, 4) + "-" + hex.substr(4, 4) + "-" + hex.substr(8, 4) + "-" + hex.substr(12, 4);
 }
 
-SignatureCheck check(const Operation &op) {
+SignatureCheck check(const Operation& op) {
   SignatureCheck result;
   result.needed = op.signers.minSignatures;
-  const auto &keys = op.signers.publicKeys;
+  const auto& keys = op.signers.publicKeys;
   std::vector<bool> signedAll(keys.size(), true);
-  for (const auto &part : partsOf(op)) {
+  for (const auto& part : partsOf(op)) {
     const auto matched = matchSignatures(keys, part.record->signingMessage(op.networkId), *part.signatures);
     std::vector<bool> signedThis(keys.size(), false);
-    for (const auto &key : matched) {
+    for (const auto& key : matched) {
       if (key) {
         signedThis[*key] = true;
       } else {
@@ -550,7 +560,7 @@ SignatureCheck check(const Operation &op) {
   return result;
 }
 
-pp::Roe<std::string> sign(Operation &op, const std::string &privateKey) {
+pp::Roe<std::string> sign(Operation& op, const std::string& privateKey) {
   const std::string message = signingMessage(op);
   auto signature = utl::mlDsaSign(privateKey, message);
   if (!signature) {
@@ -565,13 +575,13 @@ pp::Roe<std::string> sign(Operation &op, const std::string &privateKey) {
   if (!key) {
     return pp::Error("This key is not one of the operation's signers");
   }
-  const std::string &publicKey = op.signers.publicKeys[*key];
+  const std::string& publicKey = op.signers.publicKeys[*key];
   const auto already = check(op);
   if (std::find(already.signedBy.begin(), already.signedBy.end(), publicKey) != already.signedBy.end()) {
     return pp::Error("This key has signed already (" + fingerprint(publicKey) + ")");
   }
   // Every record this key has not signed yet.
-  for (const auto &part : partsOf(op)) {
+  for (const auto& part : partsOf(op)) {
     const std::string partMessage = part.record->signingMessage(op.networkId);
     const auto matched = matchSignatures(op.signers.publicKeys, partMessage, *part.signatures);
     if (std::find(matched.begin(), matched.end(), std::optional<size_t>(*key)) != matched.end()) {
@@ -586,11 +596,11 @@ pp::Roe<std::string> sign(Operation &op, const std::string &privateKey) {
   return publicKey;
 }
 
-pp::Roe<Operation> merge(const std::vector<Operation> &copies) {
+pp::Roe<Operation> merge(const std::vector<Operation>& copies) {
   if (copies.empty()) {
     return pp::Error("Nothing to merge");
   }
-  auto sameRecords = [](const Operation &a, const Operation &b) {
+  auto sameRecords = [](const Operation& a, const Operation& b) {
     if (a.record.type != b.record.type || a.record.data != b.record.data ||
         a.moreRecords.size() != b.moreRecords.size()) {
       return false;
@@ -604,34 +614,33 @@ pp::Roe<Operation> merge(const std::vector<Operation> &copies) {
   };
   Operation merged = copies.front();
   for (size_t i = 1; i < copies.size(); ++i) {
-    const Operation &other = copies[i];
-    if (other.networkId != merged.networkId || other.genesisHash != merged.genesisHash ||
-        !sameRecords(other, merged) || !(other.signers == merged.signers) || other.notes != merged.notes ||
-        other.createdAt != merged.createdAt) {
+    const Operation& other = copies[i];
+    if (other.networkId != merged.networkId || other.genesisHash != merged.genesisHash || !sameRecords(other, merged) ||
+        !(other.signers == merged.signers) || other.notes != merged.notes || other.createdAt != merged.createdAt) {
       return pp::Error("Copy " + std::to_string(i + 1) + " is a different operation: only signatures may differ");
     }
     merged.signatures.insert(merged.signatures.end(), other.signatures.begin(), other.signatures.end());
     for (size_t r = 0; r < merged.moreRecords.size(); ++r) {
-      auto &into = merged.moreRecords[r].signatures;
-      const auto &from = other.moreRecords[r].signatures;
+      auto& into = merged.moreRecords[r].signatures;
+      const auto& from = other.moreRecords[r].signatures;
       into.insert(into.end(), from.begin(), from.end());
     }
   }
-  for (const auto &part : partsOf(merged)) {
+  for (const auto& part : partsOf(merged)) {
     *part.signatures =
         validSignatures(merged.signers.publicKeys, part.record->signingMessage(merged.networkId), *part.signatures);
   }
   return merged;
 }
 
-pp::Roe<std::vector<Ledger::Record>> signedRecords(const Operation &op) {
+pp::Roe<std::vector<Ledger::Record>> signedRecords(const Operation& op) {
   const auto checked = check(op);
   if (!checked.complete()) {
     return pp::Error("Signed by " + std::to_string(checked.signedBy.size()) + " of the " +
                      std::to_string(checked.needed) + " needed");
   }
   std::vector<Ledger::Record> out;
-  for (const auto &part : partsOf(op)) {
+  for (const auto& part : partsOf(op)) {
     Ledger::Record record = *part.record;
     record.signatures =
         validSignatures(op.signers.publicKeys, part.record->signingMessage(op.networkId), *part.signatures);
@@ -640,7 +649,7 @@ pp::Roe<std::vector<Ledger::Record>> signedRecords(const Operation &op) {
   return out;
 }
 
-pp::Roe<Ledger::Record> signedRecord(const Operation &op) {
+pp::Roe<Ledger::Record> signedRecord(const Operation& op) {
   auto records = signedRecords(op);
   if (!records) {
     return records.error();
@@ -656,207 +665,213 @@ std::string groupDigits(uint64_t value) {
   return digits;
 }
 
-pp::Roe<Summary> summarize(const Operation &op) {
+pp::Roe<Summary> summarize(const Operation& op) {
   auto typed = op.record.decode();
   if (!typed) {
     return pp::Error("The record does not decode: " + typed.error().message);
   }
   Summary s;
   const Kind kind = kindOf(op);
-  std::visit([&s](const auto &tx) { windowOf(tx, s); }, typed.value());
+  std::visit([&s](const auto& tx) { windowOf(tx, s); }, typed.value());
   switch (kind) {
-  case Kind::Transfer: {
-    const auto &tx = std::get<Ledger::TxDefault>(typed.value());
-    s.title = "Transfer";
-    s.lines = {{"From", accountName(tx.fromWalletId)}, {"To", accountName(tx.toWalletId)},
-               {"Amount", groupDigits(tx.amount) + (tx.tokenId ? " of token " + std::to_string(tx.tokenId) : "")},
-               {"Fee", groupDigits(tx.fee)}};
-    break;
-  }
-  case Kind::Batch: {
-    std::vector<Ledger::TxDefault> all{std::get<Ledger::TxDefault>(typed.value())};
-    for (const auto &extra : op.moreRecords) {
-      auto tx = utl::binaryUnpack<Ledger::TxDefault>(extra.data);
-      if (!tx) {
-        return pp::Error("A transfer of the batch does not decode");
-      }
-      all.push_back(tx.value());
-    }
-    s.title = std::to_string(all.size()) + " transfers from " + accountName(all.front().fromWalletId);
-    std::map<uint64_t, uint64_t> totals;
-    uint64_t fees = 0;
-    for (const auto &tx : all) {
-      s.lines.emplace_back("To " + accountName(tx.toWalletId),
-                           groupDigits(tx.amount) + (tx.tokenId ? " of token " + std::to_string(tx.tokenId) : ""));
-      totals[tx.tokenId] += tx.amount;
-      fees += tx.fee;
-    }
-    for (const auto &[token, total] : totals) {
-      s.lines.emplace_back(token ? "Total of token " + std::to_string(token) : "Total", groupDigits(total));
-    }
-    s.lines.emplace_back("Fees, all", groupDigits(fees));
-    if (!all.front().meta.empty()) {
-      s.lines.emplace_back("Each carries", std::to_string(all.front().meta.size()) + " bytes of metadata");
-    }
-    break;
-  }
-  case Kind::Mint: {
-    const auto &tx = std::get<Ledger::TxDefault>(typed.value());
-    s.title = "Mint new tokens to the reserve";
-    s.lines = {{"Amount", groupDigits(tx.amount)}, {"Fee", groupDigits(tx.fee)}};
-    break;
-  }
-  case Kind::NewAccount: {
-    const auto &tx = std::get<Ledger::TxNewUser>(typed.value());
-    s.title = "Create an account";
-    s.lines = {{"Account", accountName(tx.toWalletId)}, {"Funded by", accountName(tx.fromWalletId)},
-               {"Amount", groupDigits(tx.amount)}, {"Fee", groupDigits(tx.fee)}};
-    UserAccount account;
-    if (account.ltsFromString(tx.meta)) {
-      s.lines.emplace_back("Its keys", keysLine(account.wallet.publicKeys, account.wallet.minSignatures));
-      if (!account.wallet.domain.empty()) {
-        s.lines.emplace_back("Its domain", account.wallet.domain + " (its token's symbol; never changed)");
-      }
-    } else {
-      s.lines.emplace_back("Its keys", "(the account record does not decode)");
-    }
-    break;
-  }
-  case Kind::AccountUpdate: {
-    const auto &tx = std::get<Ledger::TxUserUpdate>(typed.value());
-    s.title = "Update an account: its keys, its recovery";
-    UserAccount account;
-    if (!account.ltsFromString(tx.meta)) {
-      return pp::Error("The account update does not decode");
-    }
-    s.lines = {{"Account", accountName(tx.walletId)},
-               {"Its keys from then on", keysLine(account.wallet.publicKeys, account.wallet.minSignatures)}};
-    if (const auto &r = account.wallet.recovery; r.hasSet()) {
-      s.lines.emplace_back("Its recovery set", recoveryLine(r.publicKeys, r.minSignatures, r.delaySeconds));
-    }
-    s.lines.emplace_back("Fee", groupDigits(tx.fee));
-    break;
-  }
-  case Kind::DomainAssign: {
-    const auto &tx = std::get<Ledger::TxDomainAssign>(typed.value());
-    s.title = "Give an account its domain";
-    s.lines = {{"Account", accountName(tx.walletId)},
-               {"Its domain", tx.domain + " (its token's symbol; never changed)"},
-               {"Fee (from the registrar)", groupDigits(tx.fee)}};
-    break;
-  }
-  case Kind::AccountRecovery: {
-    const auto &tx = std::get<Ledger::TxAccountRecovery>(typed.value());
-    AccountRecoveryAction action;
-    if (!action.ltsFromString(tx.meta)) {
-      return pp::Error("The account recovery does not decode");
-    }
-    s.lines = {{"Account", accountName(tx.walletId)}};
-    switch (action.kind) {
-    case AccountRecoveryAction::ANNOUNCE:
-      s.title = "Recover an account: new keys, the account frozen until then";
-      s.lines.emplace_back("Its keys from then on", keysLine(action.publicKeys, action.minSignatures));
-      s.lines.emplace_back("They take over", "at the first epoch start after the account's recovery delay");
-      s.lines.emplace_back("Meanwhile", "the account is frozen: its keys sign nothing; only its recovery set can "
-                                        "withdraw this");
+    case Kind::Transfer: {
+      const auto& tx = std::get<Ledger::TxDefault>(typed.value());
+      s.title = "Transfer";
+      s.lines = {{"From", accountName(tx.fromWalletId)},
+                 {"To", accountName(tx.toWalletId)},
+                 {"Amount", groupDigits(tx.amount) + (tx.tokenId ? " of token " + std::to_string(tx.tokenId) : "")},
+                 {"Fee", groupDigits(tx.fee)}};
       break;
-    case AccountRecoveryAction::WITHDRAW:
-      s.title = "Withdraw an account's recovery";
-      s.lines.emplace_back("Its keys", "as they are: they sign again");
+    }
+    case Kind::Batch: {
+      std::vector<Ledger::TxDefault> all{std::get<Ledger::TxDefault>(typed.value())};
+      for (const auto& extra : op.moreRecords) {
+        auto tx = utl::binaryUnpack<Ledger::TxDefault>(extra.data);
+        if (!tx) {
+          return pp::Error("A transfer of the batch does not decode");
+        }
+        all.push_back(tx.value());
+      }
+      s.title = std::to_string(all.size()) + " transfers from " + accountName(all.front().fromWalletId);
+      std::map<uint64_t, uint64_t> totals;
+      uint64_t fees = 0;
+      for (const auto& tx : all) {
+        s.lines.emplace_back("To " + accountName(tx.toWalletId),
+                             groupDigits(tx.amount) + (tx.tokenId ? " of token " + std::to_string(tx.tokenId) : ""));
+        totals[tx.tokenId] += tx.amount;
+        fees += tx.fee;
+      }
+      for (const auto& [token, total] : totals) {
+        s.lines.emplace_back(token ? "Total of token " + std::to_string(token) : "Total", groupDigits(total));
+      }
+      s.lines.emplace_back("Fees, all", groupDigits(fees));
+      if (!all.front().meta.empty()) {
+        s.lines.emplace_back("Each carries", std::to_string(all.front().meta.size()) + " bytes of metadata");
+      }
       break;
-    case AccountRecoveryAction::CHANGE:
-      s.title = "Change an account's recovery set";
-      s.lines.emplace_back("Its recovery set from then on",
-                           action.publicKeys.empty()
-                               ? "none: if its keys are lost, so is the account"
-                               : recoveryLine(action.publicKeys, action.minSignatures, action.delaySeconds));
+    }
+    case Kind::Mint: {
+      const auto& tx = std::get<Ledger::TxDefault>(typed.value());
+      s.title = "Mint new tokens to the reserve";
+      s.lines = {{"Amount", groupDigits(tx.amount)}, {"Fee", groupDigits(tx.fee)}};
       break;
-    default:
-      return pp::Error("Unknown account recovery action " + std::to_string(action.kind));
     }
-    s.lines.emplace_back("Signed by", "the account's recovery set");
-    s.lines.emplace_back("Fee (from the account)", groupDigits(tx.fee));
-    break;
-  }
-  case Kind::ConfigUpdate: {
-    const auto &tx = std::get<Ledger::TxConfig>(typed.value());
-    s.title = "Change the chain's config (from the next epoch)";
-    GenesisAccountMeta meta;
-    if (!meta.ltsFromString(tx.meta)) {
-      return pp::Error("The config update does not decode");
-    }
-    describeConfig(meta.config, s);
-    s.lines.emplace_back("Admin keys", keysLine(meta.genesis.wallet.publicKeys, meta.genesis.wallet.minSignatures));
-    break;
-  }
-  case Kind::BeaconCertificate: {
-    const auto &tx = std::get<Ledger::TxBeaconCert>(typed.value());
-    s.title = "Certify a new beacon key";
-    BeaconCertificate cert;
-    if (!cert.ltsFromString(tx.meta)) {
-      return pp::Error("The beacon certificate does not decode");
-    }
-    s.lines = {{"Generation", std::to_string(cert.generation)},
-               {"Beacon key", fingerprint(cert.publicKey)},
-               {"Cutover", cert.hasCutover() ? "block " + groupDigits(cert.cutoverHeight) + " (blocks after it are dropped)"
-                                             : "none"},
-               {"Dial hints", std::to_string(cert.dialHints.size())},
-               {"Seed anchor", cert.hasSeedChain() ? utl::hexEncode(cert.seedAnchor) + ", epoch " +
-                                                         std::to_string(cert.seedAnchorEpoch) + ", " +
-                                                         std::to_string(cert.seedChainLength) + " epochs"
-                                                   : "none"}};
-    break;
-  }
-  case Kind::Recovery: {
-    const auto &tx = std::get<Ledger::TxRecovery>(typed.value());
-    s.title = "Replace the admin keys (recovery)";
-    RecoveryAnnouncement announcement;
-    if (!announcement.ltsFromString(tx.meta)) {
-      return pp::Error("The recovery announcement does not decode");
-    }
-    s.lines = {{"New admin keys", keysLine(announcement.adminPublicKeys, announcement.adminMinSignatures)}};
-    break;
-  }
-  case Kind::Genesis: {
-    const auto &tx = std::get<Ledger::TxGenesis>(typed.value());
-    s.title = "Start the chain (genesis)";
-    GenesisAccountMeta meta;
-    if (!meta.ltsFromString(tx.meta)) {
-      return pp::Error("The genesis record does not decode");
-    }
-    s.lines.emplace_back("Starts", utl::formatTimestampLocal(meta.config.genesisTime));
-    describeConfig(meta.config, s);
-    s.lines.emplace_back("Admin keys", keysLine(meta.genesis.wallet.publicKeys, meta.genesis.wallet.minSignatures));
-    if (!meta.genesis.wallet.domain.empty()) {
-      s.lines.emplace_back("The native token's symbol", meta.genesis.wallet.domain + " (the genesis account's domain)");
-    }
-    const auto &recovery = meta.authority.recovery;
-    s.lines.emplace_back("Recovery keys", keysLine(recovery.publicKeys, recovery.minSignatures) + "; takes effect " +
-                                              std::to_string(recovery.delayEpochs) + " epoch(s) after announcing");
-    s.lines.emplace_back("Beacon key (generation " + std::to_string(meta.authority.beacon.generation) + ")",
-                         fingerprint(meta.authority.beacon.publicKey));
-    for (const auto &extra : op.moreRecords) {
-      auto account = utl::binaryUnpack<Ledger::TxNewUser>(extra.data);
-      UserAccount created;
-      if (!account || !created.ltsFromString(account.value().meta)) {
-        return pp::Error("A genesis account record does not decode");
+    case Kind::NewAccount: {
+      const auto& tx = std::get<Ledger::TxNewUser>(typed.value());
+      s.title = "Create an account";
+      s.lines = {{"Account", accountName(tx.toWalletId)},
+                 {"Funded by", accountName(tx.fromWalletId)},
+                 {"Amount", groupDigits(tx.amount)},
+                 {"Fee", groupDigits(tx.fee)}};
+      UserAccount account;
+      if (account.ltsFromString(tx.meta)) {
+        s.lines.emplace_back("Its keys", keysLine(account.wallet.publicKeys, account.wallet.minSignatures));
+        if (!account.wallet.domain.empty()) {
+          s.lines.emplace_back("Its domain", account.wallet.domain + " (its token's symbol; never changed)");
+        }
+      } else {
+        s.lines.emplace_back("Its keys", "(the account record does not decode)");
       }
-      const uint64_t id = account.value().toWalletId;
-      const bool miner = created.wallet.miner.registered;
-      std::string line = keysLine(created.wallet.publicKeys, created.wallet.minSignatures);
-      if (account.value().amount > 0) {
-        line = groupDigits(account.value().amount) + (miner ? " staked; keys " : "; keys ") + line;
-      }
-      if (!created.wallet.domain.empty()) {
-        line = created.wallet.domain + "; " + line;
-      }
-      s.lines.emplace_back(miner ? "Miner " + std::to_string(id) : accountName(id), line);
+      break;
     }
-    break;
-  }
-  case Kind::Other:
-    s.title = "Transaction of type " + std::to_string(op.record.type);
-    break;
+    case Kind::AccountUpdate: {
+      const auto& tx = std::get<Ledger::TxUserUpdate>(typed.value());
+      s.title = "Update an account: its keys, its recovery";
+      UserAccount account;
+      if (!account.ltsFromString(tx.meta)) {
+        return pp::Error("The account update does not decode");
+      }
+      s.lines = {{"Account", accountName(tx.walletId)},
+                 {"Its keys from then on", keysLine(account.wallet.publicKeys, account.wallet.minSignatures)}};
+      if (const auto& r = account.wallet.recovery; r.hasSet()) {
+        s.lines.emplace_back("Its recovery set", recoveryLine(r.publicKeys, r.minSignatures, r.delaySeconds));
+      }
+      s.lines.emplace_back("Fee", groupDigits(tx.fee));
+      break;
+    }
+    case Kind::DomainAssign: {
+      const auto& tx = std::get<Ledger::TxDomainAssign>(typed.value());
+      s.title = "Give an account its domain";
+      s.lines = {{"Account", accountName(tx.walletId)},
+                 {"Its domain", tx.domain + " (its token's symbol; never changed)"},
+                 {"Fee (from the registrar)", groupDigits(tx.fee)}};
+      break;
+    }
+    case Kind::AccountRecovery: {
+      const auto& tx = std::get<Ledger::TxAccountRecovery>(typed.value());
+      AccountRecoveryAction action;
+      if (!action.ltsFromString(tx.meta)) {
+        return pp::Error("The account recovery does not decode");
+      }
+      s.lines = {{"Account", accountName(tx.walletId)}};
+      switch (action.kind) {
+        case AccountRecoveryAction::ANNOUNCE:
+          s.title = "Recover an account: new keys, the account frozen until then";
+          s.lines.emplace_back("Its keys from then on", keysLine(action.publicKeys, action.minSignatures));
+          s.lines.emplace_back("They take over", "at the first epoch start after the account's recovery delay");
+          s.lines.emplace_back("Meanwhile",
+                               "the account is frozen: its keys sign nothing; only its recovery set can "
+                               "withdraw this");
+          break;
+        case AccountRecoveryAction::WITHDRAW:
+          s.title = "Withdraw an account's recovery";
+          s.lines.emplace_back("Its keys", "as they are: they sign again");
+          break;
+        case AccountRecoveryAction::CHANGE:
+          s.title = "Change an account's recovery set";
+          s.lines.emplace_back("Its recovery set from then on",
+                               action.publicKeys.empty()
+                                   ? "none: if its keys are lost, so is the account"
+                                   : recoveryLine(action.publicKeys, action.minSignatures, action.delaySeconds));
+          break;
+        default:
+          return pp::Error("Unknown account recovery action " + std::to_string(action.kind));
+      }
+      s.lines.emplace_back("Signed by", "the account's recovery set");
+      s.lines.emplace_back("Fee (from the account)", groupDigits(tx.fee));
+      break;
+    }
+    case Kind::ConfigUpdate: {
+      const auto& tx = std::get<Ledger::TxConfig>(typed.value());
+      s.title = "Change the chain's config (from the next epoch)";
+      GenesisAccountMeta meta;
+      if (!meta.ltsFromString(tx.meta)) {
+        return pp::Error("The config update does not decode");
+      }
+      describeConfig(meta.config, s);
+      s.lines.emplace_back("Admin keys", keysLine(meta.genesis.wallet.publicKeys, meta.genesis.wallet.minSignatures));
+      break;
+    }
+    case Kind::BeaconCertificate: {
+      const auto& tx = std::get<Ledger::TxBeaconCert>(typed.value());
+      s.title = "Certify a new beacon key";
+      BeaconCertificate cert;
+      if (!cert.ltsFromString(tx.meta)) {
+        return pp::Error("The beacon certificate does not decode");
+      }
+      s.lines = {
+          {"Generation", std::to_string(cert.generation)},
+          {"Beacon key", fingerprint(cert.publicKey)},
+          {"Cutover",
+           cert.hasCutover() ? "block " + groupDigits(cert.cutoverHeight) + " (blocks after it are dropped)" : "none"},
+          {"Dial hints", std::to_string(cert.dialHints.size())},
+          {"Seed anchor", cert.hasSeedChain()
+                              ? utl::hexEncode(cert.seedAnchor) + ", epoch " + std::to_string(cert.seedAnchorEpoch) +
+                                    ", " + std::to_string(cert.seedChainLength) + " epochs"
+                              : "none"}};
+      break;
+    }
+    case Kind::Recovery: {
+      const auto& tx = std::get<Ledger::TxRecovery>(typed.value());
+      s.title = "Replace the admin keys (recovery)";
+      RecoveryAnnouncement announcement;
+      if (!announcement.ltsFromString(tx.meta)) {
+        return pp::Error("The recovery announcement does not decode");
+      }
+      s.lines = {{"New admin keys", keysLine(announcement.adminPublicKeys, announcement.adminMinSignatures)}};
+      break;
+    }
+    case Kind::Genesis: {
+      const auto& tx = std::get<Ledger::TxGenesis>(typed.value());
+      s.title = "Start the chain (genesis)";
+      GenesisAccountMeta meta;
+      if (!meta.ltsFromString(tx.meta)) {
+        return pp::Error("The genesis record does not decode");
+      }
+      s.lines.emplace_back("Starts", utl::formatTimestampLocal(meta.config.genesisTime));
+      describeConfig(meta.config, s);
+      s.lines.emplace_back("Admin keys", keysLine(meta.genesis.wallet.publicKeys, meta.genesis.wallet.minSignatures));
+      if (!meta.genesis.wallet.domain.empty()) {
+        s.lines.emplace_back("The native token's symbol",
+                             meta.genesis.wallet.domain + " (the genesis account's domain)");
+      }
+      const auto& recovery = meta.authority.recovery;
+      s.lines.emplace_back("Recovery keys", keysLine(recovery.publicKeys, recovery.minSignatures) + "; takes effect " +
+                                                std::to_string(recovery.delayEpochs) + " epoch(s) after announcing");
+      s.lines.emplace_back("Beacon key (generation " + std::to_string(meta.authority.beacon.generation) + ")",
+                           fingerprint(meta.authority.beacon.publicKey));
+      for (const auto& extra : op.moreRecords) {
+        auto account = utl::binaryUnpack<Ledger::TxNewUser>(extra.data);
+        UserAccount created;
+        if (!account || !created.ltsFromString(account.value().meta)) {
+          return pp::Error("A genesis account record does not decode");
+        }
+        const uint64_t id = account.value().toWalletId;
+        const bool miner = created.wallet.miner.registered;
+        std::string line = keysLine(created.wallet.publicKeys, created.wallet.minSignatures);
+        if (account.value().amount > 0) {
+          line = groupDigits(account.value().amount) + (miner ? " staked; keys " : "; keys ") + line;
+        }
+        if (!created.wallet.domain.empty()) {
+          line = created.wallet.domain + "; " + line;
+        }
+        s.lines.emplace_back(miner ? "Miner " + std::to_string(id) : accountName(id), line);
+      }
+      break;
+    }
+    case Kind::Other:
+      s.title = "Transaction of type " + std::to_string(op.record.type);
+      break;
   }
   s.lines.insert(s.lines.begin(), {"Network", op.networkId});
   return s;
@@ -871,7 +886,7 @@ Window windowFrom(int64_t now, int64_t validForSeconds) {
 
 namespace {
 
-Operation start(const Common &common) {
+Operation start(const Common& common) {
   Operation op;
   op.networkId = common.networkId;
   op.genesisHash = common.genesisHash;
@@ -881,13 +896,14 @@ Operation start(const Common &common) {
   return op;
 }
 
-template <typename Tx> void stamp(Tx &tx, const Common &common) {
+template <typename Tx>
+void stamp(Tx& tx, const Common& common) {
   tx.idempotentId = common.idempotentId ? common.idempotentId : randomNonZero();
   tx.validationTsMin = common.window.from;
   tx.validationTsMax = common.window.until;
 }
 
-pp::Roe<void> checkCommon(const Common &common, bool needsAccount) {
+pp::Roe<void> checkCommon(const Common& common, bool needsAccount) {
   if (common.networkId.empty()) {
     return pp::Error("No network id");
   }
@@ -906,8 +922,8 @@ pp::Roe<void> checkCommon(const Common &common, bool needsAccount) {
 
 } // namespace
 
-pp::Roe<Operation> transfer(const Common &common, uint64_t to, uint64_t amount, uint64_t fee, uint64_t tokenId,
-                            const std::string &meta) {
+pp::Roe<Operation> transfer(const Common& common, uint64_t to, uint64_t amount, uint64_t fee, uint64_t tokenId,
+                            const std::string& meta) {
   if (auto ok = checkCommon(common, true); !ok) {
     return ok.error();
   }
@@ -926,8 +942,8 @@ pp::Roe<Operation> transfer(const Common &common, uint64_t to, uint64_t amount, 
   return op;
 }
 
-pp::Roe<Operation> transfers(const Common &common, const std::vector<Payment> &payments, uint64_t feeEach,
-                             const std::string &meta) {
+pp::Roe<Operation> transfers(const Common& common, const std::vector<Payment>& payments, uint64_t feeEach,
+                             const std::string& meta) {
   if (auto ok = checkCommon(common, true); !ok) {
     return ok.error();
   }
@@ -937,7 +953,7 @@ pp::Roe<Operation> transfers(const Common &common, const std::vector<Payment> &p
   const uint64_t from = *common.signers.account;
   Operation op = start(common);
   for (size_t i = 0; i < payments.size(); ++i) {
-    const Payment &p = payments[i];
+    const Payment& p = payments[i];
     if (p.amount == 0 || p.to == from) {
       return pp::Error("Transfer " + std::to_string(i + 1) + " of the batch: " +
                        (p.amount == 0 ? "an amount above 0" : "it cannot go to the account it comes from"));
@@ -968,13 +984,13 @@ pp::Roe<Operation> transfers(const Common &common, const std::vector<Payment> &p
   return op;
 }
 
-pp::Roe<Operation> mint(const Common &common, uint64_t amount, uint64_t fee) {
+pp::Roe<Operation> mint(const Common& common, uint64_t amount, uint64_t fee) {
   Common genesis = common;
   genesis.signers.account = AccountIds::ID_GENESIS;
   return transfer(genesis, AccountIds::ID_RESERVE, amount, fee);
 }
 
-pp::Roe<Operation> newAccount(const Common &common, uint64_t id, const UserAccount &account, uint64_t amount,
+pp::Roe<Operation> newAccount(const Common& common, uint64_t id, const UserAccount& account, uint64_t amount,
                               uint64_t fee) {
   if (auto ok = checkCommon(common, true); !ok) {
     return ok.error();
@@ -993,7 +1009,7 @@ pp::Roe<Operation> newAccount(const Common &common, uint64_t id, const UserAccou
   return op;
 }
 
-pp::Roe<Operation> assignDomain(const Common &common, uint64_t account, const std::string &domain, uint64_t fee) {
+pp::Roe<Operation> assignDomain(const Common& common, uint64_t account, const std::string& domain, uint64_t fee) {
   if (auto ok = checkCommon(common, true); !ok) {
     return ok.error();
   }
@@ -1019,7 +1035,7 @@ pp::Roe<Operation> assignDomain(const Common &common, uint64_t account, const st
   return op;
 }
 
-pp::Roe<Operation> genesis(const std::vector<Ledger::Record> &records, const std::string &notes, int64_t createdAt) {
+pp::Roe<Operation> genesis(const std::vector<Ledger::Record>& records, const std::string& notes, int64_t createdAt) {
   if (records.empty() || records.front().type != Ledger::T_GENESIS) {
     return pp::Error("A genesis starts with the genesis record");
   }
@@ -1037,7 +1053,7 @@ pp::Roe<Operation> genesis(const std::vector<Ledger::Record> &records, const std
   op.record.data = records.front().data;
   op.kind = Kind::Genesis;
   for (size_t i = 1; i < records.size(); ++i) {
-    const auto &extra = records[i];
+    const auto& extra = records[i];
     if (extra.type != Ledger::T_NEW_USER || !extra.decode() || signerAccountOf(extra) != AccountIds::ID_GENESIS) {
       return pp::Error("Record " + std::to_string(i) + " of the genesis is not an account the genesis account creates");
     }
@@ -1057,11 +1073,11 @@ pp::Roe<Operation> genesis(const std::vector<Ledger::Record> &records, const std
 
 namespace {
 
-pp::Roe<void> checkKeySet(const std::vector<std::string> &keys, uint32_t minSignatures, const std::string &what) {
+pp::Roe<void> checkKeySet(const std::vector<std::string>& keys, uint32_t minSignatures, const std::string& what) {
   if (keys.empty() || minSignatures == 0 || minSignatures > keys.size() || minSignatures > 255) {
     return pp::Error(what + ": at least one key, and between 1 and that many to sign");
   }
-  for (const auto &key : keys) {
+  for (const auto& key : keys) {
     if (key.size() != utl::kMlDsaPublicKeyBytes || std::count(keys.begin(), keys.end(), key) > 1) {
       return pp::Error(what + ": distinct ML-DSA-65 public keys");
     }
@@ -1073,11 +1089,11 @@ pp::Roe<void> checkKeySet(const std::vector<std::string> &keys, uint32_t minSign
  * An update of `next` (the account as it will be) paying `fee`: the update carries the balances as
  * they will be, the fee out of the native token.
  */
-pp::Roe<Operation> updateOf(const Common &common, UserAccount next, uint64_t fee) {
+pp::Roe<Operation> updateOf(const Common& common, UserAccount next, uint64_t fee) {
   if (next.wallet.recovery.pending) {
     return pp::Error("The account is frozen: its recovery set announced new keys (only the set can withdraw it)");
   }
-  int64_t &native = next.wallet.mBalances[AccountIds::ID_GENESIS];
+  int64_t& native = next.wallet.mBalances[AccountIds::ID_GENESIS];
   if (fee > static_cast<uint64_t>(std::max<int64_t>(native, 0))) {
     return pp::Error("The account cannot pay the fee (" + groupDigits(fee) + ")");
   }
@@ -1095,7 +1111,7 @@ pp::Roe<Operation> updateOf(const Common &common, UserAccount next, uint64_t fee
 }
 
 /** The recovery set's `action` on `account`, the account paying `fee`. */
-pp::Roe<Operation> recoveryActionOf(const Common &common, uint64_t account, const AccountRecoveryAction &action,
+pp::Roe<Operation> recoveryActionOf(const Common& common, uint64_t account, const AccountRecoveryAction& action,
                                     uint64_t fee) {
   if (auto ok = checkCommon(common, true); !ok) {
     return ok.error();
@@ -1117,7 +1133,7 @@ pp::Roe<Operation> recoveryActionOf(const Common &common, uint64_t account, cons
 
 } // namespace
 
-pp::Roe<Operation> setRecovery(const Common &common, const UserAccount &current, const std::vector<std::string> &keys,
+pp::Roe<Operation> setRecovery(const Common& common, const UserAccount& current, const std::vector<std::string>& keys,
                                uint32_t minSignatures, uint64_t delaySeconds, uint64_t fee) {
   if (auto ok = checkCommon(common, true); !ok) {
     return ok.error();
@@ -1138,7 +1154,7 @@ pp::Roe<Operation> setRecovery(const Common &common, const UserAccount &current,
   return updateOf(common, std::move(next), fee);
 }
 
-pp::Roe<Operation> announceRecovery(const Common &common, uint64_t account, const std::vector<std::string> &keys,
+pp::Roe<Operation> announceRecovery(const Common& common, uint64_t account, const std::vector<std::string>& keys,
                                     uint32_t minSignatures, uint64_t fee) {
   if (auto ok = checkKeySet(keys, minSignatures, "The new keys"); !ok) {
     return ok.error();
@@ -1150,13 +1166,13 @@ pp::Roe<Operation> announceRecovery(const Common &common, uint64_t account, cons
   return recoveryActionOf(common, account, action, fee);
 }
 
-pp::Roe<Operation> withdrawRecovery(const Common &common, uint64_t account, uint64_t fee) {
+pp::Roe<Operation> withdrawRecovery(const Common& common, uint64_t account, uint64_t fee) {
   AccountRecoveryAction action;
   action.kind = AccountRecoveryAction::WITHDRAW;
   return recoveryActionOf(common, account, action, fee);
 }
 
-pp::Roe<Operation> changeRecovery(const Common &common, uint64_t account, const std::vector<std::string> &keys,
+pp::Roe<Operation> changeRecovery(const Common& common, uint64_t account, const std::vector<std::string>& keys,
                                   uint32_t minSignatures, uint64_t delaySeconds, uint64_t fee) {
   AccountRecoveryAction action;
   action.kind = AccountRecoveryAction::CHANGE;
@@ -1174,7 +1190,7 @@ pp::Roe<Operation> changeRecovery(const Common &common, uint64_t account, const 
   return recoveryActionOf(common, account, action, fee);
 }
 
-pp::Roe<Operation> replaceKeys(const Common &common, const UserAccount &current, const std::vector<std::string> &keys,
+pp::Roe<Operation> replaceKeys(const Common& common, const UserAccount& current, const std::vector<std::string>& keys,
                                uint32_t minSignatures, uint64_t fee) {
   if (auto ok = checkCommon(common, true); !ok) {
     return ok.error();
@@ -1188,7 +1204,7 @@ pp::Roe<Operation> replaceKeys(const Common &common, const UserAccount &current,
   return updateOf(common, std::move(next), fee);
 }
 
-pp::Roe<Operation> wrap(const Common &common, const Ledger::Record &record) {
+pp::Roe<Operation> wrap(const Common& common, const Ledger::Record& record) {
   if (auto ok = checkCommon(common, false); !ok) {
     return ok.error();
   }

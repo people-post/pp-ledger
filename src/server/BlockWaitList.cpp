@@ -2,7 +2,7 @@
 
 namespace pp {
 
-std::vector<BlockWaitList::Reply> BlockWaitList::park(const std::string &peerId, uint64_t knownNext,
+std::vector<BlockWaitList::Reply> BlockWaitList::park(const std::string& peerId, uint64_t knownNext,
                                                       Clock::time_point deadline, Reply reply, uint64_t tip) {
   std::vector<Reply> due;
   if (auto it = waits_.find(peerId); it != waits_.end()) {
@@ -32,7 +32,7 @@ std::vector<BlockWaitList::Reply> BlockWaitList::poll(uint64_t tip, Clock::time_
 
 std::vector<BlockWaitList::Reply> BlockWaitList::takeAll() {
   std::vector<Reply> all;
-  for (auto &[_, wait] : waits_) {
+  for (auto& [_, wait] : waits_) {
     all.push_back(std::move(wait.reply));
   }
   waits_.clear();

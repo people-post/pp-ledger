@@ -15,9 +15,7 @@ protected:
     cleanupTestDir();
   }
 
-  void TearDown() override {
-    cleanupTestDir();
-  }
+  void TearDown() override { cleanupTestDir(); }
 
   void cleanupTestDir() {
     std::error_code ec;
@@ -453,9 +451,8 @@ TEST_F(LedgerTest, ReadBlockSuccessfully) {
   // Read back blocks and verify (0-based IDs)
   for (uint64_t i = 0; i < 5; ++i) {
     auto readResult = ledger.readBlock(i);
-    ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i << ": " 
-                                    << readResult.error().message;
-    
+    ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i << ": " << readResult.error().message;
+
     const Ledger::ChainNode& readBlock = readResult.value();
     EXPECT_EQ(readBlock.block.index, testBlocks[i].block.index);
     EXPECT_EQ(readBlock.hash, testBlocks[i].hash);
@@ -530,10 +527,8 @@ TEST_F(LedgerTest, ReadBlockAfterReopen) {
     // Read blocks after reopening (0-based IDs)
     for (uint64_t i = 0; i < 5; ++i) {
       auto readResult = ledger.readBlock(i);
-      ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i 
-                                      << " after reopen: " 
-                                      << readResult.error().message;
-      
+      ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i << " after reopen: " << readResult.error().message;
+
       const Ledger::ChainNode& readBlock = readResult.value();
       EXPECT_EQ(readBlock.block.index, i);
     }
@@ -710,7 +705,7 @@ TEST_F(LedgerTest, StartingBlockIdPreservedWithNonZeroStartingBlockId) {
   }
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
@@ -720,7 +715,7 @@ int main(int argc, char **argv) {
 namespace {
 
 /** The ledger directory as a crash would leave it right now (what reached its files). */
-std::filesystem::path snapshotDir(const std::filesystem::path &dir, const std::string &suffix) {
+std::filesystem::path snapshotDir(const std::filesystem::path& dir, const std::string& suffix) {
   std::filesystem::path copy = dir;
   copy += suffix;
   std::error_code ec;
@@ -729,7 +724,7 @@ std::filesystem::path snapshotDir(const std::filesystem::path &dir, const std::s
   return copy;
 }
 
-uint64_t nextBlockIdAfterCrash(const std::filesystem::path &dir, const std::string &suffix) {
+uint64_t nextBlockIdAfterCrash(const std::filesystem::path& dir, const std::string& suffix) {
   const auto copy = snapshotDir(dir, suffix);
   uint64_t next = 0;
   {

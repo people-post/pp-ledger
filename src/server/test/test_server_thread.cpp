@@ -106,7 +106,8 @@ TEST(RequestQueueTest, TrustedPeersHaveTheirOwnLaneServedFirst) {
   for (size_t i = 0; i < RequestQueue::kTrustedPerOther + 1; ++i) {
     ASSERT_TRUE(queue.push("miner", "t", [](std::string) {}, kTrusted)) << i;
   }
-  EXPECT_EQ(popBodies(queue, RequestQueue::kTrustedPerOther + 2), std::string(RequestQueue::kTrustedPerOther, 't') + "nt")
+  EXPECT_EQ(popBodies(queue, RequestQueue::kTrustedPerOther + 2),
+            std::string(RequestQueue::kTrustedPerOther, 't') + "nt")
       << "trusted first, another lane's turn after a streak";
 }
 
@@ -145,24 +146,24 @@ public:
   }
   void handleNow(uint32_t type, Handler handler) { handle(type, std::move(handler)); }
 
-  using Server::enqueueRequest;
-  using Server::postToServerThread;
-  using Server::packResponse;
-  using Server::serveTasksUntil;
-  using Server::serveRequestsFor;
-  using Server::setNetworkTuning;
-  using Server::setUpstreams;
   using Server::addUpstream;
+  using Server::enqueueRequest;
   using Server::followUpstream;
-  using Server::setAllowedPeers;
-  using Server::loadOrCreateIdentityKey;
-  using Server::laneFor;
-  using Server::setRequestLimits;
-  using Server::stopAmpServer;
-  using Server::requestRestart;
-  using Server::noteMinerPeer;
   using Server::isTrustedPeer;
+  using Server::laneFor;
+  using Server::loadOrCreateIdentityKey;
+  using Server::noteMinerPeer;
+  using Server::packResponse;
+  using Server::postToServerThread;
+  using Server::requestRestart;
   using Server::runStartupSync;
+  using Server::serveRequestsFor;
+  using Server::serveTasksUntil;
+  using Server::setAllowedPeers;
+  using Server::setNetworkTuning;
+  using Server::setRequestLimits;
+  using Server::setUpstreams;
+  using Server::stopAmpServer;
 
   std::atomic<int> active{0};
   std::atomic<int> maxActive{0};
@@ -208,7 +209,6 @@ protected:
   std::optional<Client::SignedTip> latestSignedTip() const override { return signedTip; }
 
 public:
-
 protected:
   std::string echo(const Client::Request& request) {
     const int now = ++active;
@@ -294,7 +294,7 @@ TEST(ServerThreadTest, AServeTurnEndsWithItsBudgetUnderSteadyArrivals) {
   // Before the server: it answers what is still queued when it goes.
   auto served = std::make_shared<std::atomic<int>>(0);
   EchoServer server;
-  server.handleNow(Client::T_REQ_STATUS, [served](const Client::Request &) {
+  server.handleNow(Client::T_REQ_STATUS, [served](const Client::Request&) {
     std::this_thread::sleep_for(1ms);
     ++*served;
     return Service::Roe<std::string>("slow");
@@ -340,7 +340,7 @@ TEST(ServerThreadTest, RepliesBusyWhenQueueIsFull) {
   server.enqueueRequest(packRequest("b"), replies.sink());
   server.enqueueRequest(packRequest("c"), replies.sink());
 
-  ASSERT_EQ(replies.size(), 1u);  // refused at once, not queued
+  ASSERT_EQ(replies.size(), 1u); // refused at once, not queued
   EXPECT_EQ(replies.items[0].errorCode, Client::E_BUSY);
   EXPECT_EQ(replies.items[0].retryAfterMs, EchoServer::kBusyRetryAfterMs);
   EXPECT_NE(replies.items[0].payload.find("busy"), std::string::npos);
@@ -362,7 +362,7 @@ TEST(ServerThreadTest, RequestsGoThroughTheHandlerTable) {
   EXPECT_EQ(replies.items[0].payload, "Unsupported request type: " + std::to_string(Client::T_REQ_ACCOUNT_GET));
   EXPECT_EQ(server.handled.load(), 0);
 
-  server.handleNow(Client::T_REQ_STATUS, [](const Client::Request &) { return Service::Roe<std::string>("now"); });
+  server.handleNow(Client::T_REQ_STATUS, [](const Client::Request&) { return Service::Roe<std::string>("now"); });
   server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), replies.sink());
   server.serveRequestsFor(50ms);
   ASSERT_EQ(replies.size(), 2u);
@@ -411,15 +411,15 @@ TEST(ServerThreadTest, UpwardWritesAreRefusedFromOwnUpstream) {
   EXPECT_NE(replies.items[1].errorCode, 0);
   EXPECT_EQ(replies.items[7].errorCode, 0); // a downstream may submit blocks
   EXPECT_EQ(replies.items[2].errorCode, 0); // reads are fine either way
-  EXPECT_EQ(server.handled.load(), 2);     // refused ones never reached a handler
+  EXPECT_EQ(server.handled.load(), 2);      // refused ones never reached a handler
 }
 
 // bp2b: a node may have several upstreams but follows one; only that one is "its upstream". A relay
 // that was below this one may be its candidate upstream and still send it writes.
 TEST(ServerThreadTest, OnlyTheUpstreamFollowedIsRefusedUpwardWrites) {
   EchoServer server;
-  ASSERT_TRUE(server.setUpstreams({"/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/peer-a",
-                                   "/ip4/127.0.0.1/udp/8518/adp/1.0.0/p2p/peer-b"}));
+  ASSERT_TRUE(server.setUpstreams(
+      {"/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/peer-a", "/ip4/127.0.0.1/udp/8518/adp/1.0.0/p2p/peer-b"}));
   server.setAllowedPeers(std::set<std::string>{});
   Replies replies;
   server.enqueueRequest(packRequest("a", Client::T_REQ_TX_ADD), replies.sink(), "peer-a");
@@ -475,7 +475,7 @@ TEST(ServerThreadTest, HealthIsAnsweredAtOnceToAnyPeerFromWhatTheServerThreadPub
   EchoServer server;
   server.setAllowedPeers(std::set<std::string>{"relay-a"});
   server.enqueueRequest(packRequest("", Client::T_REQ_HEALTH), replies.sink(), "probe");
-  ASSERT_EQ(replies.size(), 1u); // answered without queueing
+  ASSERT_EQ(replies.size(), 1u);            // answered without queueing
   EXPECT_NE(replies.items[0].errorCode, 0); // nothing published yet: starting
 
   server.serveRequestsFor(10ms); // the server thread publishes
@@ -678,7 +678,7 @@ TEST(MinerRegistryTest, RenewalKeepsTheRecordWithoutChangingTheVersion) {
   EXPECT_EQ(registry.version(), v);
   EXPECT_EQ(registry.miners().at(1).tLastMessage, 1060);
   EXPECT_EQ(registry.expire(1300, 300), 0u); // renewed 240 s ago
-  registry.upsert(minerInfo(2), 1310); // joined
+  registry.upsert(minerInfo(2), 1310);       // joined
   EXPECT_GT(registry.version(), v);
 }
 
@@ -907,7 +907,6 @@ TEST(ServerThreadTest, CompletionAfterStopIsDropped) {
 
 } // namespace
 
-
 // --- Block add check, transaction pool ---
 
 #include "server/TxPool.h"
@@ -1027,7 +1026,7 @@ TEST(TxPoolTest, CountsWhatHappensToRecords) {
   EXPECT_EQ(pool.bytes(), a.data.size() + a.signatures[0].size() + b.data.size() + b.signatures[0].size());
   pool.removeIncluded({a});
   pool.expire(1005 + limits.ttlSeconds + 1);
-  const auto &c = pool.counters();
+  const auto& c = pool.counters();
   EXPECT_EQ(c.added, 2u);
   EXPECT_EQ(c.duplicates, 1u);
   EXPECT_EQ(c.full, 1u);
@@ -1050,7 +1049,7 @@ TEST(TxPoolTest, ASenderHasAShareAndStaleRecordsLeave) {
   EXPECT_EQ(pool.pooledBy(7), 2u);
 
   const auto first = transfer(1, 2000);
-  EXPECT_EQ(pool.removeIf([&](const Ledger::Record &r) { return r.data == first.data; }), 1u);
+  EXPECT_EQ(pool.removeIf([&](const Ledger::Record& r) { return r.data == first.data; }), 1u);
   EXPECT_EQ(pool.pooledBy(7), 1u);
   EXPECT_EQ(pool.add(transfer(3, 2000), 1001, 7), TxPool::Add::Added) << "its share freed";
   EXPECT_EQ(pool.counters().senderFull, 1u);
@@ -1100,7 +1099,7 @@ TEST(ServerThreadTest, ServeTasksUntilRunsCompletionsAndLeavesRequestsQueued) {
   std::thread io([&]() { server.postToServerThread([&]() { done = true; }); });
   io.join();
   EXPECT_TRUE(server.serveTasksUntil([&]() { return done; }, std::chrono::seconds(2)));
-  EXPECT_EQ(replies.size(), 0u);  // the request was not served
+  EXPECT_EQ(replies.size(), 0u); // the request was not served
   server.serveRequestsFor(std::chrono::milliseconds(20));
   EXPECT_EQ(replies.size(), 1u);
 }
@@ -1174,7 +1173,7 @@ TEST(ServerThreadTest, AStartupSyncEndsWhenARestartIsRequested) {
   hooks.nextBlockId = []() { return uint64_t{5}; };
   hooks.tipHash = []() { return std::optional<std::string>("tip"); };
   hooks.postToServerThread = [](std::function<void()> task) { task(); };
-  hooks.onFinished = [&](const BlockSync::Result &result) {
+  hooks.onFinished = [&](const BlockSync::Result& result) {
     last = result;
     server.requestRestart(); // as orderRewindIfDue does when the sync brought a cutover below our tip
   };
@@ -1202,4 +1201,3 @@ TEST(ServerThreadTest, ARequestedRestartStopsTheLoopAfterItsGrace) {
 }
 
 } // namespace
-

@@ -3,7 +3,7 @@
 
 namespace pp {
 
-EquivocationStore::EquivocationStore(Chain &chain, std::string path) : chain_(chain), path_(std::move(path)) {
+EquivocationStore::EquivocationStore(Chain& chain, std::string path) : chain_(chain), path_(std::move(path)) {
   redirectLogger("EquivocationStore");
 }
 
@@ -39,7 +39,7 @@ void EquivocationStore::retryPending() {
   offerStored(evidence);
 }
 
-void EquivocationStore::offerStored(const Client::Equivocation &evidence) {
+void EquivocationStore::offerStored(const Client::Equivocation& evidence) {
   auto offered = chain_.offerEquivocation(evidence);
   if (!offered) {
     log().warning << "Dropping the stored equivocation evidence: " << offered.error().message;
@@ -50,7 +50,7 @@ void EquivocationStore::offerStored(const Client::Equivocation &evidence) {
   }
 }
 
-EquivocationStore::Roe<Chain::EquivocationOffer> EquivocationStore::offer(const Client::Equivocation &evidence) {
+EquivocationStore::Roe<Chain::EquivocationOffer> EquivocationStore::offer(const Client::Equivocation& evidence) {
   auto offered = chain_.offerEquivocation(evidence);
   if (!offered) {
     return Error(offered.error().code, offered.error().message);
@@ -67,8 +67,8 @@ EquivocationStore::Roe<Chain::EquivocationOffer> EquivocationStore::offer(const 
   return offered.value();
 }
 
-std::optional<Chain::EquivocationOffer> EquivocationStore::note(const Client::Equivocation &evidence,
-                                                                const std::string &from) {
+std::optional<Chain::EquivocationOffer> EquivocationStore::note(const Client::Equivocation& evidence,
+                                                                const std::string& from) {
   auto offered = offer(evidence);
   if (offered) {
     return offered.value();

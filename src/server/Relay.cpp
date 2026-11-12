@@ -3,7 +3,7 @@
 
 namespace pp {
 
-std::ostream &operator<<(std::ostream &os, const Relay::InitConfig &config) {
+std::ostream& operator<<(std::ostream& os, const Relay::InitConfig& config) {
   os << "InitConfig{workDir=\"" << config.workDir << "\", "
      << "timeOffsetMs=" << config.timeOffsetMs << ", "
      << "startingBlockId=" << config.startingBlockId << "}";
@@ -12,7 +12,7 @@ std::ostream &operator<<(std::ostream &os, const Relay::InitConfig &config) {
 
 Relay::Relay() : FollowerCore("Relay") {}
 
-Relay::Roe<void> Relay::init(const InitConfig &config) {
+Relay::Roe<void> Relay::init(const InitConfig& config) {
   log().info << "Initializing Relay";
   log().debug << "Init config: " << config;
   if (auto opened = openLedger(config.workDir, config.timeOffsetMs, config.startingBlockId); !opened) {

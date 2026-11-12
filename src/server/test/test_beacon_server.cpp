@@ -36,7 +36,7 @@ struct GenesisSetup {
   std::filesystem::path dir;
   std::vector<utl::MlDsaKeyPair> genesis, reserve, registrar, fee, recycle, recovery;
 
-  explicit GenesisSetup(const std::string &name) : dir(pp::test::uniqueTempPath(name)) {
+  explicit GenesisSetup(const std::string& name) : dir(pp::test::uniqueTempPath(name)) {
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
     std::filesystem::create_directories(dir);
@@ -54,20 +54,20 @@ struct GenesisSetup {
     std::filesystem::remove_all(dir, ec);
   }
 
-  static std::string pubs(const std::vector<utl::MlDsaKeyPair> &keys) {
+  static std::string pubs(const std::vector<utl::MlDsaKeyPair>& keys) {
     std::string out;
-    for (const auto &k : keys) {
+    for (const auto& k : keys) {
       out += (out.empty() ? "\"" : ", \"") + utl::hexEncode(k.publicKey) + "\"";
     }
     return "[" + out + "]";
   }
 
   /** `recovery`: the init-config `recovery` object; empty = this setup's recovery keys; "none" = omit it. */
-  void writeInitConfig(const std::string &extra = "", const std::string &recoveryJson = "") const {
+  void writeInitConfig(const std::string& extra = "", const std::string& recoveryJson = "") const {
     const std::string recoveryField =
-        recoveryJson == "none" ? std::string()
-                               : R"(, "recovery": )" +
-                                     (recoveryJson.empty() ? R"({"publicKeys": )" + pubs(recovery) + "}" : recoveryJson);
+        recoveryJson == "none"
+            ? std::string()
+            : R"(, "recovery": )" + (recoveryJson.empty() ? R"({"publicKeys": )" + pubs(recovery) + "}" : recoveryJson);
     std::ofstream(dir / "init-config.json")
         << R"({"networkId": "test-net", "systemAccounts": {)"
         << R"("genesis": {"publicKeys": )" << pubs(genesis) << R"(, "minSignatures": 2},)"
@@ -78,7 +78,7 @@ struct GenesisSetup {
   }
 
   /** Write `key`'s private key to a file, as `pp-client keygen -o` does. */
-  std::string keyFile(const utl::MlDsaKeyPair &key, const std::string &name) const {
+  std::string keyFile(const utl::MlDsaKeyPair& key, const std::string& name) const {
     const auto path = dir / (name + ".key");
     std::ofstream(path) << utl::hexEncode(key.privateKey) << "\n";
     return path.string();
@@ -99,7 +99,7 @@ struct GenesisSetup {
   }
 
   /** Write a key pair as `pp-client keygen -o <dir>/<stem>` does. */
-  void writeKeyPair(const utl::MlDsaKeyPair &key, const std::string &stem, bool withPub = true) const {
+  void writeKeyPair(const utl::MlDsaKeyPair& key, const std::string& stem, bool withPub = true) const {
     std::filesystem::create_directories((dir / stem).parent_path());
     std::ofstream(dir / (stem + ".key")) << utl::hexEncode(key.privateKey) << "\n";
     if (withPub) {
@@ -108,13 +108,13 @@ struct GenesisSetup {
   }
 
   /** --plan-genesis, then each of `signers` signs its own copy and the copies merge (offline genesis). */
-  std::string signedGenesis(int64_t startTime, const std::vector<utl::MlDsaKeyPair> &signers) const {
+  std::string signedGenesis(int64_t startTime, const std::vector<utl::MlDsaKeyPair>& signers) const {
     const std::string plan = (dir / "plan.json").string();
     std::filesystem::remove(plan);
     BeaconServer planner;
     EXPECT_TRUE(planner.planGenesis(dir.string(), plan, startTime).isOk());
     std::vector<operation::Operation> copies;
-    for (const auto &signer : signers) {
+    for (const auto& signer : signers) {
       auto copy = operation::load(plan);
       EXPECT_TRUE(copy.isOk());
       EXPECT_TRUE(operation::sign(copy.value(), signer.privateKey).isOk());
@@ -126,30 +126,29 @@ struct GenesisSetup {
     return out;
   }
 
-  BeaconServer::Roe<void> initSigned(const std::string &operationPath) const {
+  BeaconServer::Roe<void> initSigned(const std::string& operationPath) const {
     BeaconServer server;
     return server.initSigned(dir.string(), operationPath);
   }
 
   /** Run --init in its own scope (a live server keeps ledger files open). */
-  BeaconServer::Roe<void> init(const std::vector<std::string> &genesisKeyFiles) const {
+  BeaconServer::Roe<void> init(const std::vector<std::string>& genesisKeyFiles) const {
     BeaconServer server;
     return server.init(dir.string(), genesisKeyFiles);
   }
 };
 
-std::string readAllText(const std::filesystem::path &path) {
+std::string readAllText(const std::filesystem::path& path) {
   std::ifstream in(path);
   return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
-Client::MinerInfo signedBy(Client::MinerInfo miner, const std::vector<utl::MlDsaKeyPair> &keys,
-                           const std::string &networkId) {
-  miner.issuedAt = std::chrono::duration_cast<std::chrono::seconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                       .count();
+Client::MinerInfo signedBy(Client::MinerInfo miner, const std::vector<utl::MlDsaKeyPair>& keys,
+                           const std::string& networkId) {
+  miner.issuedAt =
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
   miner.signatures.clear();
-  for (const auto &key : keys) {
+  for (const auto& key : keys) {
     miner.signatures.push_back(utl::mlDsaSign(key.privateKey, miner.signingMessage(networkId)).value());
   }
   return miner;
@@ -165,7 +164,7 @@ TEST(BeaconServerInitTest, GenesisUsesTheConfiguredPublicKeysAndWritesNoKeys) {
   auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
   ASSERT_TRUE(init.isOk()) << init.error().message;
 
-  for (const auto &entry : std::filesystem::directory_iterator(setup.dir)) {
+  for (const auto& entry : std::filesystem::directory_iterator(setup.dir)) {
     EXPECT_EQ(entry.path().filename().string().rfind("init-keys", 0), std::string::npos) << entry.path();
   }
   Beacon beacon;
@@ -181,7 +180,7 @@ TEST(BeaconServerInitTest, GenesisUsesTheConfiguredPublicKeysAndWritesNoKeys) {
   auto registrar = beacon.getAccount(AccountBuffer::ID_REGISTRAR);
   ASSERT_TRUE(registrar.isOk());
   EXPECT_EQ(registrar.value().wallet.publicKeys, std::vector<std::string>{setup.registrar[0].publicKey});
-  const auto &balances = registrar.value().wallet.mBalances;
+  const auto& balances = registrar.value().wallet.mBalances;
   EXPECT_TRUE(balances.empty() || balances.at(AccountBuffer::ID_GENESIS) == 0);
 }
 
@@ -242,7 +241,7 @@ TEST(BeaconServerInitTest, InitWritesTheSigningKeyAndGenesisCarriesTheAuthority)
   pubFile >> pubHex;
 
   const Chain::GenesisAccountMeta gm = setup.genesisMeta();
-  const auto &authority = gm.authority;
+  const auto& authority = gm.authority;
   EXPECT_EQ(authority.recovery.publicKeys, std::vector<std::string>{setup.recovery[0].publicKey});
   EXPECT_EQ(authority.recovery.minSignatures, 1u);
   const uint64_t epochSeconds = gm.config.slotDuration * gm.config.slotsPerEpoch;
@@ -311,24 +310,27 @@ TEST(BeaconServerInitTest, InitRefusesAHalfOrMismatchedSigningKey) {
 }
 
 TEST(BeaconServerInitTest, InitRefusesABadRecoverySet) {
-  auto refused = [](const std::string &name, const std::function<std::string(const GenesisSetup &)> &recovery,
-                    const std::string &why) {
+  auto refused = [](const std::string& name, const std::function<std::string(const GenesisSetup&)>& recovery,
+                    const std::string& why) {
     GenesisSetup setup(name);
     setup.writeInitConfig("", recovery(setup));
     auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
     ASSERT_FALSE(init.isOk()) << why;
     EXPECT_NE(init.error().message.find(why), std::string::npos) << init.error().message;
   };
-  refused("pp-ledger-beacon-recovery-missing-test", [](const GenesisSetup &) { return std::string("none"); },
-          "Field 'recovery'");
-  refused("pp-ledger-beacon-recovery-admin-test",
-          [](const GenesisSetup &s) { return R"({"publicKeys": )" + GenesisSetup::pubs({s.genesis[2]}) + "}"; },
-          "must not be an admin");
-  refused("pp-ledger-beacon-recovery-delay-test",
-          [](const GenesisSetup &s) {
-            return R"({"publicKeys": )" + GenesisSetup::pubs(s.recovery) + R"(, "delayEpochs": 0})";
-          },
-          "delayEpochs must be a positive integer");
+  refused(
+      "pp-ledger-beacon-recovery-missing-test", [](const GenesisSetup&) { return std::string("none"); },
+      "Field 'recovery'");
+  refused(
+      "pp-ledger-beacon-recovery-admin-test",
+      [](const GenesisSetup& s) { return R"({"publicKeys": )" + GenesisSetup::pubs({s.genesis[2]}) + "}"; },
+      "must not be an admin");
+  refused(
+      "pp-ledger-beacon-recovery-delay-test",
+      [](const GenesisSetup& s) {
+        return R"({"publicKeys": )" + GenesisSetup::pubs(s.recovery) + R"(, "delayEpochs": 0})";
+      },
+      "delayEpochs must be a positive integer");
 }
 
 // The genesis key signs genesis M-of-N: too few, foreign or repeated keys fail.
@@ -454,12 +456,12 @@ TEST(BeaconServerInitTest, RegistrationMustBeSignedByTheMiner) {
   miner.id = AccountBuffer::ID_FEE; // keys, but not a miner: signed right, still refused
   miner.peerId = "12D3KooWMinerPeer";
   auto genuine = signedBy(miner, setup.fee, net);
-  auto refusal = [&](const Client::MinerInfo &info, const std::string &network) {
+  auto refusal = [&](const Client::MinerInfo& info, const std::string& network) {
     auto verified = beacon.verifyMinerRegistration(info, network);
     return verified ? std::string() : verified.error().message;
   };
   EXPECT_NE(refusal(genuine, net).find("not a registered miner"), std::string::npos) << refusal(genuine, net);
-  EXPECT_NE(refusal(genuine, net + "-other").find("not signed"), std::string::npos); // other network
+  EXPECT_NE(refusal(genuine, net + "-other").find("not signed"), std::string::npos);                  // other network
   EXPECT_NE(refusal(signedBy(miner, setup.reserve, net), net).find("not signed"), std::string::npos); // not its keys
 
   auto replayedLater = genuine;
@@ -553,7 +555,7 @@ TEST(BeaconServerInitTest, ACertificateSeenOutOfBandIsKeptAndBindsTheBeacon) {
     EXPECT_TRUE(reader.mount(mounted).isOk());
     return reader.readBlock(0).value().hash;
   }();
-  auto certFor = [&](const utl::MlDsaKeyPair &key, uint64_t generation) {
+  auto certFor = [&](const utl::MlDsaKeyPair& key, uint64_t generation) {
     BeaconCertificate cert;
     cert.networkId = "test-net";
     cert.generation = generation;
@@ -566,7 +568,8 @@ TEST(BeaconServerInitTest, ACertificateSeenOutOfBandIsKeptAndBindsTheBeacon) {
     record.type = Ledger::T_BEACON_CERT;
     record.data = utl::binaryPack(tx);
     for (int i = 0; i < 2; ++i) {
-      record.signatures.push_back(utl::mlDsaSign(setup.genesis[i].privateKey, record.signingMessage("test-net")).value());
+      record.signatures.push_back(
+          utl::mlDsaSign(setup.genesis[i].privateKey, record.signingMessage("test-net")).value());
     }
     return record;
   };
@@ -622,7 +625,7 @@ TEST(BeaconServerInitTest, AnEquivocationHaltsTheBeaconUntilALaterGeneration) {
   const auto nextKey = utl::mlDsaGenerate().value();
   setup.writeKeyPair(beaconKey, "keys/beacon-signing");
   ASSERT_TRUE(setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")}).isOk());
-  auto tipBy = [](const utl::MlDsaKeyPair &key, const std::string &hash) {
+  auto tipBy = [](const utl::MlDsaKeyPair& key, const std::string& hash) {
     Client::SignedTip tip;
     tip.networkId = "test-net";
     tip.generation = 1;
@@ -641,10 +644,11 @@ TEST(BeaconServerInitTest, AnEquivocationHaltsTheBeaconUntilALaterGeneration) {
     Beacon beacon;
     ASSERT_TRUE(beacon.mount(mount).isOk());
     ASSERT_TRUE(beacon.openTipSigning({beaconKey, nextKey}).isOk());
-    EXPECT_FALSE(beacon.offerEquivocation(Client::Equivocation::of(tipBy(beaconKey, "x"),
-                                                                   tipBy(utl::mlDsaGenerate().value(), "y"))
-                                              .value())
-                     .isOk())
+    EXPECT_FALSE(
+        beacon
+            .offerEquivocation(
+                Client::Equivocation::of(tipBy(beaconKey, "x"), tipBy(utl::mlDsaGenerate().value(), "y")).value())
+            .isOk())
         << "one tip not signed by the beacon";
     EXPECT_FALSE(beacon.haltedAbove().has_value());
     ASSERT_EQ(beacon.offerEquivocation(evidence).value(), Chain::EquivocationOffer::Newer);
@@ -673,7 +677,8 @@ TEST(BeaconServerInitTest, AnEquivocationHaltsTheBeaconUntilALaterGeneration) {
     record.type = Ledger::T_BEACON_CERT;
     record.data = utl::binaryPack(tx);
     for (int i = 0; i < 2; ++i) {
-      record.signatures.push_back(utl::mlDsaSign(setup.genesis[i].privateKey, record.signingMessage("test-net")).value());
+      record.signatures.push_back(
+          utl::mlDsaSign(setup.genesis[i].privateKey, record.signingMessage("test-net")).value());
     }
     ASSERT_EQ(beacon.offerCertificate(record).value(), Chain::CertificateOffer::Newer);
     EXPECT_FALSE(beacon.haltedAbove().has_value()) << "resumed";
@@ -693,7 +698,7 @@ TEST(BeaconServerInitTest, EquivocationStoreWaitsForTheFirstBlock) {
   const auto beaconKey = utl::mlDsaGenerate().value();
   setup.writeKeyPair(beaconKey, "keys/beacon-signing");
   ASSERT_TRUE(setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")}).isOk());
-  auto tipBy = [&](const std::string &hash) {
+  auto tipBy = [&](const std::string& hash) {
     Client::SignedTip tip;
     tip.networkId = "test-net";
     tip.generation = 1;
@@ -741,12 +746,13 @@ TEST(BeaconServerInitTest, CertificateStoreKeepsWhatTheChainKeeps) {
     record.type = Ledger::T_BEACON_CERT;
     record.data = utl::binaryPack(tx);
     for (int i = 0; i < 2; ++i) {
-      record.signatures.push_back(utl::mlDsaSign(setup.genesis[i].privateKey, record.signingMessage("test-net")).value());
+      record.signatures.push_back(
+          utl::mlDsaSign(setup.genesis[i].privateKey, record.signingMessage("test-net")).value());
     }
     return record;
   };
   const std::string file = (setup.dir / "beacon-cert.dat").string();
-  auto loadedChain = [&](Chain &chain) {
+  auto loadedChain = [&](Chain& chain) {
     ASSERT_TRUE(chain.mountLedger((setup.dir / "data" / "ledger").string()).isOk());
     ASSERT_TRUE(chain.loadFromLedger(0).isOk());
   };
@@ -806,11 +812,11 @@ TEST(BeaconServerInitTest, PromotionRefusesADirectoryThatCannotTakeOver) {
     EXPECT_FALSE(std::filesystem::exists(setup.dir / "config.relay.json")) << "nothing written";
     return run.isOk() ? std::string{} : run.error().message;
   };
-  auto expectRefused = [&](const std::string &why) {
+  auto expectRefused = [&](const std::string& why) {
     const std::string message = promote();
     EXPECT_NE(message.find(why), std::string::npos) << message;
   };
-  auto certFor = [&](const utl::MlDsaKeyPair &key, uint64_t cutover) {
+  auto certFor = [&](const utl::MlDsaKeyPair& key, uint64_t cutover) {
     Beacon reader;
     Beacon::MountConfig mounted;
     mounted.workDir = (setup.dir / "data").string();
@@ -830,7 +836,8 @@ TEST(BeaconServerInitTest, PromotionRefusesADirectoryThatCannotTakeOver) {
     record.type = Ledger::T_BEACON_CERT;
     record.data = utl::binaryPack(tx);
     for (int i = 0; i < 2; ++i) {
-      record.signatures.push_back(utl::mlDsaSign(setup.genesis[i].privateKey, record.signingMessage("test-net")).value());
+      record.signatures.push_back(
+          utl::mlDsaSign(setup.genesis[i].privateKey, record.signingMessage("test-net")).value());
     }
     EXPECT_EQ(reader.offerCertificate(record).value(), Chain::CertificateOffer::Newer); // kept on disk
   };
@@ -876,12 +883,13 @@ TEST(BeaconServerInitTest, PromotionRefusesADirectoryThatCannotTakeOver) {
 
 namespace {
 
-std::string readAll(const std::filesystem::path &path) {
+std::string readAll(const std::filesystem::path& path) {
   std::ifstream in(path);
   return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
-template <typename ServerT> std::string runOnce(const std::filesystem::path &dir) {
+template <typename ServerT>
+std::string runOnce(const std::filesystem::path& dir) {
   ServerT server;
   auto run = server.run(dir.string());
   return run ? std::string{} : run.error().message;
@@ -962,7 +970,7 @@ TEST(BeaconServerInitTest, LivenessSettingsDefaultAndLimits) {
       {R"(, "slotDuration": 5, "minerDueAfterSlots": 8639)", "minerDueAfterSlots must be 0 or at least 8640"},
       {R"(, "finalitySeconds": 600)", "finalitySeconds must be between 3600 and 2592000"},
   };
-  for (const auto &[extra, why] : refused) {
+  for (const auto& [extra, why] : refused) {
     GenesisSetup setup("pp-ledger-beacon-liveness-limit-test");
     setup.writeInitConfig(extra);
     auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
@@ -978,16 +986,16 @@ TEST(BeaconServerInitTest, LivenessSettingsDefaultAndLimits) {
 namespace {
 
 /** The beacon's seed secret as --init wrote it (hex in keys/beacon-seed.secret). */
-std::string readSeedSecret(const std::filesystem::path &dir) {
+std::string readSeedSecret(const std::filesystem::path& dir) {
   std::string hex = readAllText(dir / BeaconServer::FILE_BEACON_SEED_SECRET);
   hex.erase(std::remove_if(hex.begin(), hex.end(), [](unsigned char c) { return std::isspace(c); }), hex.end());
   return utl::hexDecode(hex);
 }
 
 /** The pooled T_BEACON_SEED records of `server`, decoded. */
-std::vector<std::pair<Ledger::Record, Ledger::TxBeaconSeed>> pooledReveals(const BeaconServer &server) {
+std::vector<std::pair<Ledger::Record, Ledger::TxBeaconSeed>> pooledReveals(const BeaconServer& server) {
   std::vector<std::pair<Ledger::Record, Ledger::TxBeaconSeed>> out;
-  for (const auto &record : server.pooledForTest()) {
+  for (const auto& record : server.pooledForTest()) {
     if (record.type == Ledger::T_BEACON_SEED) {
       out.emplace_back(record, utl::binaryUnpack<Ledger::TxBeaconSeed>(record.data).value());
     }
@@ -1000,11 +1008,12 @@ struct SeedSetup : GenesisSetup {
   utl::MlDsaKeyPair minerKey = utl::mlDsaGenerate().value();
   int64_t genesisTime{0};
 
-  explicit SeedSetup(const std::string &name) : GenesisSetup(name) {
-    writeInitConfig(R"(, "slotDuration": 1, "slotsPerEpoch": 1000, "heartbeatSlots": 1000, "minFeeCoefficients": [1, 1, 0])"
-                    R"(, "genesisMiners": [{"id": )" +
-                    std::to_string(AccountBuffer::ID_FIRST_ISSUED) + R"(, "publicKeys": [")" +
-                    utl::hexEncode(minerKey.publicKey) + R"("]}])");
+  explicit SeedSetup(const std::string& name) : GenesisSetup(name) {
+    writeInitConfig(
+        R"(, "slotDuration": 1, "slotsPerEpoch": 1000, "heartbeatSlots": 1000, "minFeeCoefficients": [1, 1, 0])"
+        R"(, "genesisMiners": [{"id": )" +
+        std::to_string(AccountBuffer::ID_FIRST_ISSUED) + R"(, "publicKeys": [")" + utl::hexEncode(minerKey.publicKey) +
+        R"("]}])");
     auto initialized = init({keyFile(genesis[0], "g0"), keyFile(genesis[1], "g1")});
     EXPECT_TRUE(initialized.isOk()) << initialized.error().message;
     genesisTime = genesisMeta().config.genesisTime;
@@ -1050,7 +1059,7 @@ TEST(BeaconSeedSubmitTest, TheBeaconPoolsItsRevealForTheNextEpoch) {
   server.submitBeaconSeedIfDue();
   const auto reveals = pooledReveals(server);
   ASSERT_EQ(reveals.size(), 1u);
-  const auto &[record, tx] = reveals.front();
+  const auto& [record, tx] = reveals.front();
   EXPECT_EQ(tx.epoch, 1u) << "the epoch after the current one (0)";
   EXPECT_EQ(tx.reveal, consensus::beaconSeedValue(secret, consensus::kDefaultBeaconSeedChainLength - 1));
   EXPECT_TRUE(consensus::verifyBeaconSeedReveal(cert.seedAnchor, 1, tx.reveal));

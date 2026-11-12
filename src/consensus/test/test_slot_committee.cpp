@@ -6,291 +6,288 @@
 #include <set>
 
 using namespace pp::consensus;
-using ::testing::Ge;
-using ::testing::Le;
 using ::testing::AnyOf;
 using ::testing::Eq;
+using ::testing::Ge;
+using ::testing::Le;
 
 class SlotCommitteeTest : public ::testing::Test {
 protected:
-    void SetUp() override {
-        consensus = std::make_unique<SlotCommittee>();
-        consensus->init({
-            .genesisTime = 0,
-            .timeOffsetMs = 0,
-            .slotDuration = 5,
-            .slotsPerEpoch = 10,
-        });
-        // Pin clock so slots stay in epoch 0 with a stable seed.
-        consensus->setClockOverride(0);
-        consensus->setEpochSeed(0, std::string(32, '\x11'));
-    }
-
-    void TearDown() override {
-        consensus.reset();
-    }
-
-    std::unique_ptr<SlotCommittee> consensus;
-};
-
-TEST_F(SlotCommitteeTest, CreatesWithCorrectConfiguration) {
-    EXPECT_EQ(consensus->getConfig().slotDuration, 5);
-    EXPECT_EQ(consensus->getConfig().slotsPerEpoch, 10);
-}
-
-TEST_F(SlotCommitteeTest, RegistersStakeholders) {
-    consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}, {4, 1500}});
-    
-    EXPECT_EQ(consensus->getStakeholderCount(), 4);
-    EXPECT_EQ(consensus->getTotalStake(), 5000);
-}
-
-TEST_F(SlotCommitteeTest, AllowsZeroStake) {
-    consensus->setStakeholders({{1, 1000}, {2, 2000}, {100, 0}});
-    
-    EXPECT_EQ(consensus->getStakeholderCount(), 3);
-    EXPECT_EQ(consensus->getTotalStake(), 3000);
-    EXPECT_EQ(consensus->getStake(100), 0);
-}
-
-TEST_F(SlotCommitteeTest, CalculatesSlotAndEpoch) {
-    uint64_t currentSlot = consensus->getCurrentSlot();
-    uint64_t currentEpoch = consensus->getCurrentEpoch();
-    uint64_t slotInEpoch = consensus->getSlotInEpoch(currentSlot);
-    
-    EXPECT_LT(slotInEpoch, 10);
-    EXPECT_EQ(currentEpoch, currentSlot / 10);
-}
-
-TEST_F(SlotCommitteeTest, SelectsSlotLeadersDeterministically) {
-    consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}, {4, 1500}});
-    
-    uint64_t currentSlot = consensus->getCurrentSlot();
-    
-    // Select leaders for 5 consecutive slots
-    std::vector<uint64_t> leaders;
-    for (uint64_t i = 0; i < 5; i++) {
-        uint64_t slot = currentSlot + i;
-        auto leaderResult = consensus->getSlotLeader(slot);
-        
-        ASSERT_TRUE(leaderResult.isOk());
-        uint64_t leader = leaderResult.value();
-        leaders.push_back(leader);
-        
-        // Verify leader is one of our stakeholders
-        EXPECT_THAT(leader, AnyOf(Eq(1), Eq(2), Eq(3), Eq(4)));
-    }
-    
-    // Verify determinism: same slot always returns same leader
-    for (uint64_t i = 0; i < 5; i++) {
-        uint64_t slot = currentSlot + i;
-        auto leaderResult = consensus->getSlotLeader(slot);
-        ASSERT_TRUE(leaderResult.isOk());
-        EXPECT_EQ(leaderResult.value(), leaders[i]);
-        EXPECT_THAT(leaderResult.value(), AnyOf(Eq(1), Eq(2), Eq(3), Eq(4)));
-    }
-}
-
-TEST_F(SlotCommitteeTest, VerifiesSlotLeadership) {
-    consensus->setStakeholders({{1, 1000}, {2, 2000}});
-    
-    uint64_t currentSlot = consensus->getCurrentSlot();
-    auto leaderResult = consensus->getSlotLeader(currentSlot);
-    
-    ASSERT_TRUE(leaderResult.isOk());
-    uint64_t currentLeader = leaderResult.value();
-    
-    EXPECT_TRUE(consensus->isSlotLeader(currentSlot, currentLeader));
-    
-    // Check non-leader
-    uint64_t nonLeader = (currentLeader == 1) ? 2 : 1;
-    EXPECT_FALSE(consensus->isSlotLeader(currentSlot, nonLeader));
-}
-
-TEST_F(SlotCommitteeTest, SetStakeholdersOverwritesPrevious) {
-    consensus->setStakeholders({{1, 1000}, {2, 2000}});
-    EXPECT_EQ(consensus->getTotalStake(), 3000);
-    
-    consensus->setStakeholders({{1, 1500}, {2, 2000}});
-    EXPECT_EQ(consensus->getTotalStake(), 3500);
-    EXPECT_EQ(consensus->getStake(1), 1500);
-}
-
-TEST_F(SlotCommitteeTest, SetStakeholdersReplacesAll) {
-    consensus->setStakeholders({{1, 1000}, {2, 2000}});
-    EXPECT_EQ(consensus->getStakeholderCount(), 2);
-    
-    consensus->setStakeholders({{10, 500}, {20, 500}, {30, 500}});
-    EXPECT_EQ(consensus->getStakeholderCount(), 3);
-    EXPECT_EQ(consensus->getTotalStake(), 1500);
-    EXPECT_EQ(consensus->getStake(1), 0);
-}
-
-TEST_F(SlotCommitteeTest, SetStakeholdersCanShrink) {
-    consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}});
-    EXPECT_EQ(consensus->getStakeholderCount(), 3);
-    
-    consensus->setStakeholders({{1, 1000}, {2, 2000}});
-    EXPECT_EQ(consensus->getStakeholderCount(), 2);
-    EXPECT_EQ(consensus->getStake(3), 0);
-}
-
-TEST_F(SlotCommitteeTest, ReturnsAllStakeholders) {
-    consensus->setStakeholders({{1, 1500}, {2, 2000}, {3, 1500}});
-    
-    auto stakeholders = consensus->getStakeholders();
-    
-    EXPECT_EQ(stakeholders.size(), 3);
-    
-    // Verify all stakeholders are present
-    std::set<uint64_t> ids;
-    for (const auto& sh : stakeholders) {
-        ids.insert(sh.id);
-    }
-    
-    EXPECT_TRUE(ids.count(1));
-    EXPECT_TRUE(ids.count(2));
-    EXPECT_TRUE(ids.count(3));
-}
-
-TEST_F(SlotCommitteeTest, UpdatesSlotDuration) {
-    SlotCommittee::Config cfg = consensus->getConfig();
-    cfg.slotDuration = 10;
-    consensus->init(cfg);
-    EXPECT_EQ(consensus->getConfig().slotDuration, 10);
-}
-
-TEST_F(SlotCommitteeTest, UpdatesSlotsPerEpoch) {
-    SlotCommittee::Config cfg = consensus->getConfig();
-    cfg.slotsPerEpoch = 20;
-    consensus->init(cfg);
-    EXPECT_EQ(consensus->getConfig().slotsPerEpoch, 20);
-}
-
-TEST_F(SlotCommitteeTest, SetsGenesisTime) {
-    int64_t genesisTime = 1234567890;
-    SlotCommittee::Config cfg = consensus->getConfig();
-    cfg.genesisTime = genesisTime;
-    consensus->init(cfg);
-    EXPECT_EQ(consensus->getConfig().genesisTime, genesisTime);
-}
-
-TEST_F(SlotCommitteeTest, SetsTimeOffset) {
-    SlotCommittee::Config cfg = consensus->getConfig();
-    cfg.timeOffsetMs = 60500;  // local clock 60.5 s behind the beacon's
-    consensus->init(cfg);
-    EXPECT_EQ(consensus->getConfig().timeOffsetMs, 60500);
-    auto localMs = [] {
-        return std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::system_clock::now().time_since_epoch()).count();
-    };
-    const int64_t before = localMs();
-    const int64_t beaconMs = consensus->getTimestampMs();
-    EXPECT_GE(beaconMs, before + 60500) << "kept to the millisecond: timing decisions are made in ms";
-    EXPECT_LE(beaconMs, localMs() + 60500);
-    const int64_t seconds = consensus->getTimestamp();
-    const int64_t secondsFromMs = consensus->getTimestampMs() / 1000;
-    EXPECT_LE(seconds - secondsFromMs, 1);
-    EXPECT_GE(seconds - secondsFromMs, -1);
-
-    consensus->setTimeOffsetMs(-250);  // recalibrated (a new beacon generation)
-    EXPECT_EQ(consensus->getConfig().timeOffsetMs, -250);
-    EXPECT_EQ(consensus->getConfig().genesisTime, cfg.genesisTime) << "the rest stays";
-    EXPECT_LE(consensus->getTimestampMs(), localMs() - 250);
-}
-
-TEST_F(SlotCommitteeTest, ReturnsErrorWhenNoStakeholders) {
-    SlotCommittee emptyConsensus;
-    auto result = emptyConsensus.getSlotLeader(0);
-    
-    EXPECT_TRUE(result.isError());
-    EXPECT_EQ(result.error().code, 1);
-    EXPECT_FALSE(result.error().message.empty());
-}
-
-// Test fixture for tests that need stakeholders
-class SlotCommitteeWithStakeholdersTest : public SlotCommitteeTest {
-protected:
-    void SetUp() override {
-        SlotCommitteeTest::SetUp();
-        consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}});
-    }
-};
-
-TEST_F(SlotCommitteeWithStakeholdersTest, ProducesConsistentLeaderAcrossEpochs) {
-    uint64_t slot1 = 0;
-    uint64_t slot2 = 100;  // Different epoch (slotsPerEpoch=10 → epoch 10)
-
-    auto leader1 = consensus->getSlotLeader(slot1);
-    ASSERT_TRUE(leader1.isOk());
-
-    consensus->setEpochSeed(10, std::string(32, '\x22'));
-    auto leader2 = consensus->getSlotLeader(slot2);
-    ASSERT_TRUE(leader2.isOk());
-
-    // Leaders might be different, but should be from our stakeholder set
-    EXPECT_THAT(leader1.value(), AnyOf(Eq(1), Eq(2), Eq(3)));
-    EXPECT_THAT(leader2.value(), AnyOf(Eq(1), Eq(2), Eq(3)));
-}
-
-
-TEST_F(SlotCommitteeTest, ClockOverridePinsCurrentSlot) {
-    // genesisTime=0, slotDuration=5 → timestamp 17 is slot 3
-    consensus->setClockOverride(17);
-    EXPECT_EQ(consensus->getTimestamp(), 17);
-    EXPECT_EQ(consensus->getCurrentSlot(), 3u);
-    EXPECT_EQ(consensus->getCurrentEpoch(), 0u);
-
-    consensus->setClockOverride(50);
-    EXPECT_EQ(consensus->getCurrentSlot(), 10u);
-    EXPECT_EQ(consensus->getCurrentEpoch(), 1u);
-
-    consensus->setClockOverride(0);
-    EXPECT_EQ(consensus->getCurrentSlot(), 0u);
-}
-
-TEST_F(SlotCommitteeWithStakeholdersTest, ForceSlotLeaderOverridesElection) {
-    const uint64_t slot = 7;
-    auto natural = consensus->getSlotLeader(slot);
-    ASSERT_TRUE(natural.isOk());
-
-    const uint64_t forced = (natural.value() == 1) ? 2 : 1;
-    consensus->forceSlotLeader(slot, forced);
-
-    auto overridden = consensus->getSlotLeader(slot);
-    ASSERT_TRUE(overridden.isOk());
-    EXPECT_EQ(overridden.value(), forced);
-    EXPECT_TRUE(consensus->isSlotLeader(slot, forced));
-    EXPECT_FALSE(consensus->isSlotLeader(slot, natural.value()));
-    EXPECT_TRUE(consensus->validateSlotLeader(forced, slot));
-    EXPECT_FALSE(consensus->validateSlotLeader(natural.value(), slot));
-
-    consensus->clearForcedSlotLeaders();
-    auto restored = consensus->getSlotLeader(slot);
-    ASSERT_TRUE(restored.isOk());
-    EXPECT_EQ(restored.value(), natural.value());
-}
-
-TEST_F(SlotCommitteeWithStakeholdersTest, InitClearsInjectors) {
-    consensus->setClockOverride(100);
-    consensus->forceSlotLeader(3, 2);
+  void SetUp() override {
+    consensus = std::make_unique<SlotCommittee>();
     consensus->init({
         .genesisTime = 0,
         .timeOffsetMs = 0,
         .slotDuration = 5,
         .slotsPerEpoch = 10,
     });
-    consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}});
+    // Pin clock so slots stay in epoch 0 with a stable seed.
     consensus->setClockOverride(0);
     consensus->setEpochSeed(0, std::string(32, '\x11'));
+  }
 
-    // Clock override cleared → not pinned at 100 unless wall clock happens to match.
-    // Forced leader cleared → slot 3 uses natural election again.
-    auto leader = consensus->getSlotLeader(3);
-    ASSERT_TRUE(leader.isOk());
-    // Re-force and confirm inject still works after init.
-    consensus->forceSlotLeader(3, 1);
-    EXPECT_EQ(consensus->getSlotLeader(3).value(), 1u);
+  void TearDown() override { consensus.reset(); }
+
+  std::unique_ptr<SlotCommittee> consensus;
+};
+
+TEST_F(SlotCommitteeTest, CreatesWithCorrectConfiguration) {
+  EXPECT_EQ(consensus->getConfig().slotDuration, 5);
+  EXPECT_EQ(consensus->getConfig().slotsPerEpoch, 10);
+}
+
+TEST_F(SlotCommitteeTest, RegistersStakeholders) {
+  consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}, {4, 1500}});
+
+  EXPECT_EQ(consensus->getStakeholderCount(), 4);
+  EXPECT_EQ(consensus->getTotalStake(), 5000);
+}
+
+TEST_F(SlotCommitteeTest, AllowsZeroStake) {
+  consensus->setStakeholders({{1, 1000}, {2, 2000}, {100, 0}});
+
+  EXPECT_EQ(consensus->getStakeholderCount(), 3);
+  EXPECT_EQ(consensus->getTotalStake(), 3000);
+  EXPECT_EQ(consensus->getStake(100), 0);
+}
+
+TEST_F(SlotCommitteeTest, CalculatesSlotAndEpoch) {
+  uint64_t currentSlot = consensus->getCurrentSlot();
+  uint64_t currentEpoch = consensus->getCurrentEpoch();
+  uint64_t slotInEpoch = consensus->getSlotInEpoch(currentSlot);
+
+  EXPECT_LT(slotInEpoch, 10);
+  EXPECT_EQ(currentEpoch, currentSlot / 10);
+}
+
+TEST_F(SlotCommitteeTest, SelectsSlotLeadersDeterministically) {
+  consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}, {4, 1500}});
+
+  uint64_t currentSlot = consensus->getCurrentSlot();
+
+  // Select leaders for 5 consecutive slots
+  std::vector<uint64_t> leaders;
+  for (uint64_t i = 0; i < 5; i++) {
+    uint64_t slot = currentSlot + i;
+    auto leaderResult = consensus->getSlotLeader(slot);
+
+    ASSERT_TRUE(leaderResult.isOk());
+    uint64_t leader = leaderResult.value();
+    leaders.push_back(leader);
+
+    // Verify leader is one of our stakeholders
+    EXPECT_THAT(leader, AnyOf(Eq(1), Eq(2), Eq(3), Eq(4)));
+  }
+
+  // Verify determinism: same slot always returns same leader
+  for (uint64_t i = 0; i < 5; i++) {
+    uint64_t slot = currentSlot + i;
+    auto leaderResult = consensus->getSlotLeader(slot);
+    ASSERT_TRUE(leaderResult.isOk());
+    EXPECT_EQ(leaderResult.value(), leaders[i]);
+    EXPECT_THAT(leaderResult.value(), AnyOf(Eq(1), Eq(2), Eq(3), Eq(4)));
+  }
+}
+
+TEST_F(SlotCommitteeTest, VerifiesSlotLeadership) {
+  consensus->setStakeholders({{1, 1000}, {2, 2000}});
+
+  uint64_t currentSlot = consensus->getCurrentSlot();
+  auto leaderResult = consensus->getSlotLeader(currentSlot);
+
+  ASSERT_TRUE(leaderResult.isOk());
+  uint64_t currentLeader = leaderResult.value();
+
+  EXPECT_TRUE(consensus->isSlotLeader(currentSlot, currentLeader));
+
+  // Check non-leader
+  uint64_t nonLeader = (currentLeader == 1) ? 2 : 1;
+  EXPECT_FALSE(consensus->isSlotLeader(currentSlot, nonLeader));
+}
+
+TEST_F(SlotCommitteeTest, SetStakeholdersOverwritesPrevious) {
+  consensus->setStakeholders({{1, 1000}, {2, 2000}});
+  EXPECT_EQ(consensus->getTotalStake(), 3000);
+
+  consensus->setStakeholders({{1, 1500}, {2, 2000}});
+  EXPECT_EQ(consensus->getTotalStake(), 3500);
+  EXPECT_EQ(consensus->getStake(1), 1500);
+}
+
+TEST_F(SlotCommitteeTest, SetStakeholdersReplacesAll) {
+  consensus->setStakeholders({{1, 1000}, {2, 2000}});
+  EXPECT_EQ(consensus->getStakeholderCount(), 2);
+
+  consensus->setStakeholders({{10, 500}, {20, 500}, {30, 500}});
+  EXPECT_EQ(consensus->getStakeholderCount(), 3);
+  EXPECT_EQ(consensus->getTotalStake(), 1500);
+  EXPECT_EQ(consensus->getStake(1), 0);
+}
+
+TEST_F(SlotCommitteeTest, SetStakeholdersCanShrink) {
+  consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}});
+  EXPECT_EQ(consensus->getStakeholderCount(), 3);
+
+  consensus->setStakeholders({{1, 1000}, {2, 2000}});
+  EXPECT_EQ(consensus->getStakeholderCount(), 2);
+  EXPECT_EQ(consensus->getStake(3), 0);
+}
+
+TEST_F(SlotCommitteeTest, ReturnsAllStakeholders) {
+  consensus->setStakeholders({{1, 1500}, {2, 2000}, {3, 1500}});
+
+  auto stakeholders = consensus->getStakeholders();
+
+  EXPECT_EQ(stakeholders.size(), 3);
+
+  // Verify all stakeholders are present
+  std::set<uint64_t> ids;
+  for (const auto& sh : stakeholders) {
+    ids.insert(sh.id);
+  }
+
+  EXPECT_TRUE(ids.count(1));
+  EXPECT_TRUE(ids.count(2));
+  EXPECT_TRUE(ids.count(3));
+}
+
+TEST_F(SlotCommitteeTest, UpdatesSlotDuration) {
+  SlotCommittee::Config cfg = consensus->getConfig();
+  cfg.slotDuration = 10;
+  consensus->init(cfg);
+  EXPECT_EQ(consensus->getConfig().slotDuration, 10);
+}
+
+TEST_F(SlotCommitteeTest, UpdatesSlotsPerEpoch) {
+  SlotCommittee::Config cfg = consensus->getConfig();
+  cfg.slotsPerEpoch = 20;
+  consensus->init(cfg);
+  EXPECT_EQ(consensus->getConfig().slotsPerEpoch, 20);
+}
+
+TEST_F(SlotCommitteeTest, SetsGenesisTime) {
+  int64_t genesisTime = 1234567890;
+  SlotCommittee::Config cfg = consensus->getConfig();
+  cfg.genesisTime = genesisTime;
+  consensus->init(cfg);
+  EXPECT_EQ(consensus->getConfig().genesisTime, genesisTime);
+}
+
+TEST_F(SlotCommitteeTest, SetsTimeOffset) {
+  SlotCommittee::Config cfg = consensus->getConfig();
+  cfg.timeOffsetMs = 60500; // local clock 60.5 s behind the beacon's
+  consensus->init(cfg);
+  EXPECT_EQ(consensus->getConfig().timeOffsetMs, 60500);
+  auto localMs = [] {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+        .count();
+  };
+  const int64_t before = localMs();
+  const int64_t beaconMs = consensus->getTimestampMs();
+  EXPECT_GE(beaconMs, before + 60500) << "kept to the millisecond: timing decisions are made in ms";
+  EXPECT_LE(beaconMs, localMs() + 60500);
+  const int64_t seconds = consensus->getTimestamp();
+  const int64_t secondsFromMs = consensus->getTimestampMs() / 1000;
+  EXPECT_LE(seconds - secondsFromMs, 1);
+  EXPECT_GE(seconds - secondsFromMs, -1);
+
+  consensus->setTimeOffsetMs(-250); // recalibrated (a new beacon generation)
+  EXPECT_EQ(consensus->getConfig().timeOffsetMs, -250);
+  EXPECT_EQ(consensus->getConfig().genesisTime, cfg.genesisTime) << "the rest stays";
+  EXPECT_LE(consensus->getTimestampMs(), localMs() - 250);
+}
+
+TEST_F(SlotCommitteeTest, ReturnsErrorWhenNoStakeholders) {
+  SlotCommittee emptyConsensus;
+  auto result = emptyConsensus.getSlotLeader(0);
+
+  EXPECT_TRUE(result.isError());
+  EXPECT_EQ(result.error().code, 1);
+  EXPECT_FALSE(result.error().message.empty());
+}
+
+// Test fixture for tests that need stakeholders
+class SlotCommitteeWithStakeholdersTest : public SlotCommitteeTest {
+protected:
+  void SetUp() override {
+    SlotCommitteeTest::SetUp();
+    consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}});
+  }
+};
+
+TEST_F(SlotCommitteeWithStakeholdersTest, ProducesConsistentLeaderAcrossEpochs) {
+  uint64_t slot1 = 0;
+  uint64_t slot2 = 100; // Different epoch (slotsPerEpoch=10 → epoch 10)
+
+  auto leader1 = consensus->getSlotLeader(slot1);
+  ASSERT_TRUE(leader1.isOk());
+
+  consensus->setEpochSeed(10, std::string(32, '\x22'));
+  auto leader2 = consensus->getSlotLeader(slot2);
+  ASSERT_TRUE(leader2.isOk());
+
+  // Leaders might be different, but should be from our stakeholder set
+  EXPECT_THAT(leader1.value(), AnyOf(Eq(1), Eq(2), Eq(3)));
+  EXPECT_THAT(leader2.value(), AnyOf(Eq(1), Eq(2), Eq(3)));
+}
+
+TEST_F(SlotCommitteeTest, ClockOverridePinsCurrentSlot) {
+  // genesisTime=0, slotDuration=5 → timestamp 17 is slot 3
+  consensus->setClockOverride(17);
+  EXPECT_EQ(consensus->getTimestamp(), 17);
+  EXPECT_EQ(consensus->getCurrentSlot(), 3u);
+  EXPECT_EQ(consensus->getCurrentEpoch(), 0u);
+
+  consensus->setClockOverride(50);
+  EXPECT_EQ(consensus->getCurrentSlot(), 10u);
+  EXPECT_EQ(consensus->getCurrentEpoch(), 1u);
+
+  consensus->setClockOverride(0);
+  EXPECT_EQ(consensus->getCurrentSlot(), 0u);
+}
+
+TEST_F(SlotCommitteeWithStakeholdersTest, ForceSlotLeaderOverridesElection) {
+  const uint64_t slot = 7;
+  auto natural = consensus->getSlotLeader(slot);
+  ASSERT_TRUE(natural.isOk());
+
+  const uint64_t forced = (natural.value() == 1) ? 2 : 1;
+  consensus->forceSlotLeader(slot, forced);
+
+  auto overridden = consensus->getSlotLeader(slot);
+  ASSERT_TRUE(overridden.isOk());
+  EXPECT_EQ(overridden.value(), forced);
+  EXPECT_TRUE(consensus->isSlotLeader(slot, forced));
+  EXPECT_FALSE(consensus->isSlotLeader(slot, natural.value()));
+  EXPECT_TRUE(consensus->validateSlotLeader(forced, slot));
+  EXPECT_FALSE(consensus->validateSlotLeader(natural.value(), slot));
+
+  consensus->clearForcedSlotLeaders();
+  auto restored = consensus->getSlotLeader(slot);
+  ASSERT_TRUE(restored.isOk());
+  EXPECT_EQ(restored.value(), natural.value());
+}
+
+TEST_F(SlotCommitteeWithStakeholdersTest, InitClearsInjectors) {
+  consensus->setClockOverride(100);
+  consensus->forceSlotLeader(3, 2);
+  consensus->init({
+      .genesisTime = 0,
+      .timeOffsetMs = 0,
+      .slotDuration = 5,
+      .slotsPerEpoch = 10,
+  });
+  consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}});
+  consensus->setClockOverride(0);
+  consensus->setEpochSeed(0, std::string(32, '\x11'));
+
+  // Clock override cleared → not pinned at 100 unless wall clock happens to match.
+  // Forced leader cleared → slot 3 uses natural election again.
+  auto leader = consensus->getSlotLeader(3);
+  ASSERT_TRUE(leader.isOk());
+  // Re-force and confirm inject still works after init.
+  consensus->forceSlotLeader(3, 1);
+  EXPECT_EQ(consensus->getSlotLeader(3).value(), 1u);
 }
 
 // --- Slot timing: seal after the slot ends, deliver within the window (WIRE_SCHEMA § Slot timing)
@@ -298,44 +295,44 @@ TEST_F(SlotCommitteeWithStakeholdersTest, InitClearsInjectors) {
 // Window = min(slot / 3, 2 s), always shorter than a slot: the next leader seals at the end of its
 // own slot, after this slot's deadline, so its tip is settled.
 TEST(SlotTimingTest, DeliveryWindowIsAThirdOfTheSlotCappedAtTwoSeconds) {
-    EXPECT_EQ(SlotCommittee::deliveryWindowMs(1), 333);
-    EXPECT_EQ(SlotCommittee::deliveryWindowMs(2), 666);
-    EXPECT_EQ(SlotCommittee::deliveryWindowMs(5), 1666);
-    EXPECT_EQ(SlotCommittee::deliveryWindowMs(6), 2000);
-    EXPECT_EQ(SlotCommittee::deliveryWindowMs(7), 2000);
-    EXPECT_EQ(SlotCommittee::deliveryWindowMs(60), 2000);
-    for (uint64_t seconds = 1; seconds <= 120; ++seconds) {
-        EXPECT_LT(SlotCommittee::deliveryWindowMs(seconds), static_cast<int64_t>(seconds) * 1000) << seconds;
-    }
+  EXPECT_EQ(SlotCommittee::deliveryWindowMs(1), 333);
+  EXPECT_EQ(SlotCommittee::deliveryWindowMs(2), 666);
+  EXPECT_EQ(SlotCommittee::deliveryWindowMs(5), 1666);
+  EXPECT_EQ(SlotCommittee::deliveryWindowMs(6), 2000);
+  EXPECT_EQ(SlotCommittee::deliveryWindowMs(7), 2000);
+  EXPECT_EQ(SlotCommittee::deliveryWindowMs(60), 2000);
+  for (uint64_t seconds = 1; seconds <= 120; ++seconds) {
+    EXPECT_LT(SlotCommittee::deliveryWindowMs(seconds), static_cast<int64_t>(seconds) * 1000) << seconds;
+  }
 }
 
 // Slot 2 runs [10, 15) with 5 s slots; its window is 1666 ms, so it can be sealed and delivered
 // during [15 s, 16.666 s).
 TEST_F(SlotCommitteeTest, LeaderSealsOnlyAfterItsSlotWithinTheWindow) {
-    consensus->setClockOverride(14);  // inside slot 2
-    EXPECT_FALSE(consensus->isSlotSealTime(2));
-    EXPECT_FALSE(consensus->isInDeliveryWindow(2)) << "the beacon refuses a block before its slot ends";
-    EXPECT_FALSE(consensus->isInDeliveryWindow(3)) << "or a later slot's, skipping slot 2's leader";
-    EXPECT_FALSE(consensus->isInDeliveryWindow(5));
-    EXPECT_EQ(consensus->getProductionSlot(), 2u) << "collecting for slot 2";
-    consensus->setClockOverride(15);  // slot 2 just ended
-    EXPECT_TRUE(consensus->isSlotSealTime(2));
-    EXPECT_EQ(consensus->getProductionSlot(), 2u) << "sealing slot 2 while slot 3 has begun";
-    consensus->setClockOverride(16);
-    EXPECT_TRUE(consensus->isSlotSealTime(2));
-    EXPECT_TRUE(consensus->isInDeliveryWindow(2));
-    consensus->setClockOverride(17);  // past 16.666 s
-    EXPECT_FALSE(consensus->isSlotSealTime(2));
-    EXPECT_FALSE(consensus->isInDeliveryWindow(2)) << "the beacon refuses it now";
-    EXPECT_EQ(consensus->getProductionSlot(), 3u);
+  consensus->setClockOverride(14); // inside slot 2
+  EXPECT_FALSE(consensus->isSlotSealTime(2));
+  EXPECT_FALSE(consensus->isInDeliveryWindow(2)) << "the beacon refuses a block before its slot ends";
+  EXPECT_FALSE(consensus->isInDeliveryWindow(3)) << "or a later slot's, skipping slot 2's leader";
+  EXPECT_FALSE(consensus->isInDeliveryWindow(5));
+  EXPECT_EQ(consensus->getProductionSlot(), 2u) << "collecting for slot 2";
+  consensus->setClockOverride(15); // slot 2 just ended
+  EXPECT_TRUE(consensus->isSlotSealTime(2));
+  EXPECT_EQ(consensus->getProductionSlot(), 2u) << "sealing slot 2 while slot 3 has begun";
+  consensus->setClockOverride(16);
+  EXPECT_TRUE(consensus->isSlotSealTime(2));
+  EXPECT_TRUE(consensus->isInDeliveryWindow(2));
+  consensus->setClockOverride(17); // past 16.666 s
+  EXPECT_FALSE(consensus->isSlotSealTime(2));
+  EXPECT_FALSE(consensus->isInDeliveryWindow(2)) << "the beacon refuses it now";
+  EXPECT_EQ(consensus->getProductionSlot(), 3u);
 }
 
 // A block carries its seal time: in [slot end, slot end + window). A timestamp inside the slot
 // (the old rule) is refused.
 TEST_F(SlotCommitteeTest, BlockTimestampIsTheSealTimeAfterTheSlot) {
-    EXPECT_FALSE(consensus->validateBlockTiming(10, 2)) << "slot start";
-    EXPECT_FALSE(consensus->validateBlockTiming(14, 2)) << "inside the slot";
-    EXPECT_TRUE(consensus->validateBlockTiming(15, 2));
-    EXPECT_TRUE(consensus->validateBlockTiming(16, 2));
-    EXPECT_FALSE(consensus->validateBlockTiming(17, 2)) << "after the window";
+  EXPECT_FALSE(consensus->validateBlockTiming(10, 2)) << "slot start";
+  EXPECT_FALSE(consensus->validateBlockTiming(14, 2)) << "inside the slot";
+  EXPECT_TRUE(consensus->validateBlockTiming(15, 2));
+  EXPECT_TRUE(consensus->validateBlockTiming(16, 2));
+  EXPECT_FALSE(consensus->validateBlockTiming(17, 2)) << "after the window";
 }

@@ -13,18 +13,18 @@
 
 namespace {
 /** Set while the role runs: a signal stops it (one atomic store). */
-std::atomic<pp::RoleRunner *> g_runner{nullptr};
+std::atomic<pp::RoleRunner*> g_runner{nullptr};
 
 void signalHandler(int signal) {
   if (signal == SIGINT || signal == SIGTERM) {
-    if (pp::RoleRunner *runner = g_runner.load()) {
+    if (pp::RoleRunner* runner = g_runner.load()) {
       runner->stop();
     }
   }
 }
 } // namespace
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   CLI::App app{"pp-relay - Relay server for pp-ledger"};
 
   pp::app::NodeOptions options;

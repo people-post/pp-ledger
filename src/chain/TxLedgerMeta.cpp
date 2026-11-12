@@ -6,58 +6,48 @@
 
 namespace pp::chain_tx {
 
-Roe<Client::UserAccount>
-getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId,
-                            const FnUserAccountMetaForRecord &fnUserMetaForRecord) {
-  for (auto it = block.records.rbegin(); it != block.records.rend();
-       ++it) {
+Roe<Client::UserAccount> getUserAccountMetaFromBlock(const Ledger::Block& block, uint64_t accountId,
+                                                     const FnUserAccountMetaForRecord& fnUserMetaForRecord) {
+  for (auto it = block.records.rbegin(); it != block.records.rend(); ++it) {
     auto metaOpt = fnUserMetaForRecord(*it, accountId);
     if (!metaOpt) {
       continue;
     }
-    const std::string &meta = *metaOpt;
+    const std::string& meta = *metaOpt;
     Client::UserAccount userAccount;
     if (!userAccount.ltsFromString(meta)) {
       return TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                     "Failed to deserialize account info: " +
-                         std::to_string(meta.size()) + " bytes");
+                     "Failed to deserialize account info: " + std::to_string(meta.size()) + " bytes");
     }
     return userAccount;
   }
 
-  return TxError(chain_err::E_INTERNAL,
-                 "No prior user/renewal from this account in block");
+  return TxError(chain_err::E_INTERNAL, "No prior user/renewal from this account in block");
 }
 
-Roe<GenesisAccountMeta>
-getGenesisAccountMetaFromBlock(
-    const Ledger::Block &block,
-    const FnGenesisAccountMetaForRecord &fnGenesisMetaForRecord) {
-  for (auto it = block.records.rbegin(); it != block.records.rend();
-       ++it) {
+Roe<GenesisAccountMeta> getGenesisAccountMetaFromBlock(const Ledger::Block& block,
+                                                       const FnGenesisAccountMetaForRecord& fnGenesisMetaForRecord) {
+  for (auto it = block.records.rbegin(); it != block.records.rend(); ++it) {
     auto metaOpt = fnGenesisMetaForRecord(*it, block);
     if (!metaOpt) {
       continue;
     }
-    const std::string &meta = *metaOpt;
+    const std::string& meta = *metaOpt;
 
     GenesisAccountMeta gm;
     if (!gm.ltsFromString(meta)) {
       return TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                     "Failed to deserialize checkpoint: " +
-                         std::to_string(meta.size()) + " bytes");
+                     "Failed to deserialize checkpoint: " + std::to_string(meta.size()) + " bytes");
     }
     return gm;
   }
 
-  return TxError(chain_err::E_INTERNAL,
-                 "No prior checkpoint/user/renewal from this account in block");
+  return TxError(chain_err::E_INTERNAL, "No prior checkpoint/user/renewal from this account in block");
 }
 
-Roe<std::string> getAccountCustomMetaFromBlock(
-    const Ledger::Block &block, uint64_t accountId,
-    const FnUserAccountMetaForRecord &fnUserMetaForRecord,
-    const FnGenesisAccountMetaForRecord &fnGenesisMetaForRecord) {
+Roe<std::string> getAccountCustomMetaFromBlock(const Ledger::Block& block, uint64_t accountId,
+                                               const FnUserAccountMetaForRecord& fnUserMetaForRecord,
+                                               const FnGenesisAccountMetaForRecord& fnGenesisMetaForRecord) {
   if (accountId == AccountBuffer::ID_GENESIS) {
     auto gmRoe = getGenesisAccountMetaFromBlock(block, fnGenesisMetaForRecord);
     if (!gmRoe) {
@@ -65,21 +55,19 @@ Roe<std::string> getAccountCustomMetaFromBlock(
     }
     return gmRoe.value().genesis.meta;
   }
-  auto userRoe =
-      getUserAccountMetaFromBlock(block, accountId, fnUserMetaForRecord);
+  auto userRoe = getUserAccountMetaFromBlock(block, accountId, fnUserMetaForRecord);
   if (!userRoe) {
     return userRoe.error();
   }
   return userRoe.value().meta;
 }
 
-Roe<std::string> getUpdatedAccountMetadataForRenewal(
-    const Ledger::Block &block, const AccountBuffer::Account &account,
-    uint64_t minFee, const FnUserAccountMetaForRecord &fnUserMetaForRecord,
-    const FnGenesisAccountMetaForRecord &fnGenesisMetaForRecord) {
+Roe<std::string> getUpdatedAccountMetadataForRenewal(const Ledger::Block& block, const AccountBuffer::Account& account,
+                                                     uint64_t minFee,
+                                                     const FnUserAccountMetaForRecord& fnUserMetaForRecord,
+                                                     const FnGenesisAccountMetaForRecord& fnGenesisMetaForRecord) {
   if (account.id == AccountBuffer::ID_GENESIS) {
-    auto metaResult =
-        getGenesisAccountMetaFromBlock(block, fnGenesisMetaForRecord);
+    auto metaResult = getGenesisAccountMetaFromBlock(block, fnGenesisMetaForRecord);
     if (!metaResult) {
       return metaResult.error();
     }
@@ -93,8 +81,7 @@ Roe<std::string> getUpdatedAccountMetadataForRenewal(
     if (it != gm.genesis.wallet.mBalances.end()) {
       const int64_t fee = static_cast<int64_t>(minFee);
       if (it->second < std::numeric_limits<int64_t>::min() + fee) {
-        return TxError(chain_err::E_TX_VALIDATION,
-                       "Genesis balance underflow while applying renewal fee");
+        return TxError(chain_err::E_TX_VALIDATION, "Genesis balance underflow while applying renewal fee");
       }
       it->second -= fee;
     }
@@ -102,8 +89,7 @@ Roe<std::string> getUpdatedAccountMetadataForRenewal(
     return gm.ltsToString();
   }
 
-  auto userAccountRoe =
-      getUserAccountMetaFromBlock(block, account.id, fnUserMetaForRecord);
+  auto userAccountRoe = getUserAccountMetaFromBlock(block, account.id, fnUserMetaForRecord);
   if (!userAccountRoe) {
     return userAccountRoe.error();
   }
@@ -115,13 +101,11 @@ Roe<std::string> getUpdatedAccountMetadataForRenewal(
     const int64_t fee = static_cast<int64_t>(minFee);
     if (account.id == AccountBuffer::ID_FEE) {
       if (it->second < std::numeric_limits<int64_t>::min() + fee) {
-        return TxError(chain_err::E_TX_VALIDATION,
-                       "Fee account balance underflow while applying renewal fee");
+        return TxError(chain_err::E_TX_VALIDATION, "Fee account balance underflow while applying renewal fee");
       }
     } else {
       if (it->second < fee) {
-        return TxError(chain_err::E_ACCOUNT_BALANCE,
-                       "Insufficient genesis balance for renewal fee");
+        return TxError(chain_err::E_ACCOUNT_BALANCE, "Insufficient genesis balance for renewal fee");
       }
       it->second -= fee;
     }

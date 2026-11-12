@@ -47,7 +47,7 @@ TEST(Sha256Test, Sha256RawMatchesHexEncoding) {
 
 TEST(Sha256Test, OutputIsHexadecimal64Characters) {
   std::string hash = sha256("test");
-  EXPECT_EQ(hash.size(), 64u);  // SHA-256 produces 32 bytes = 64 hex chars
+  EXPECT_EQ(hash.size(), 64u); // SHA-256 produces 32 bytes = 64 hex chars
   // Verify all characters are valid hex
   for (char c : hash) {
     EXPECT_TRUE((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));
@@ -200,15 +200,14 @@ TEST(MlDsaTest, IsValidMlDsaPublicKeyRejectsInvalidHex) {
 namespace {
 
 /** A raw key with chosen edge bytes; the middle is a fixed non-whitespace byte. */
-std::string rawKeyWithEdges(const std::string &head, const std::string &tail) {
+std::string rawKeyWithEdges(const std::string& head, const std::string& tail) {
   std::string key(kMlDsaPrivateKeyBytes, '\x5a');
   key.replace(0, head.size(), head);
   key.replace(key.size() - tail.size(), tail.size(), tail);
   return key;
 }
 
-std::filesystem::path writeKeyFile(const std::string &name,
-                                   const std::string &bytes) {
+std::filesystem::path writeKeyFile(const std::string& name, const std::string& bytes) {
   const auto path = pp::test::uniqueTempPath(name);
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -222,7 +221,7 @@ std::filesystem::path writeKeyFile(const std::string &name,
 TEST(ReadPrivateKeyTest, RawKeyWithWhitespaceOrHexPrefixEdgesLoadsIntact) {
   const std::vector<std::pair<std::string, std::string>> edges = {
       {" ", "x"}, {"x", "\n"}, {"\t\r", " \n"}, {"0x", "y"}, {"\x1a", "z"}};
-  for (const auto &[head, tail] : edges) {
+  for (const auto& [head, tail] : edges) {
     const std::string key = rawKeyWithEdges(head, tail);
     const auto path = writeKeyFile("pp-ledger-raw-key-test.bin", key);
     auto result = readPrivateKey(path.string(), "");
@@ -234,8 +233,7 @@ TEST(ReadPrivateKeyTest, RawKeyWithWhitespaceOrHexPrefixEdgesLoadsIntact) {
 
 TEST(ReadPrivateKeyTest, HexKeyFileWithPrefixAndNewlineLoads) {
   const std::string key = rawKeyWithEdges(" ", "\n");
-  const auto path =
-      writeKeyFile("pp-ledger-hex-key-test.txt", "0x" + hexEncode(key) + "\n");
+  const auto path = writeKeyFile("pp-ledger-hex-key-test.txt", "0x" + hexEncode(key) + "\n");
   auto result = readPrivateKey(path.string(), "");
   ASSERT_TRUE(result.isOk()) << result.error().message;
   EXPECT_EQ(result.value(), key);
@@ -245,8 +243,7 @@ TEST(ReadPrivateKeyTest, HexKeyFileWithPrefixAndNewlineLoads) {
 TEST(ReadPrivateKeyTest, RelativePathResolvesAgainstBaseDir) {
   const std::string key = rawKeyWithEdges("a", "b");
   const auto path = writeKeyFile("pp-ledger-relative-key-test.bin", key);
-  auto result = readPrivateKey(path.filename().string(),
-                               path.parent_path().string());
+  auto result = readPrivateKey(path.filename().string(), path.parent_path().string());
   ASSERT_TRUE(result.isOk()) << result.error().message;
   EXPECT_EQ(result.value(), key);
   std::filesystem::remove(path);
@@ -260,8 +257,7 @@ TEST(ReadPrivateKeyTest, InlineHexKeyLoads) {
 }
 
 TEST(ReadPrivateKeyTest, WrongSizeRawFileIsRejected) {
-  const auto path = writeKeyFile("pp-ledger-short-key-test.bin",
-                                 std::string(kMlDsaPrivateKeyBytes - 1, '\x5a'));
+  const auto path = writeKeyFile("pp-ledger-short-key-test.bin", std::string(kMlDsaPrivateKeyBytes - 1, '\x5a'));
   EXPECT_TRUE(readPrivateKey(path.string(), "").isError());
   std::filesystem::remove(path);
 }
@@ -281,17 +277,12 @@ TEST(WriteToNewFileTest, WritesOwnerOnlyPermissions) {
 
   auto perms = std::filesystem::status(path, ec).permissions();
   ASSERT_FALSE(ec);
-  const auto forbidden = std::filesystem::perms::group_read |
-                        std::filesystem::perms::group_write |
-                        std::filesystem::perms::group_exec |
-                        std::filesystem::perms::others_read |
-                        std::filesystem::perms::others_write |
-                        std::filesystem::perms::others_exec;
+  const auto forbidden = std::filesystem::perms::group_read | std::filesystem::perms::group_write |
+                         std::filesystem::perms::group_exec | std::filesystem::perms::others_read |
+                         std::filesystem::perms::others_write | std::filesystem::perms::others_exec;
   EXPECT_EQ(perms & forbidden, std::filesystem::perms::none);
-  EXPECT_NE(perms & std::filesystem::perms::owner_read,
-           std::filesystem::perms::none);
-  EXPECT_NE(perms & std::filesystem::perms::owner_write,
-           std::filesystem::perms::none);
+  EXPECT_NE(perms & std::filesystem::perms::owner_read, std::filesystem::perms::none);
+  EXPECT_NE(perms & std::filesystem::perms::owner_write, std::filesystem::perms::none);
 
   std::filesystem::remove(path, ec);
 }
@@ -313,8 +304,8 @@ TEST(WriteToNewFileTest, NeverOverwritesExistingFile) {
   std::filesystem::remove(path, ec);
 }
 
-}  // namespace utl
-}  // namespace pp
+} // namespace utl
+} // namespace pp
 
 // A path that does not exist is reported as a missing file, not as a
 // malformed inline key.

@@ -20,9 +20,13 @@ namespace pp::utl {
 namespace {
 
 #if defined(_WIN32)
-std::string lastWindowsError() { return "Windows error " + std::to_string(GetLastError()); }
+std::string lastWindowsError() {
+  return "Windows error " + std::to_string(GetLastError());
+}
 #else
-std::string lastErrno() { return std::strerror(errno); }
+std::string lastErrno() {
+  return std::strerror(errno);
+}
 
 /** fsync `fd`; on macOS ask the drive to flush its cache too (plain fsync does not). */
 int fullSync(int fd) {
@@ -37,7 +41,7 @@ int fullSync(int fd) {
 
 } // namespace
 
-pp::Roe<void> syncFile(const std::string &path) {
+pp::Roe<void> syncFile(const std::string& path) {
 #if defined(_WIN32)
   const std::wstring wide = std::filesystem::path(path).wstring();
   HANDLE handle = CreateFileW(wide.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -67,7 +71,7 @@ pp::Roe<void> syncFile(const std::string &path) {
 #endif
 }
 
-pp::Roe<void> syncDirectory(const std::string &path) {
+pp::Roe<void> syncDirectory(const std::string& path) {
 #if defined(_WIN32)
   (void)path;
   return {};
@@ -86,7 +90,7 @@ pp::Roe<void> syncDirectory(const std::string &path) {
 #endif
 }
 
-pp::Roe<void> replaceFile(const std::string &path, const std::string &bytes) {
+pp::Roe<void> replaceFile(const std::string& path, const std::string& bytes) {
   const std::string temp = path + ".tmp";
   {
     std::ofstream out(temp, std::ios::binary | std::ios::trunc);

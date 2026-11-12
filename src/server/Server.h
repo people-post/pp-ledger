@@ -83,8 +83,7 @@ public:
 protected:
   virtual bool useSignatureFile() const { return true; }
 
-  static Roe<void> ensureWorkDirectory(const std::string& workDir,
-                                       const std::string& signatureFileName,
+  static Roe<void> ensureWorkDirectory(const std::string& workDir, const std::string& signatureFileName,
                                        int32_t errorCode = -1);
 
   const std::string& getWorkDir() const { return workDir_; }
@@ -98,12 +97,10 @@ protected:
   network::AmpHost* ampRuntime();
   pp::amp::PeerLinkManager* peerLinks();
 
-
   static std::string packResponse(const std::string& payload);
   static std::string packResponse(uint16_t errorCode, const std::string& message);
   /** An overload or deadline answer (Client::E_BUSY …, load-resilience LR007), with when to try again. */
   static std::string packError(uint16_t code, const std::string& message, uint32_t retryAfterMs = 0);
-
 
   /**
    * In the role's constructor: the core this server serves. The base then answers the chain reads
@@ -146,14 +143,16 @@ protected:
    * Wrap a continuation for an async Client call: the result (delivered on the
    * io lane) is handed to `fn` on the server thread.
    */
-  template <typename T, typename Fn> std::function<void(Client::Roe<T>)> completeOnServerThread(Fn fn) {
+  template <typename T, typename Fn>
+  std::function<void(Client::Roe<T>)> completeOnServerThread(Fn fn) {
     return [this, fn = std::move(fn)](Client::Roe<T> result) {
       postToServerThread([fn, result = std::move(result)]() mutable { fn(std::move(result)); });
     };
   }
 
   /** Pack a handler result (Roe<std::string>) into a response and send it. */
-  template <typename R> static void replyWith(const RequestQueue::Reply& reply, const R& result) {
+  template <typename R>
+  static void replyWith(const RequestQueue::Reply& reply, const R& result) {
     reply(result ? packResponse(result.value()) : packResponse(1, result.error().message));
   }
 

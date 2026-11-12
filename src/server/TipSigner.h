@@ -27,7 +27,8 @@ public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
   };
-  template <typename T> using Roe = ResultOrError<T, Error>;
+  template <typename T>
+  using Roe = ResultOrError<T, Error>;
 
   static constexpr const int32_t E_IO = 1;
   /** The certificate in force names another key: this beacon may not sign. */
@@ -40,25 +41,25 @@ public:
   /** Read the persisted tip (none yet on a fresh beacon). */
   Roe<void> load();
 
-  const std::optional<Client::SignedTip> &latest() const { return latest_; }
+  const std::optional<Client::SignedTip>& latest() const { return latest_; }
   /** True when one of this signer's keys is `publicKey`. */
-  bool holdsKey(const std::string &publicKey) const;
+  bool holdsKey(const std::string& publicKey) const;
 
   /**
    * Sign block `height` (hash `blockHash`) of `cert`'s chain as `cert`'s generation, then persist
    * it. Signing the latest again is a no-op.
    */
-  Roe<void> sign(const BeaconCertificate &cert, uint64_t height, const std::string &blockHash);
+  Roe<void> sign(const BeaconCertificate& cert, uint64_t height, const std::string& blockHash);
   /**
    * `message` signed with the key `cert` names (a record the beacon authors, such as its seed
    * reveal). E_NOT_CERTIFIED when this signer does not hold it.
    */
-  Roe<std::string> signMessage(const BeaconCertificate &cert, const std::string &message) const;
+  Roe<std::string> signMessage(const BeaconCertificate& cert, const std::string& message) const;
 
 private:
-  Roe<void> persist(const Client::SignedTip &tip) const;
+  Roe<void> persist(const Client::SignedTip& tip) const;
   /** The held key `cert` names; E_NOT_CERTIFIED when none is. */
-  Roe<const utl::MlDsaKeyPair *> certifiedKey(const BeaconCertificate &cert) const;
+  Roe<const utl::MlDsaKeyPair*> certifiedKey(const BeaconCertificate& cert) const;
 
   std::string path_;
   std::vector<utl::MlDsaKeyPair> keys_;

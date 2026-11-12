@@ -11,7 +11,7 @@
 
 namespace pp::operation {
 
-inline constexpr const char *kKeyBackupFormat = "pp-ledger-key-backup";
+inline constexpr const char* kKeyBackupFormat = "pp-ledger-key-backup";
 inline constexpr uint32_t kKeyBackupVersion = 1;
 /** The shortest passphrase a backup is written under. */
 inline constexpr size_t kKeyBackupMinPassphrase = 10;
@@ -36,14 +36,14 @@ struct BackedUpKey {
 };
 
 /** `key` encrypted under `passphrase` (at least kKeyBackupMinPassphrase characters): the file's JSON. */
-pp::Roe<std::string> keyBackupToJson(const BackedUpKey &key, std::string_view passphrase,
-                                     const KeyBackupLimits &limits = KeyBackupLimits::sensitive());
+pp::Roe<std::string> keyBackupToJson(const BackedUpKey& key, std::string_view passphrase,
+                                     const KeyBackupLimits& limits = KeyBackupLimits::sensitive());
 /**
  * The key a backup holds: decrypted with `passphrase`, the pair checked. Refused for another format or
  * version, costs above the sensitive limits, a wrong passphrase or a damaged file.
  */
-pp::Roe<BackedUpKey> keyBackupFromJson(const std::string &json, std::string_view passphrase);
+pp::Roe<BackedUpKey> keyBackupFromJson(const std::string& json, std::string_view passphrase);
 /** The public key a backup names (raw), read without the passphrase. */
-pp::Roe<std::string> keyBackupPublicKey(const std::string &json);
+pp::Roe<std::string> keyBackupPublicKey(const std::string& json);
 
 } // namespace pp::operation

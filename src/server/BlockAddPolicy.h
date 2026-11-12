@@ -17,7 +17,8 @@ enum class BlockAddCheck {
  * a lost reply, or a resend) is answered cheaply and is not forwarded again.
  * `chain` provides getNextBlockId / readBlock / calculateHash (Beacon, Relay).
  */
-template <typename ChainLike> BlockAddCheck checkBlockAdd(const ChainLike &chain, const Ledger::ChainNode &block) {
+template <typename ChainLike>
+BlockAddCheck checkBlockAdd(const ChainLike& chain, const Ledger::ChainNode& block) {
   if (block.block.index >= chain.getNextBlockId()) {
     return BlockAddCheck::New;
   }

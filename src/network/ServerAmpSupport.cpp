@@ -5,7 +5,9 @@
 namespace pp {
 namespace network {
 
-ServerAmpSupport::~ServerAmpSupport() { Stop(); }
+ServerAmpSupport::~ServerAmpSupport() {
+  Stop();
+}
 
 pp::Service::Roe<void> ServerAmpSupport::Start(LedgerAmpConfig config, DispatchFn dispatch,
                                                AmpLedgerServer::Options ingress) {

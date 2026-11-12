@@ -22,9 +22,7 @@ struct NetworkAnchor {
    */
   std::string predecessor_dir;
 
-  bool isConfigured() const {
-    return !network_id.empty() || !genesis_hash.empty() || trusted_checkpoint_set;
-  }
+  bool isConfigured() const { return !network_id.empty() || !genesis_hash.empty() || trusted_checkpoint_set; }
 
   /** `genesisHash` is hex (optional `0x`) of the 32-byte block hash; kept raw, as hashes compare. */
   static pp::Roe<NetworkAnchor> fromJson(const pp::common::Object& jd) {
@@ -53,16 +51,14 @@ struct NetworkAnchor {
   }
 
   template <typename ErrorType>
-  static ResultOrError<void, ErrorType> verifyStatus(const NetworkAnchor& anchor,
-                                                     const Client::BeaconState& state) {
+  static ResultOrError<void, ErrorType> verifyStatus(const NetworkAnchor& anchor, const Client::BeaconState& state) {
     if (!anchor.network_id.empty() && state.networkId != anchor.network_id) {
-      return ErrorType{-1, "upstream network id mismatch (expected " + anchor.network_id +
-                                ", got " + state.networkId + ")"};
+      return ErrorType{
+          -1, "upstream network id mismatch (expected " + anchor.network_id + ", got " + state.networkId + ")"};
     }
     if (anchor.trusted_checkpoint_set && state.checkpointId < anchor.trusted_checkpoint_id) {
-      return ErrorType{-1, "upstream checkpoint " + std::to_string(state.checkpointId) +
-                                " is below trusted minimum " +
-                                std::to_string(anchor.trusted_checkpoint_id)};
+      return ErrorType{-1, "upstream checkpoint " + std::to_string(state.checkpointId) + " is below trusted minimum " +
+                               std::to_string(anchor.trusted_checkpoint_id)};
     }
     return {};
   }
