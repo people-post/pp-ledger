@@ -39,7 +39,7 @@ its `/data` volume and keeps the same secrets.
    relays and miners calibrated to the old host's clock and do not recalibrate on a move within one
    generation; check `timedatectl` or `chronyc tracking` on both hosts).
 2. **Its address.** The peer id moves with `keys/amp-identity.txt`, so the new multiaddr is the old
-   one with the new IP and port: `/ip4/<new ip>/udp/<port>/adp/1.0.0/p2p/<same peer id>`
+   one with the new IP and port: `/ip4/<new ip>/udp/<port>/adp/2/p2p/<same peer id>`
    (`pp-client peer-id <dir>/keys/amp-identity.txt` prints the peer id). If the beacon keeps its
    address (the IP moves with it), or relays name it by host (`/dns4/<host>/…`) and the name is
    pointed at the new host, skip step 3: relays look the name up again when a dial fails (lower the

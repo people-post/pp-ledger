@@ -43,7 +43,7 @@ void RelayServer::rankUpstreamsAtStart() {
 Service::Roe<void> RelayServer::onStart() {
   FollowerConfig config(Client::DEFAULT_RELAY_PORT);
   Object configTemplate;
-  config.toJson(configTemplate, "<upstream multiaddr: /ip4/A.B.C.D/udp/8517/adp/1.0.0/p2p/PEER_ID>");
+  config.toJson(configTemplate, "<upstream multiaddr: /ip4/A.B.C.D/udp/8517/adp/2/p2p/PEER_ID>");
   auto fields = env_config::commonFields();
   for (auto &field : FollowerConfig::envFields()) {
     fields.push_back(std::move(field));

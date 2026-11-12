@@ -114,7 +114,7 @@ UDP → ADP → MSH (ML-DSA identity) → channel /pp-ledger/rpc/1.0.0 → binar
   and removes its protocol handlers, and no io-lane call reaches a stopped node
   ([THREADING.md](THREADING.md) rule 6). `InProcessLedgerTransport` exists
   but nothing uses it yet.
-- Peers are curated ADP multiaddrs (`/ip4/…/udp/…/adp/1.0.0/p2p/<PeerId>`); there is no DHT or
+- Peers are curated ADP multiaddrs (`/ip4/…/udp/…/adp/2/p2p/<PeerId>`); there is no DHT or
   open discovery.
 - pp-ledger contains no libp2p; a node's PeerId is the mesh PeerId of its ML-DSA-65 key, derived by
   pp-cpp-crypto (`pp::PeerIdFromMlDsaPublicKey`, shared with pp-cpp-amp's links and pp-browser), so a

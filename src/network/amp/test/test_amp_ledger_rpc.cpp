@@ -99,6 +99,10 @@ struct RpcHarness {
 
     h->runtime_a = std::make_unique<pp::amp::MeshRuntime>(*h->ep_a, h->alice, h->peer_id_a, link_cfg);
     h->runtime_b = std::make_unique<pp::amp::MeshRuntime>(*h->ep_b, h->bob, h->peer_id_b, link_cfg);
+    // The virtual clock stands still between advances, so housekeeping (read timeouts, keepalives)
+    // runs every round: a cadence would start a channel's read clock at the next advance, not its bind.
+    h->runtime_a->SetHousekeepingInterval(std::chrono::milliseconds(0));
+    h->runtime_b->SetHousekeepingInterval(std::chrono::milliseconds(0));
     h->runtime_a->Start();
     h->runtime_b->Start();
 

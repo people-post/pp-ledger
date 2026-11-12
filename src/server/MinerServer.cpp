@@ -69,7 +69,7 @@ Object MinerServer::RunFileConfig::toJson() const {
     keyValues.push_back(std::string("<private key file: pp-client keygen -o key>"));
   }
   j.set("keys", Object::array(std::move(keyValues)));
-  FollowerConfig::toJson(j, "<upstream multiaddr: /ip4/A.B.C.D/udp/8519/adp/1.0.0/p2p/PEER_ID>");
+  FollowerConfig::toJson(j, "<upstream multiaddr: /ip4/A.B.C.D/udp/8519/adp/2/p2p/PEER_ID>");
   return j;
 }
 

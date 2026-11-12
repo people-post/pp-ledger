@@ -34,7 +34,7 @@ The following **system packages** must be present (pre-installed in the VM snaps
 - `libstdc++-14-dev` (required for Clang to link against libstdc++)
 - `clang-tidy` (linter)
 
-Value/Meta JSON IO lives in **pp-cpp-common** (`common/Value.h`, `common/io/Json.h`). Shared foundation and crypto come from **pp-cpp-common** and **pp-cpp-crypto** via CMake FetchContent (tags `v0.3.1` / `v0.2.0`). **pp-cpp-amp** (`v2.13.3`) is required for fleet networking — see [docs/contracts/AMP_TRANSPORT.md](docs/contracts/AMP_TRANSPORT.md). Amp is transport-only; ledger RPC/sync stay in this repo. Optional override: `-DPP_CPP_COMMON_SOURCE_DIR=` / `-DPP_CPP_CRYPTO_SOURCE_DIR=` / `-DPP_CPP_AMP_SOURCE_DIR=`. Do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest`.
+Value/Meta JSON IO lives in **pp-cpp-common** (`common/Value.h`, `common/io/Json.h`). Shared foundation and crypto come from **pp-cpp-common** and **pp-cpp-crypto** via CMake FetchContent (release tags pinned in `cmake/PpCppCommon.cmake` / `cmake/PpCppCrypto.cmake`). **pp-cpp-amp** (pinned in `cmake/PpCppAmp.cmake`; a sibling `../pp-cpp-amp` checkout wins when present) is required for fleet networking — see [docs/contracts/AMP_TRANSPORT.md](docs/contracts/AMP_TRANSPORT.md). Amp is transport-only; ledger RPC/sync stay in this repo. Optional override: `-DPP_CPP_COMMON_SOURCE_DIR=` / `-DPP_CPP_CRYPTO_SOURCE_DIR=` / `-DPP_CPP_AMP_SOURCE_DIR=`. Do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest`.
 
 ### Build
 
@@ -98,7 +98,7 @@ Prefer the smoke harness for local fleets:
 Manual bring-up gotchas (see also [docs/contracts/AMP_TRANSPORT.md](docs/contracts/AMP_TRANSPORT.md)):
 
 - **Beacon must be initialized first** with `--init`. After that, run without `--init` to start.
-- Peer dialing uses **ADP multiaddrs** (`/ip4/.../udp/.../adp/1.0.0/p2p/<peer-id>`), not host:port alone. Each server logs `AMP ledger listener: ...` on start — copy that into relay `beacon`, miner `beacons[]`, and `pp-client --host`.
+- Peer dialing uses **ADP multiaddrs** (`/ip4/.../udp/.../adp/2/p2p/<peer-id>`), not host:port alone. Each server logs `AMP ledger listener: ...` on start — copy that into relay `beacon`, miner `beacons[]`, and `pp-client --host`.
 - **Miner config** requires `"keys"` (array of key-file paths) and `"beacons"` (array of multiaddr strings or `{host,port,peerId}` objects).
 - Slot leader election is probabilistic; empty slots are normal. Smoke L1 uses short slots + tx inject; registered miners, the delivery window and heartbeats keep the tip moving, so no forced leader is needed.
 
@@ -116,7 +116,7 @@ Config example (multiaddr form):
 {
   "port": 8519,
   "keys": ["keys/amp-identity.txt"],
-  "beacon": "/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon-peer-id>"
+  "beacon": "/ip4/127.0.0.1/udp/8517/adp/2/p2p/<beacon-peer-id>"
 }
 ```
 
@@ -141,7 +141,7 @@ cat > test-manual/miner1/config.json << 'EOF'
   "keys": ["key.txt"],
   "host": "127.0.0.1",
   "port": 8518,
-  "beacons": ["/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon-peer-id>"]
+  "beacons": ["/ip4/127.0.0.1/udp/8517/adp/2/p2p/<beacon-peer-id>"]
 }
 EOF
 
@@ -150,8 +150,8 @@ EOF
 
 # 5. HTTP API (optional; needs ADP multiaddrs)
 ./app/pp-http --port 8080 \
-  --beacon '/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon-peer-id>' \
-  --miner '/ip4/127.0.0.1/udp/8518/adp/1.0.0/p2p/<miner-peer-id>' &
+  --beacon '/ip4/127.0.0.1/udp/8517/adp/2/p2p/<beacon-peer-id>' \
+  --miner '/ip4/127.0.0.1/udp/8518/adp/2/p2p/<miner-peer-id>' &
 ```
 
 ### Default ports

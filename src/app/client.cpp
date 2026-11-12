@@ -1351,7 +1351,7 @@ int main(int argc, char *argv[]) {
 
   std::string multiaddr = host;
   if (!multiaddr.empty() && multiaddr.front() != '/') {
-    std::cerr << "Error: server address must be an ADP multiaddr (/ip4|dns4/.../udp/.../adp/1.0.0/p2p/...).\n";
+    std::cerr << "Error: server address must be an ADP multiaddr (/ip4|dns4/.../udp/.../adp/2/p2p/...).\n";
     return 1;
   }
 

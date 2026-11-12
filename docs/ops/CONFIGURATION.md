@@ -50,7 +50,7 @@ anything starts: `pp-client peer-id <key>` prints the peer id and public key of 
 or a key file), so upstream multiaddrs can be written ahead. For example, a relay with no files:
 
 ```bash
-PP_LEDGER_WORK_DIR=/data PP_LEDGER_UPSTREAMS=/ip4/10.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon peer id> \
+PP_LEDGER_WORK_DIR=/data PP_LEDGER_UPSTREAMS=/ip4/10.0.0.1/udp/8517/adp/2/p2p/<beacon peer id> \
   PP_LEDGER_LOG_LEVEL=info pp-relay
 ```
 
@@ -225,7 +225,7 @@ When the beacon's key is stolen, the admins certify a new key held on one of the
 ## Relay `config.json`
 
 ```json
-{ "beacon": "/ip4/10.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon peer id>" }
+{ "beacon": "/ip4/10.0.0.1/udp/8517/adp/2/p2p/<beacon peer id>" }
 ```
 
 | Field | Default | Meaning |
@@ -244,7 +244,7 @@ When the beacon's key is stolen, the admins certify a new key held on one of the
 {
   "minerId": 1048576,
   "keys": ["key.txt"],
-  "beacons": ["/ip4/10.0.0.2/udp/8519/adp/1.0.0/p2p/<relay peer id>"]
+  "beacons": ["/ip4/10.0.0.2/udp/8519/adp/2/p2p/<relay peer id>"]
 }
 ```
 

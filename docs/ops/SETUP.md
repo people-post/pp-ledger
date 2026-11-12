@@ -82,7 +82,7 @@ On first run, the miner creates a default `miner1/config.json`. Edit it:
 {
   "minerId": 1048576,
   "keys": ["key.txt"],
-  "beacons": ["/ip4/10.0.0.2/udp/8519/adp/1.0.0/p2p/<relay peer id>"]
+  "beacons": ["/ip4/10.0.0.2/udp/8519/adp/2/p2p/<relay peer id>"]
 }
 ```
 
@@ -108,12 +108,12 @@ The miner will:
 The client connects to either the beacon server or miner server to query status and send commands.
 
 Every command that talks to a node takes its ADP multiaddr with `--host`
-(`/ip4/<address>/udp/<port>/adp/1.0.0/p2p/<peer id>`; the peer id is printed at start as
+(`/ip4/<address>/udp/<port>/adp/2/p2p/<peer id>`; the peer id is printed at start as
 `AMP ledger listener:`, or worked out ahead with `pp-client peer-id <identity key>`). `-b` talks to
 a beacon or relay, `-m` to a miner.
 
 ```bash
-R=/ip4/10.0.0.2/udp/8519/adp/1.0.0/p2p/<relay peer id>
+R=/ip4/10.0.0.2/udp/8519/adp/2/p2p/<relay peer id>
 ./app/pp-client --host "$R" -b status            # tip, slot, epoch, signed tip, certificate
 ./app/pp-client --host "$R" -b block 0
 ./app/pp-client --host "$R" -b account 1048576
@@ -156,10 +156,10 @@ The HTTP server exposes the same interfaces as the client over REST-style HTTP, 
 cd build
 cmake -DPP_LEDGER_BUILD_HTTP=ON ..   # Re-run cmake to enable the HTTP server (off by default)
 make pp-http
-# Copy listen multiaddrs from beacon/miner logs (adp/1.0.0/p2p/...)
+# Copy listen multiaddrs from beacon/miner logs (adp/2/p2p/...)
 ./app/pp-http --port 8080 \
-  --beacon '/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon-peer-id>' \
-  --miner  '/ip4/127.0.0.1/udp/8518/adp/1.0.0/p2p/<miner-peer-id>'
+  --beacon '/ip4/127.0.0.1/udp/8517/adp/2/p2p/<beacon-peer-id>' \
+  --miner  '/ip4/127.0.0.1/udp/8518/adp/2/p2p/<miner-peer-id>'
 ```
 
 ### Options
@@ -213,8 +213,8 @@ pp-http only translates its answers. The service checks block 0's hash too.
 
 ```bash
 ./app/pp-http --port 8090 \
-  --beacon '/ip4/127.0.0.1/udp/8519/adp/1.0.0/p2p/<your-relay-peer-id>' \
-  --miner  '/ip4/127.0.0.1/udp/8519/adp/1.0.0/p2p/<your-relay-peer-id>'
+  --beacon '/ip4/127.0.0.1/udp/8519/adp/2/p2p/<your-relay-peer-id>' \
+  --miner  '/ip4/127.0.0.1/udp/8519/adp/2/p2p/<your-relay-peer-id>'
 curl http://127.0.0.1:8090/api/chain/status
 curl 'http://127.0.0.1:8090/api/chain/blocks?from=1&limit=20'
 curl http://127.0.0.1:8090/api/chain/accounts/1073741825
@@ -260,7 +260,7 @@ JSON
 **3. Relay** — upstream is the beacon's multiaddr:
 ```bash
 mkdir -p relay
-echo '{"beacon": "/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon peer id>"}' > relay/config.json
+echo '{"beacon": "/ip4/127.0.0.1/udp/8517/adp/2/p2p/<beacon peer id>"}' > relay/config.json
 ./app/pp-relay -d relay       # prints its own listen multiaddr
 ```
 
@@ -271,7 +271,7 @@ cat > miner1/config.json << 'JSON'
 {
   "minerId": 1048576,
   "keys": ["key.txt"],
-  "beacons": ["/ip4/127.0.0.1/udp/8519/adp/1.0.0/p2p/<relay peer id>"]
+  "beacons": ["/ip4/127.0.0.1/udp/8519/adp/2/p2p/<relay peer id>"]
 }
 JSON
 ./app/pp-miner -d miner1
