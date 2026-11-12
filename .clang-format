@@ -1,0 +1,18 @@
+# pp-ledger's C++ style (shared with pp-browser and the pp-cpp-* libraries). The whole tree is formatted with
+# clang-format 23.1.5 — use exactly that version (`pip install clang-format==23.1.5`); CI checks every file.
+BasedOnStyle: Google
+ColumnLimit: 120
+IndentWidth: 2
+AccessModifierOffset: -2
+NamespaceIndentation: None
+FixNamespaceComments: true
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+IncludeBlocks: Preserve
+SortIncludes: Never
+SpacesBeforeTrailingComments: 1
+ReflowComments: false

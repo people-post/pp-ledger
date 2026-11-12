@@ -8,6 +8,15 @@ on:
   workflow_dispatch:
 
 jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: C++ formatting (clang-format 23.1.5)
+        run: |
+          pipx install clang-format==23.1.5
+          ./scripts/check/check_format.sh
+
   build:
     strategy:
       fail-fast: false

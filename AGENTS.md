@@ -53,6 +53,8 @@ make -j$(nproc)
 
 ### Lint
 
+**Formatting:** the whole tree is clang-formatted with the root `.clang-format` (the style pp-browser and the pp-cpp-* libraries share) by exactly **clang-format 23.1.5** (`pip install clang-format==23.1.5`; other versions format differently). Run `./scripts/check/check_format.sh --fix` before committing C/C++ (`CLANG_FORMAT=<binary>` picks the binary); CI's `format` job fails on any unformatted first-party file. Vendored code (`third_party/`, `src/lib/{cli,http}`) is left as it came.
+
 Run clang-tidy against project source files (requires `compile_commands.json` from the build):
 
 ```bash
