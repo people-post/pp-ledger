@@ -93,7 +93,7 @@ receive a `LinkHandle`; reach the link via `PeerLinkManager::WithLiveLink`.
   "host": "0.0.0.0",
   "port": 8518,
   "beacons": [
-    "/ip4/127.0.0.1/udp/8519/adp/1.0.0/p2p/<upstream-peer-id>"
+    "/ip4/127.0.0.1/udp/8519/adp/2/p2p/<upstream-peer-id>"
   ]
 }
 ```
@@ -116,7 +116,7 @@ Optional network anchor (see [LEDGER_TOPOLOGY.md](../architecture/LEDGER_TOPOLOG
 {
   "port": 8519,
   "keys": ["keys/amp-identity.txt"],
-  "beacon": "/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<upstream-peer-id>"
+  "beacon": "/ip4/127.0.0.1/udp/8517/adp/2/p2p/<upstream-peer-id>"
 }
 ```
 
@@ -128,12 +128,17 @@ On startup, each server logs its listen multiaddr. Copy that multiaddr into down
 A multiaddr names the host by address or by name:
 
 ```text
-/ip4/<ipv4>/udp/<port>/adp/1.0.0/p2p/<peer id>
-/ip6/<ipv6>/udp/<port>/adp/1.0.0/p2p/<peer id>
-/dns4/<host>/udp/<port>/adp/1.0.0/p2p/<peer id>     an IPv4 address of <host>
-/dns6/<host>/udp/<port>/adp/1.0.0/p2p/<peer id>     an IPv6 address
-/dns/<host>/udp/<port>/adp/1.0.0/p2p/<peer id>      either
+/ip4/<ipv4>/udp/<port>/adp/2/p2p/<peer id>
+/ip6/<ipv6>/udp/<port>/adp/2/p2p/<peer id>
+/dns4/<host>/udp/<port>/adp/2/p2p/<peer id>     an IPv4 address of <host>
+/dns6/<host>/udp/<port>/adp/2/p2p/<peer id>     an IPv6 address
+/dns/<host>/udp/<port>/adp/2/p2p/<peer id>      either
 ```
+
+The segment after `adp` is the Amp wire version (`2`). The older `1.0.0` form still parses (the
+version is then settled when dialing); an address naming another wire version is refused.
+A node on wire 2 (pp-cpp-amp 4.0 and later) refuses a wire-1 peer, so a fleet's nodes and its
+clients move to a new wire together.
 
 A name is resolved when it is dialed (Amp, off the network thread), kept for a minute, and looked
 up again after a failed dial, so a node that moves to another address under the same name is
@@ -145,7 +150,7 @@ name must hold its identity key.
 Pass the target ADP multiaddr as `-H` / `--host`:
 
 ```bash
-pp-client -b -H '/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/...' status
+pp-client -b -H '/ip4/127.0.0.1/udp/8517/adp/2/p2p/...' status
 ```
 
 ## Related
