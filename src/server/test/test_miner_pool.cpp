@@ -427,7 +427,9 @@ TEST_F(RenewalEchoTest, ABurstOfAccountsComesDueTogetherAndHoldsTransfersAsLong)
 // and stay pending, which stalled the leader for every later slot.
 // load-resilience lr4: what a pool checks before it holds a record — cheap, on the committed state.
 TEST_F(MinerPoolTest, AdmissionRefusesWhatCouldNeverApply) {
-  const uint64_t slot = miner_->getCurrentSlot();
+  // The slot admission judges a window by: in the first third of a slot (its delivery window) it
+  // is still the previous one, so a window from the current slot would be refused then.
+  const uint64_t slot = miner_->getProductionSlot();
   const int64_t from = miner_->getSlotStartTime(slot);
   auto valid = transferValidFrom(slot, 60, 21);
   EXPECT_TRUE(miner_->checkAdmission(valid, from, true)) << "signed by the reserve's keys, funded, in its window";
