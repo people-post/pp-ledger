@@ -23,6 +23,7 @@
 
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <map>
 
@@ -6834,4 +6835,99 @@ TEST(ImportTest, APendingRecoveryRestartsItsDelayOnTheNewNetwork) {
   auto kept = ImportTxHandler::entering(quiet, ImportProgress{}, config, 3);
   ASSERT_TRUE(kept.isOk()) << kept.error().message;
   EXPECT_EQ(kept.value().wallet.recovery, quiet.wallet.recovery);
+}
+
+// --- Startup replay reads to the ledger's end (review H2) ---
+
+namespace {
+
+/**
+ * Overwrite block `index`'s bytes in a single block file (volumes/v000001/000001.dat) so it no
+ * longer decodes, keeping its size: the file still mounts, only that block cannot be read. The
+ * file is a 24-byte header, then for each block an 8-byte size and that many bytes.
+ */
+void spoilStoredBlock(const std::filesystem::path& ledgerDir, uint64_t index, uint64_t blockCount) {
+  const auto path = ledgerDir / "volumes" / "v000001" / "000001.dat";
+  std::fstream file(path, std::ios::in | std::ios::out | std::ios::binary);
+  ASSERT_TRUE(file.is_open()) << path;
+  const auto fileSize = static_cast<uint64_t>(std::filesystem::file_size(path));
+  uint64_t offset = 24;
+  uint64_t target = 0;
+  uint64_t targetSize = 0;
+  for (uint64_t i = 0; i < blockCount; ++i) {
+    uint64_t size = 0;
+    file.seekg(static_cast<std::streamoff>(offset));
+    file.read(reinterpret_cast<char*>(&size), sizeof(size));
+    ASSERT_TRUE(file.good());
+    if (i == index) {
+      target = offset + sizeof(size);
+      targetSize = size;
+    }
+    offset += sizeof(size) + size;
+  }
+  ASSERT_EQ(offset, fileSize) << "the layout walks to the end of the file";
+  file.seekp(static_cast<std::streamoff>(target));
+  const std::string junk(targetSize, '\xff');
+  file.write(junk.data(), static_cast<std::streamsize>(junk.size()));
+}
+
+} // namespace
+
+// Replay must reach the block the ledger ends at. A block it cannot read before that is an error:
+// stopping there would leave the state behind the ledger, and every block after would be applied
+// to the wrong state.
+TEST(ChainTest, LoadFromLedger_FailsOnAnUnreadableBlockBeforeTheEnd) {
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+  consensus::SlotCommittee::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffsetMs = 0;
+  consensusConfig.slotDuration = 5;
+  consensusConfig.slotsPerEpoch = 10;
+
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-replay-unreadable");
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  {
+    Chain validator;
+    validator.initConsensus(consensusConfig);
+    Ledger::InitConfig ledgerConfig;
+    ledgerConfig.workDir = tempDir.string();
+    ASSERT_TRUE(validator.initLedger(ledgerConfig).isOk());
+    validator.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock());
+    Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+    ASSERT_TRUE(validator.addBlock(genesis).isOk());
+    // Two blocks, each with a small RESERVE -> FEE transfer (an empty block would be a premature heartbeat).
+    auto transfer = [&](uint64_t idempotentId) {
+      Ledger::TxDefault tx;
+      tx.tokenId = AccountBuffer::ID_GENESIS;
+      tx.fromWalletId = AccountBuffer::ID_RESERVE;
+      tx.toWalletId = AccountBuffer::ID_FEE;
+      tx.amount = 0;
+      tx.fee = 1;
+      tx.idempotentId = idempotentId;
+      tx.validationTsMin = chainConfig.genesisTime;
+      tx.validationTsMax = chainConfig.genesisTime + 3600;
+      return makeRecord(Ledger::T_DEFAULT, tx, reserveKey);
+    };
+    validator.refreshStakeholders();
+    Ledger::ChainNode block1 = makeNextBlock(validator, genesis, {transfer(41)});
+    auto added1 = validator.addBlock(block1);
+    ASSERT_TRUE(added1.isOk()) << added1.error().message;
+    Ledger::ChainNode block2 = makeNextBlock(validator, block1, {transfer(42)});
+    auto added2 = validator.addBlock(block2);
+    ASSERT_TRUE(added2.isOk()) << added2.error().message;
+  }
+  spoilStoredBlock(tempDir, 1, 3);
+
+  Chain replay;
+  replay.initConsensus(consensusConfig);
+  ASSERT_TRUE(replay.mountLedger(tempDir.string()).isOk());
+  auto loaded = replay.loadFromLedger(0);
+  ASSERT_FALSE(loaded.isOk()) << "replay stopped at block " << loaded.value() << " of 3 without an error";
+  EXPECT_NE(loaded.error().message.find("block 1"), std::string::npos) << loaded.error().message;
+  std::filesystem::remove_all(tempDir, ec);
 }

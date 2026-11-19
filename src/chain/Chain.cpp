@@ -1201,11 +1201,16 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   txContext_.checkpoint.currentId = startingBlockId;
   uint64_t blockId = startingBlockId;
   uint64_t logInterval = 1000; // Log every 1000 blocks
-  while (true) {
+  // Replay every block the ledger holds. A block that cannot be read before its end is an error:
+  // stopping there would leave the state behind the ledger, and the next block would be applied
+  // on the wrong state.
+  const uint64_t endBlockId = txContext_.ledger.getNextBlockId();
+  while (blockId < endBlockId) {
     auto blockResult = txContext_.ledger.readBlock(blockId);
     if (!blockResult) {
-      // No more blocks to read
-      break;
+      return Error(E_BLOCK_NOT_FOUND, "Cannot read block " + std::to_string(blockId) + " of the " +
+                                          std::to_string(endBlockId) +
+                                          " the ledger holds: " + blockResult.error().message);
     }
 
     auto const& block = blockResult.value();
