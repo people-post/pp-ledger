@@ -123,6 +123,8 @@ private:
   bool readIndexHeader(std::istream& is);
 
   Roe<void> openExistingVolumes();
+  /** Number each volume from the blocks before it (as appends did); true if the index said otherwise. */
+  bool renumberVolumes();
   void recalculateTotalBlockCount();
   void updateCurrentVolumeId();
 };

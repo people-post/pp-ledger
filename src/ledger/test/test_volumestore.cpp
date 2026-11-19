@@ -1,7 +1,10 @@
 #include "ledger/ledger/VolumeStore.h"
 #include "testing/TestTempPath.h"
 #include <gtest/gtest.h>
+#include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -167,4 +170,121 @@ TEST_F(VolumeStoreTest, RewindAcrossVolumes) {
 TEST_F(VolumeStoreTest, CanFitRejectsOversizedBlock) {
   ASSERT_TRUE(store.init(config).isOk());
   EXPECT_FALSE(store.canFit(config.maxFileSize + 1));
+}
+
+// --- A crash just after a new volume (review H1) ---
+
+namespace {
+
+/** Index entries are packed big-endian; these read and write the u64 that ends a buffer. */
+uint64_t readBigEndianTail(const std::string& bytes) {
+  uint64_t value = 0;
+  for (size_t i = bytes.size() - sizeof(uint64_t); i < bytes.size(); ++i) {
+    value = (value << 8) | static_cast<unsigned char>(bytes[i]);
+  }
+  return value;
+}
+
+void writeBigEndianTail(std::string& bytes, uint64_t value) {
+  for (size_t i = 0; i < sizeof(uint64_t); ++i) {
+    bytes[bytes.size() - 1 - i] = static_cast<char>((value >> (8 * i)) & 0xff);
+  }
+}
+
+std::string snapshotDir(const std::string& dir, const std::string& suffix) {
+  const std::string copy = dir + suffix;
+  std::error_code ec;
+  std::filesystem::remove_all(copy, ec);
+  std::filesystem::copy(dir, copy, std::filesystem::copy_options::recursive);
+  return copy;
+}
+
+std::string bigBlock(uint64_t index) {
+  return std::string(300 * 1024, static_cast<char>('a' + index % 26)) + std::to_string(index);
+}
+
+uint64_t lastStartId(const std::string& indexPath) {
+  std::ifstream in(indexPath, std::ios::binary);
+  std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  return bytes.size() >= sizeof(uint64_t) ? readBigEndianTail(bytes) : 0;
+}
+
+void setLastStartId(const std::string& indexPath, uint64_t to) {
+  std::string bytes;
+  {
+    std::ifstream in(indexPath, std::ios::binary);
+    bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  }
+  writeBigEndianTail(bytes, to);
+  std::ofstream out(indexPath, std::ios::binary | std::ios::trunc);
+  out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+}
+
+} // namespace
+
+// A new volume is numbered from the blocks before it; a crash must not leave it numbered past
+// blocks of the old volume that were never committed. So opening a volume commits the one it leaves.
+TEST_F(VolumeStoreTest, ACrashAfterANewVolumeKeepsBlockIdsContiguous) {
+  ASSERT_TRUE(store.init(config).isOk());
+  ASSERT_TRUE(store.appendBlock(bigBlock(0)).isOk());
+  ASSERT_TRUE(store.commit().isOk());
+  const size_t volumesBefore = store.getVolumeCount();
+  uint64_t count = 1;
+  while (store.getVolumeCount() == volumesBefore) {
+    ASSERT_LT(count, 40u) << "no new volume";
+    ASSERT_TRUE(store.appendBlock(bigBlock(count)).isOk());
+    ++count;
+  }
+  ASSERT_GE(count, 3u) << "blocks 1.." << count - 2 << " sat uncommitted in the old volume";
+
+  const std::string crashed = snapshotDir(testDir, "-crashed");
+  {
+    pp::VolumeStore restarted;
+    restarted.redirectLogger("volumestore2");
+    ASSERT_TRUE(restarted.mount({crashed}).isOk());
+    for (uint64_t i = restarted.getBlockCount(); i < count; ++i) { // what a node syncs again
+      auto appended = restarted.appendBlock(bigBlock(i));
+      ASSERT_TRUE(appended.isOk()) << appended.error().message;
+      EXPECT_EQ(appended.value(), i);
+    }
+    for (uint64_t i = 0; i < count; ++i) {
+      auto read = restarted.readBlock(i);
+      ASSERT_TRUE(read.isOk()) << "block " << i << ": " << read.error().message;
+      EXPECT_EQ(read.value(), bigBlock(i)) << "block " << i;
+    }
+    restarted.close();
+  }
+  std::error_code ec;
+  std::filesystem::remove_all(crashed, ec);
+}
+
+// A build without that commit could already have listed a volume numbered past the end of the one
+// before it; a mount numbers each volume from the blocks before it, and saves that.
+TEST_F(VolumeStoreTest, AMountNumbersEachVolumeFromTheBlocksBeforeIt) {
+  ASSERT_TRUE(store.init(config).isOk());
+  uint64_t count = 0;
+  while (store.getVolumeCount() < 2 || count < 8) {
+    ASSERT_LT(count, 40u);
+    ASSERT_TRUE(store.appendBlock(bigBlock(count)).isOk());
+    ++count;
+  }
+  store.close();
+  const std::string indexPath = testDir + "/volumes_idx.dat";
+  const uint64_t start = lastStartId(indexPath);
+  ASSERT_GT(start, 0u) << "the last volume does not start at block 0";
+  setLastStartId(indexPath, start + 5); // as the old rollover left it after a crash
+
+  {
+    pp::VolumeStore remounted;
+    remounted.redirectLogger("volumestore2");
+    ASSERT_TRUE(remounted.mount({testDir}).isOk());
+    EXPECT_EQ(remounted.getBlockCount(), count);
+    for (uint64_t i = 0; i < count; ++i) {
+      auto read = remounted.readBlock(i);
+      ASSERT_TRUE(read.isOk()) << "block " << i << ": " << read.error().message;
+      EXPECT_EQ(read.value(), bigBlock(i)) << "block " << i;
+    }
+    remounted.close();
+  }
+  EXPECT_EQ(lastStartId(indexPath), start) << "the repaired index is saved";
 }

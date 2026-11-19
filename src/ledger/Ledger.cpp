@@ -711,6 +711,11 @@ Ledger::Roe<Ledger::ChainNode> Ledger::readBlock(uint64_t blockId) const {
   if (!block.ltsFromString(rawBlock.data)) {
     return Error("Failed to deserialize block data " + std::to_string(blockId));
   }
+  // The store returns what sits at a position; addBlock only ever stored block `blockId` there.
+  if (block.index != blockId) {
+    return Error("Block " + std::to_string(blockId) + " is stored as block index " + std::to_string(block.index) +
+                 ": the ledger's store is numbered wrongly");
+  }
 
   // Create ChainNode from deserialized Block and hash
   Ledger::ChainNode node;

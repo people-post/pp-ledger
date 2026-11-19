@@ -128,6 +128,10 @@ VolumeStore::Roe<void> VolumeStore::mount(const MountConfig& config) {
     return openResult;
   }
 
+  if (renumberVolumes() && !saveIndex()) {
+    return Error("Failed to save the volumes index after renumbering its volumes");
+  }
+
   recalculateTotalBlockCount();
 
   log().info << "VolumeStore mounted from " << config_.volumesDir << " with " << volumeInfoMap_.size()
@@ -307,6 +311,13 @@ FileDirStore* VolumeStore::getActiveVolume(uint64_t dataSize) {
     return nullptr;
   }
 
+  // The next volume is numbered from every block appended so far: commit them first, so a crash
+  // cannot leave it numbered past blocks it then drops (see FileDirStore::getActiveBlockFile).
+  if (auto committed = commit(); !committed) {
+    log().error << "Failed to commit before starting the next volume: " << committed.error().message;
+    return nullptr;
+  }
+
   uint32_t nextId = currentVolumeId_ + 1;
   if (nextId == 0) {
     nextId = 1;
@@ -474,6 +485,30 @@ VolumeStore::Roe<void> VolumeStore::openExistingVolumes() {
     it->second.store = std::move(store);
   }
   return {};
+}
+
+bool VolumeStore::renumberVolumes() {
+  // As FileDirStore::renumberFiles: a volume's first block is the sum of the blocks before it.
+  bool changed = false;
+  bool first = true;
+  uint64_t expected = 0;
+  for (uint32_t volumeId : volumeIdOrder_) {
+    auto it = volumeInfoMap_.find(volumeId);
+    if (it == volumeInfoMap_.end() || !it->second.store) {
+      continue;
+    }
+    if (first) {
+      expected = it->second.startBlockId;
+      first = false;
+    } else if (it->second.startBlockId != expected) {
+      log().warning << "Volume " << volumeId << " was listed as starting at block " << it->second.startBlockId
+                    << "; the blocks before it end at " << expected << ", so it starts there";
+      it->second.startBlockId = expected;
+      changed = true;
+    }
+    expected += it->second.store->getBlockCount();
+  }
+  return changed;
 }
 
 void VolumeStore::recalculateTotalBlockCount() {

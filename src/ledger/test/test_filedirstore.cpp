@@ -5,6 +5,8 @@
 #include <chrono>
 #include <thread>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <cstring>
 #include <cstdint>
 #include <vector>
@@ -567,4 +569,118 @@ TEST_F(FileDirStoreTest, RewindAcrossFilesDeletesTheLaterOnes) {
   ASSERT_TRUE(restarted.mount(testDir).isOk());
   EXPECT_EQ(restarted.getBlockCount(), 4u);
   EXPECT_EQ(restarted.readBlock(3).value(), "again");
+}
+
+// --- A crash just after a rollover (review H1) ---
+
+namespace {
+
+/** Index entries are packed big-endian; these read and write the u64 that ends a buffer. */
+uint64_t readBigEndianTail(const std::string& bytes) {
+  uint64_t value = 0;
+  for (size_t i = bytes.size() - sizeof(uint64_t); i < bytes.size(); ++i) {
+    value = (value << 8) | static_cast<unsigned char>(bytes[i]);
+  }
+  return value;
+}
+
+void writeBigEndianTail(std::string& bytes, uint64_t value) {
+  for (size_t i = 0; i < sizeof(uint64_t); ++i) {
+    bytes[bytes.size() - 1 - i] = static_cast<char>((value >> (8 * i)) & 0xff);
+  }
+}
+
+/** The directory as a crash would leave it right now (what reached its files). */
+std::string snapshotDir(const std::string& dir, const std::string& suffix) {
+  const std::string copy = dir + suffix;
+  std::error_code ec;
+  std::filesystem::remove_all(copy, ec);
+  std::filesystem::copy(dir, copy, std::filesystem::copy_options::recursive);
+  return copy;
+}
+
+/** 300 KB, distinct per index: three fill a 1 MB file, the fourth starts the next one. */
+std::string bigBlock(uint64_t index) {
+  return std::string(300 * 1024, static_cast<char>('a' + index % 26)) + std::to_string(index);
+}
+
+/** The last start id an index file lists (its last 8 bytes, little-endian), replaced by `to`. */
+void replaceLastStartId(const std::string& indexPath, uint64_t from, uint64_t to) {
+  std::string bytes;
+  {
+    std::ifstream in(indexPath, std::ios::binary);
+    bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  }
+  ASSERT_GE(bytes.size(), sizeof(uint64_t));
+  ASSERT_EQ(readBigEndianTail(bytes), from) << "the index's last entry ends with its start id";
+  writeBigEndianTail(bytes, to);
+  std::ofstream out(indexPath, std::ios::binary | std::ios::trunc);
+  out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+}
+
+uint64_t lastStartId(const std::string& indexPath) {
+  std::ifstream in(indexPath, std::ios::binary);
+  std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  return bytes.size() >= sizeof(uint64_t) ? readBigEndianTail(bytes) : 0;
+}
+
+} // namespace
+
+// The next file is numbered from the blocks before it. If some of those were never committed, a
+// crash drops them; the next file must not be left numbered past them (the blocks appended again
+// would land under the wrong ids). So a rollover commits the file it leaves.
+TEST_F(FileDirStoreTest, ACrashAfterARolloverKeepsBlockIdsContiguous) {
+  ASSERT_TRUE(fileDirStore.init(config).isOk());
+  ASSERT_TRUE(fileDirStore.appendBlock(bigBlock(0)).isOk());
+  ASSERT_TRUE(fileDirStore.appendBlock(bigBlock(1)).isOk());
+  ASSERT_TRUE(fileDirStore.commit().isOk());
+  ASSERT_TRUE(fileDirStore.appendBlock(bigBlock(2)).isOk()); // not committed
+  ASSERT_TRUE(fileDirStore.appendBlock(bigBlock(3)).isOk()); // starts the second file
+  ASSERT_TRUE(std::filesystem::exists(testDir + "/000002.dat"));
+
+  const std::string crashed = snapshotDir(testDir, "-crashed");
+  {
+    pp::FileDirStore restarted;
+    restarted.redirectLogger("filedirstore2");
+    ASSERT_TRUE(restarted.mount(crashed).isOk());
+    for (uint64_t i = restarted.getBlockCount(); i < 4; ++i) { // what a node syncs again
+      auto appended = restarted.appendBlock(bigBlock(i));
+      ASSERT_TRUE(appended.isOk()) << appended.error().message;
+      EXPECT_EQ(appended.value(), i);
+    }
+    for (uint64_t i = 0; i < 4; ++i) {
+      auto read = restarted.readBlock(i);
+      ASSERT_TRUE(read.isOk()) << "block " << i << ": " << read.error().message;
+      EXPECT_EQ(read.value(), bigBlock(i)) << "block " << i;
+    }
+    restarted.close();
+  }
+  std::error_code ec;
+  std::filesystem::remove_all(crashed, ec);
+}
+
+// A build without that commit could already have listed a file numbered past the end of the one
+// before it. The id of every stored block is its position (appends take the running count), so a
+// mount numbers each file from the blocks before it, and saves the index if that changed anything.
+TEST_F(FileDirStoreTest, AMountNumbersEachFileFromTheBlocksBeforeIt) {
+  ASSERT_TRUE(fileDirStore.init(config).isOk());
+  for (uint64_t i = 0; i < 5; ++i) { // three in the first file, two in the second
+    ASSERT_TRUE(fileDirStore.appendBlock(bigBlock(i)).isOk());
+  }
+  fileDirStore.close();
+  replaceLastStartId(testDir + "/idx.dat", 3, 8); // as the old rollover left it after a crash
+
+  {
+    pp::FileDirStore remounted;
+    remounted.redirectLogger("filedirstore2");
+    ASSERT_TRUE(remounted.mount(testDir).isOk());
+    EXPECT_EQ(remounted.getBlockCount(), 5u);
+    for (uint64_t i = 0; i < 5; ++i) {
+      auto read = remounted.readBlock(i);
+      ASSERT_TRUE(read.isOk()) << "block " << i << ": " << read.error().message;
+      EXPECT_EQ(read.value(), bigBlock(i)) << "block " << i;
+    }
+    remounted.close();
+  }
+  EXPECT_EQ(lastStartId(testDir + "/idx.dat"), 3u) << "the repaired index is saved";
 }

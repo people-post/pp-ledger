@@ -116,6 +116,10 @@ FileDirStore::Roe<void> FileDirStore::mount(const std::string& dirPath) {
     return openResult;
   }
 
+  if (renumberFiles() && !saveIndex()) {
+    return Error("Failed to save the index after renumbering its files");
+  }
+
   recalculateTotalBlockCount();
 
   log().info << "FileDirStore mounted from " << config_.dirPath << " with " << fileInfoMap_.size() << " files and "
@@ -375,6 +379,14 @@ FileStore* FileDirStore::getActiveBlockFile(uint64_t dataSize) {
     return nullptr;
   }
 
+  // The next file is numbered from every block appended so far. Commit them first: a crash that
+  // dropped some would leave the next file numbered past them, and the blocks appended again
+  // would be read back under the wrong ids.
+  if (auto committed = commit(); !committed) {
+    log().error << "Failed to commit before starting the next block file: " << committed.error().message;
+    return nullptr;
+  }
+
   // Need to create a new file
   currentFileId_++;
   return createBlockFile(currentFileId_, totalBlockCount_);
@@ -575,6 +587,32 @@ FileDirStore::Roe<void> FileDirStore::openExistingBlockFiles() {
                 << ")";
   }
   return {};
+}
+
+bool FileDirStore::renumberFiles() {
+  // Every append takes the running block count as its id, so a file's first block is the sum of
+  // the blocks before it. An index can say otherwise (a crash after a rollover, before this store
+  // committed the file it left); that file's blocks are still where appends put them.
+  bool changed = false;
+  bool first = true;
+  uint64_t expected = 0;
+  for (uint32_t fileId : fileIdOrder_) {
+    auto it = fileInfoMap_.find(fileId);
+    if (it == fileInfoMap_.end() || !it->second.blockFile) {
+      continue;
+    }
+    if (first) {
+      expected = it->second.startBlockId;
+      first = false;
+    } else if (it->second.startBlockId != expected) {
+      log().warning << "Block file " << fileId << " was listed as starting at block " << it->second.startBlockId
+                    << "; the blocks before it end at " << expected << ", so it starts there";
+      it->second.startBlockId = expected;
+      changed = true;
+    }
+    expected += it->second.blockFile->getBlockCount();
+  }
+  return changed;
 }
 
 void FileDirStore::recalculateTotalBlockCount() {

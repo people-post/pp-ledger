@@ -809,3 +809,34 @@ TEST_F(LedgerTest, RewindRefusesTheBlocksBeforeItsStart) {
   EXPECT_TRUE(ledger.rewindTo(10).isOk());
   EXPECT_EQ(ledger.getNextBlockId(), 10u);
 }
+
+// --- A block read back is the block asked for (review H1) ---
+
+// The store returns whatever sits at a position. If that is not the block asked for (a fault that
+// numbered the store wrongly), readBlock says so instead of handing back another block.
+TEST_F(LedgerTest, ReadBlockRefusesABlockWithAnotherIndex) {
+  ensureTestDirDoesNotExist();
+  std::filesystem::path other = testDir_;
+  other += "-other";
+  std::error_code ec;
+  std::filesystem::remove_all(other, ec);
+  {
+    Ledger a; // blocks 0, 1, 2
+    ASSERT_TRUE(a.init({testDir_.string(), 0}).isOk());
+    Ledger b; // blocks 1, 2, 3: the same positions hold the next block
+    ASSERT_TRUE(b.init({other.string(), 1}).isOk());
+    for (uint64_t i = 0; i < 3; ++i) {
+      ASSERT_TRUE(a.addBlock(createTestBlock(i, "a" + std::to_string(i))).isOk());
+      ASSERT_TRUE(b.addBlock(createTestBlock(i + 1, "b" + std::to_string(i + 1))).isOk());
+    }
+  }
+  std::filesystem::remove_all(testDir_ / "volumes", ec);
+  std::filesystem::copy(other / "volumes", testDir_ / "volumes", std::filesystem::copy_options::recursive);
+
+  Ledger mounted;
+  ASSERT_TRUE(mounted.mount(testDir_.string()).isOk());
+  auto read = mounted.readBlock(0);
+  ASSERT_FALSE(read.isOk()) << "handed back block " << read.value().block.index << " for block 0";
+  EXPECT_NE(read.error().message.find("index"), std::string::npos) << read.error().message;
+  std::filesystem::remove_all(other, ec);
+}
