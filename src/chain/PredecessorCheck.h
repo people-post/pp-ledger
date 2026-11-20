@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_PREDECESSOR_CHECK_H
 #define PP_LEDGER_PREDECESSOR_CHECK_H
 
-#include "../ledger/Ledger.h"
+#include "ledger/ledger/Ledger.h"
 #include "common/ResultOrError.hpp"
 
 #include <string>
@@ -15,7 +15,7 @@ namespace pp::predecessor_check {
  * same network id, block hash and state root. Refused otherwise, and when that ledger does not hold
  * block H (it cannot vouch for it).
  */
-pp::Roe<void> check(const Ledger::ChainNode &genesis, const std::string &oldWorkDir);
+pp::Roe<void> check(const Ledger::ChainNode& genesis, const std::string& oldWorkDir);
 
 } // namespace pp::predecessor_check
 

@@ -31,7 +31,7 @@ genesis miner, works out each node's peer id from its identity key (`pp-client p
 `PP_LEDGER_IMAGE`, `PP_LEDGER_NETWORK_ID`, `PP_LEDGER_SLOT_DURATION`, `PP_LEDGER_SLOTS_PER_EPOCH`,
 `MINER_ID`. To start over: `docker compose down -v && rm -rf secrets .env`.
 
-The nodes reach each other by service name (`/dns4/beacon/udp/8517/adp/1.0.0/p2p/<peer id>`):
+The nodes reach each other by service name (`/dns4/beacon/udp/8517/adp/2/p2p/<peer id>`):
 compose's DNS on the stack's network; a container that comes back at another address is looked up
 again.
 Host ports (UDP 8517 / 8519 / 8518, HTTP 8080) can be moved with `PP_LEDGER_*_HOST_PORT`.

@@ -1,6 +1,6 @@
 # Name directory — domains, locals, and account attachments
 
-**Status:** Accepted design (schema / wire only; no runtime yet)  
+**Status:** Accepted design. **Domains are built** ([WIRE_SCHEMA § Domains](../contracts/WIRE_SCHEMA.md#domains), `projects/domains`): a domain is a system or issued account's symbol. Locals, grants and attachment slots: schema only, no runtime yet.  
 **Related:** [design.md](DESIGN.md) (accounts & reserved band), [platform-integration.md](../architecture/PLATFORM_INTEGRATION.md) (pp-node `ledger_gateway`, mesh edge), [LEDGER_TOPOLOGY.md](../architecture/LEDGER_TOPOLOGY.md) (terminal-owned indexes)
 
 Cross-repo phone-book north star (pp-browser): N029 / `NAME_DIRECTORY_NORTH_STAR.md` — HTTP/Amp directory now; **this chain registry is eventual name authority**.
@@ -60,7 +60,7 @@ Do **not** store a free-form “any format” string as the authoritative key. C
 
 **Normalization (v1 sketch — freeze before ship):**
 
-- `domain`: lower-case ASCII / punycode; no `@`; product may fix one ship domain at genesis
+- `domain`: **built** as a symbol — `A`–`Z`, 1–3 letters for a system account, 4–7 for an issued one; stored upper-case, shown lower-case (`alice@acme`); given by the genesis block or the registrar ([WIRE_SCHEMA § Domains](../contracts/WIRE_SCHEMA.md#domains)). These are this chain's names, not internet top-level domains.
 - `local`: lower-case; allowed charset TBD (alphanumeric + limited punctuation); no `@`
 - Empty `local` reserved for domain-owner default address if needed later
 
@@ -73,7 +73,7 @@ pp-ledger already separates:
 - **Reserved band:** `id < ID_FIRST_USER` (`1<<30`) — genesis, fee, reserve, recycle, token issuers  
 - **User band:** `id >= ID_FIRST_USER`
 
-**Domain ownership mirrors token issuance:** a **reserved account** may claim a **unique domain**. Normal user accounts cannot register domains.
+**Domain ownership mirrors token issuance:** a **reserved account** may have a **unique domain** — as built, its symbol, which is also its token's ticker; the registrar gives issued accounts theirs (`T_DOMAIN_ASSIGN`) and the genesis block the system accounts'. Normal user accounts cannot have domains. As built, the binding lives in the account (`Wallet.domain`) with a proven leaf per domain under the state root, and ends with the account.
 
 ```text
 DomainIndex   domain → reserved_wallet_id     // unique; reserved-only writes

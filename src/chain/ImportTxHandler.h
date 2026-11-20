@@ -1,8 +1,8 @@
 #ifndef PP_LEDGER_IMPORT_TX_HANDLER_H
 #define PP_LEDGER_IMPORT_TX_HANDLER_H
 
-#include "ITxHandler.h"
-#include "StateSnapshot.h"
+#include "ledger/chain/ITxHandler.h"
+#include "chain/StateSnapshot.h"
 
 namespace pp {
 
@@ -18,28 +18,32 @@ namespace pp {
  */
 class ImportTxHandler final : public ITxHandler {
 public:
-  chain_tx::Roe<uint64_t> getSignerAccountId(const Ledger::TypedTx &tx, uint64_t slotLeaderId) const override;
+  chain_tx::Roe<uint64_t> getSignerAccountId(const Ledger::TypedTx& tx, uint64_t slotLeaderId) const override;
 
-  chain_tx::Roe<bool> matchesWalletForIndex(const Ledger::TypedTx &tx, uint64_t walletId) const override;
+  chain_tx::Roe<bool> matchesWalletForIndex(const Ledger::TypedTx& tx, uint64_t walletId) const override;
 
-  chain_tx::Roe<void> applyBuffer(const Ledger::TypedTx &tx, AccountBuffer &bank,
-                                  const BufferApplyContext &c) const override;
+  chain_tx::Roe<void> applyBuffer(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                  const BufferApplyContext& c) const override;
 
-  chain_tx::Roe<void> applyBlock(const Ledger::TypedTx &tx, AccountBuffer &bank,
-                                 const BlockApplyContext &c) const override;
+  chain_tx::Roe<void> applyBlock(const Ledger::TypedTx& tx, AccountBuffer& bank,
+                                 const BlockApplyContext& c) const override;
 
   /** The account's attachment, from the record that last wrote it (Chain::getAccount). */
-  std::optional<std::string> getUserAccountMetaForTx(const Ledger::TypedTx &tx, uint64_t accountId) const override;
+  std::optional<std::string> getUserAccountMetaForTx(const Ledger::TypedTx& tx, uint64_t accountId) const override;
 
   /** The account a T_IMPORT carries (its id must match `walletId`, its fee 0). */
-  static chain_tx::Roe<StateSnapshot::Account> decodeAccount(const Ledger::TxImport &tx);
+  static chain_tx::Roe<StateSnapshot::Account> decodeAccount(const Ledger::TxImport& tx);
 
   /** A T_IMPORT record for `account` (unsigned). */
-  static Ledger::Record makeRecord(const StateSnapshot::Account &account);
+  static Ledger::Record makeRecord(const StateSnapshot::Account& account);
 
-private:
-  /** The account as it enters the new state: block `blockId`, keys and miner fields as above. */
-  static chain_tx::Roe<AccountBuffer::Account> entering(const StateSnapshot::Account &old, const ImportProgress &progress,
+  /**
+   * The account as it enters the new state: block `blockId`, its miner slots reset; a system account
+   * takes the import's keys for it and no recovery (the old network's set would take the new keys back);
+   * a pending recovery restarts its delay from the new network's start (`config`'s epochs).
+   */
+  static chain_tx::Roe<AccountBuffer::Account> entering(const StateSnapshot::Account& old,
+                                                        const ImportProgress& progress, const BlockChainConfig& config,
                                                         uint64_t blockId);
 };
 

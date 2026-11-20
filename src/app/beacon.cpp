@@ -1,7 +1,8 @@
-#include "../server/BeaconServer.h"
-#include "../server/Beacon.h"
+#include "server/BeaconServer.h"
+#include "server/Beacon.h"
+#include "ledger/server/RoleRunner.h"
 #include "common/Logger.h"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 #include "common/io/Json.h"
 
 #include "NodeOptions.h"
@@ -17,16 +18,13 @@
 #include <vector>
 
 namespace {
-pp::BeaconServer* g_beaconServer = nullptr;
-
-/** Set by a signal: no restart follows the current run (beacon-authority bp1). */
-std::atomic<bool> g_stopRequested{false};
+/** Set while the beacon runs: a signal stops it (one atomic store). */
+std::atomic<pp::RoleRunner*> g_runner{nullptr};
 
 void signalHandler(int signal) {
   if (signal == SIGINT || signal == SIGTERM) {
-    g_stopRequested = true;
-    if (g_beaconServer) {
-      g_beaconServer->setStop(true);
+    if (pp::RoleRunner* runner = g_runner.load()) {
+      runner->stop();
     }
   }
 }
@@ -102,44 +100,29 @@ int planGenesis(const std::string& workDir, const std::string& outputPath, const
 
 int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration, bool promote, bool acceptLedgerTip,
               const std::string& logFile) {
-  auto logger = pp::logging::getLogger("pp");
-
-  logger.info << "Running beacon with work directory: " << workDir;
-
-  // A rewind is applied by a restart (beacon-authority bp1, B022): run a fresh server on the same
-  // work directory for as long as the last one asks to be restarted.
-  while (!g_stopRequested) {
-    pp::BeaconServer beacon;
-    beacon.redirectLogger("pp.B");
-    beacon.setApprovedRewindGeneration(approvedRewindGeneration);
-    beacon.setLogFile(logFile);
-    beacon.setPromote(promote);
-    promote = false; // the first start promotes; a restart (a rewind) runs the beacon it became
-    beacon.setAcceptLedgerTip(acceptLedgerTip);
-    acceptLedgerTip = false; // the first start signs the tip and persists it
-    g_beaconServer = &beacon; // for the signal handler
-
-    auto runResult = beacon.run(workDir);
-    g_beaconServer = nullptr;
-
-    if (!runResult) {
-      logger.error << "Failed to run beacon: " + runResult.error().message;
-      std::cerr << "Error: Failed to run beacon: " + runResult.error().message << "\n";
-      return 1;
-    }
-    if (!beacon.restartRequested()) {
-      break;
-    }
-    logger.warning << "Beacon restarting";
+  pp::RoleRunner::Options run;
+  run.role = pp::RoleRunner::Role::Beacon;
+  run.workDir = workDir;
+  run.approvedRewindGeneration = approvedRewindGeneration;
+  run.logFile = logFile;
+  run.promote = promote;
+  run.acceptLedgerTip = acceptLedgerTip;
+  pp::RoleRunner runner(std::move(run));
+  runner.redirectLogger("pp");
+  g_runner = &runner;
+  auto ran = runner.run();
+  g_runner = nullptr;
+  if (!ran) {
+    pp::logging::getLogger("pp").error << ran.error().message;
+    std::cerr << "Error: " << ran.error().message << "\n";
+    return 1;
   }
-
-  logger.info << "Beacon stopped";
   return 0;
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   CLI::App app{"pp-beacon - Beacon server for pp-ledger"};
-  
+
   pp::app::NodeOptions options;
   options.add(app);
 
@@ -176,7 +159,6 @@ int main(int argc, char *argv[]) {
                  "--init only: a re-genesis importing this state snapshot (pp-client export-state): a new network "
                  "whose accounts are the old one's at the snapshot's height (docs/contracts/BEACON_AUTHORITY.md)");
 
-
   bool promote = false;
   app.add_flag("--promote", promote,
                "Turn this relay's work directory into the beacon taking over (beacon-authority case 2): the "
@@ -194,25 +176,24 @@ int main(int argc, char *argv[]) {
                  "than a node rewinds on its own (7 days of slots); check the certificate first");
 
   app.footer(
-    "Initialize (once):\n"
-    "  pp-beacon -d <dir> --init --genesis-key genesis.key [--genesis-key ...]\n"
-    "  init-config.json sets networkId and the system accounts' public keys\n"
-    "  (pp-client keygen -o <name>); a missing file is created as a template.\n"
-    "Or with the genesis keys kept offline:\n"
-    "  pp-beacon -d <dir> --plan-genesis plan.json [--start +3600]\n"
-    "  (each admin: pp-client op sign; then pp-client op merge ... -o signed.json)\n"
-    "  pp-beacon -d <dir> --init --genesis-op signed.json\n"
-    "\n"
-    "Run:\n"
-    "  pp-beacon -d <dir> [--debug]\n"
-    "\n"
-    "Take over (a relay's directory becomes the new beacon; once):\n"
-    "  pp-beacon -d <relay dir> --promote\n"
-    "\n"
-    "Move to another host: docs/ops/MOVING_THE_BEACON.md\n"
-    "\n"
-    "Every field: docs/ops/CONFIGURATION.md"
-  );
+      "Initialize (once):\n"
+      "  pp-beacon -d <dir> --init --genesis-key genesis.key [--genesis-key ...]\n"
+      "  init-config.json sets networkId and the system accounts' public keys\n"
+      "  (pp-client keygen -o <name>); a missing file is created as a template.\n"
+      "Or with the genesis keys kept offline:\n"
+      "  pp-beacon -d <dir> --plan-genesis plan.json [--start +3600]\n"
+      "  (each admin: pp-client op sign; then pp-client op merge ... -o signed.json)\n"
+      "  pp-beacon -d <dir> --init --genesis-op signed.json\n"
+      "\n"
+      "Run:\n"
+      "  pp-beacon -d <dir> [--debug]\n"
+      "\n"
+      "Take over (a relay's directory becomes the new beacon; once):\n"
+      "  pp-beacon -d <relay dir> --promote\n"
+      "\n"
+      "Move to another host: docs/ops/MOVING_THE_BEACON.md\n"
+      "\n"
+      "Every field: docs/ops/CONFIGURATION.md");
 
   CLI11_PARSE(app, argc, argv);
 

@@ -1,0 +1,75 @@
+#pragma once
+
+#include "amp/L3/AmpChannelLimits.h"
+#include "amp/L3/ChannelPolicy.h"
+
+#include <chrono>
+#include <cstddef>
+
+namespace pp {
+namespace ledger {
+namespace rpc {
+
+/** L4 protocol id for blockchain RPC over AMP (see docs/contracts/AMP_TRANSPORT.md). */
+inline constexpr const char* kProtocolId = "/pp-ledger/rpc/1.0.0";
+/**
+ * A request larger than kMaxSmallRequestBytes (a block, a large record) travels on its own protocol
+ * (load-resilience lr8): a node takes few of them at once, from each peer and in all, so a flood of
+ * large bodies cannot fill its socket and starve everyone else; small requests are not held up.
+ */
+inline constexpr const char* kBulkProtocolId = "/pp-ledger/rpc-bulk/1.0.0";
+
+/**
+ * Max request/response body: what Amp's Bulk profile carries in one message — a block of the
+ * largest `maxBlockBytes` any chain config may set (4 MiB, chain_tx::kMaxBlockBytesCeiling) plus a
+ * 64 KiB envelope (B034). The chain sets block sizes; the transport carries them.
+ */
+inline constexpr size_t kMaxMessageBytes = pp::amp::AmpChannelLimits::kMaxBulkFrameBytes;
+/** The envelope around a block or record in a message (request / response headers, a tip). */
+inline constexpr size_t kEnvelopeBytes = 64 * 1024;
+/** Requests that carry neither a block nor a record (every type but BLOCK_ADD and TX_ADD). */
+inline constexpr size_t kMaxSmallRequestBytes = 64 * 1024;
+/**
+ * Channels a peer may have receiving a request at once (opened, body not yet complete): bounds
+ * what one peer makes a node buffer to this many × kMaxMessageBytes.
+ */
+inline constexpr size_t kMaxReceivingPerPeer = 16;
+/**
+ * Large requests (kBulkProtocolId) one peer may have in a node at once: arriving, or waiting for
+ * their answer.
+ */
+inline constexpr size_t kMaxBulkReceivingPerPeer = 2;
+/**
+ * Large requests in a node at once from all peers together: bounds what they make it receive and
+ * hold (8 × 4 MiB), well within the request queue's byte budget that small requests share.
+ */
+inline constexpr size_t kMaxBulkReceivingTotal = 8;
+/**
+ * On the way to a peer (InFlightLimit, LR009): places a node keeps for its own chain work (blocks,
+ * pulls, sync) that requests it forwards for clients cannot take — of the 16 small and of the 2 large
+ * — and how many of those may wait before one more is answered "busy" at once.
+ */
+inline constexpr size_t kReservedForDuties = 4;
+inline constexpr size_t kBulkReservedForDuties = 1;
+inline constexpr size_t kMaxWaitingPerPeer = 256;
+inline constexpr size_t kMaxBulkWaitingPerPeer = 16;
+/** The protocol a request body of `bytes` travels on. */
+inline const char* ProtocolFor(size_t bytes) {
+  return bytes > kMaxSmallRequestBytes ? kBulkProtocolId : kProtocolId;
+}
+
+/**
+ * Bulk channel: one request/response per open (read_once). amp resets it when nothing arrives for
+ * `read_timeout`, which covers the wait for the reply.
+ */
+inline pp::amp::ChannelPolicy LedgerRpcChannelPolicy(std::chrono::milliseconds read_timeout) {
+  pp::amp::ChannelPolicy policy = pp::amp::MakeBulkChannelPolicy();
+  policy.read_once = true;
+  policy.max_message_bytes = kMaxMessageBytes;
+  policy.read_timeout = read_timeout;
+  return policy;
+}
+
+} // namespace rpc
+} // namespace ledger
+} // namespace pp

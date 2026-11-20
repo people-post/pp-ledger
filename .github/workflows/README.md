@@ -11,7 +11,7 @@ This directory contains automated workflows for building, testing, and releasing
 - **Triggers:** Push to `main` / `develop`, pull requests, manual dispatch
 - **Runners:** Same OS matrix as [pp-browser](https://github.com/people-post/pp-browser) `build.yml`:
   - `ubuntu-24.04` — full build + test (required)
-  - `macos-14` — full build + test (required)
+  - `macos-15` — full build + test (required)
   - `windows-2022` — full build + test (required; MSVC + Ninja + Winsock)
 - **Purpose:** Build and test pp-ledger via `scripts/ci-build.sh`
 

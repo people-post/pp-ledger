@@ -29,20 +29,20 @@ no migration (networks start from a new genesis on a change).
 
 | Form | Version | Fields, in order | Carried in |
 |------|---------|------------------|-----------|
-| `ChainAuthority` | — (genesis meta v12) | `recovery {publicKeys, minSignatures, delayEpochs}`, `beacon` (a `BeaconCertificate`, unversioned), `hasPendingRecovery`, `pendingRecovery {announcement, announcedAt, applyEpoch}` | `GenesisAccountMeta.authority` ([WIRE_SCHEMA.md § Config updates](WIRE_SCHEMA.md#config-updates)) |
-| `BeaconCertificate` | 2 | `networkId`, `generation`, `publicKey`, `cutoverHeight`, `cutoverHash`, `dialHints` | `T_BEACON_CERT` `meta` |
+| `ChainAuthority` | — (genesis meta v14) | `recovery {publicKeys, minSignatures, delayEpochs}`, `beacon` (a `BeaconCertificate`, unversioned), `hasPendingRecovery`, `pendingRecovery {announcement, announcedAt, applyEpoch}` | `GenesisAccountMeta.authority` ([WIRE_SCHEMA.md § Config updates](WIRE_SCHEMA.md#config-updates)) |
+| `BeaconCertificate` | 3 | `networkId`, `generation`, `publicKey`, `cutoverHeight`, `cutoverHash`, `dialHints`, `seedAnchor`, `seedAnchorEpoch`, `seedChainLength` | `T_BEACON_CERT` `meta` |
 | `RecoveryAnnouncement` | 1 | `networkId`, `adminPublicKeys`, `adminMinSignatures` (`uint8`) | `T_RECOVERY` `meta` |
 | `SignedTip` | 1 | `networkId`, `generation`, `height`, `blockHash` (raw), `signature` | `STATUS.signedTip`, `data/signed-tip.dat` |
 | `TipReply` | — | `nextBlockId`, `hasSignedTip`, `signedTip` (unversioned) | `BLOCK_WAIT`, `BLOCK_ADD` replies |
 | `Equivocation` | 1 | `first`, `second` (unversioned tips, `first.blockHash < second.blockHash`) | `STATUS.equivocation`, `EQUIVOCATION_ADD`, `data/equivocation.dat` |
 | `AuthorityProof` | — | `steps`: `AuthorityStep {blockId, epoch, record}`… | `AUTHORITY_PROOF` reply |
 | `RecoveryStatus` | — | `announcedAt`, `applyEpoch`, `adminPublicKeys`, `adminMinSignatures` | `STATUS.recovery` |
-| `RewindReport` | 1 | `keptUpTo`, `droppedUpTo`, `generation` | `STATUS.rewound`, `data/rewind.dat`, `data/rewound.dat` |
-| `GenesisImport` | — (genesis meta v12) | `predecessor {networkId, height, blockHash, stateRoot, header}`, `accountCount`, `systemKeys`: `{id, publicKeys, minSignatures}`… (reserve, registrar, fee, recycle) | `GenesisAccountMeta.import` of a re-genesis's `T_GENESIS` ([§ Importing genesis](#importing-genesis)) |
+| `RewindReport` | 2 | `keptUpTo`, `droppedUpTo`, `generation`, `crossedFinality` | `STATUS.rewound`, `data/rewind.dat`, `data/rewound.dat` |
+| `GenesisImport` | — (genesis meta v14) | `predecessor {networkId, height, blockHash, stateRoot, header}`, `accountCount`, `systemKeys`: `{id, publicKeys, minSignatures}`… (reserve, registrar, fee, recycle) | `GenesisAccountMeta.import` of a re-genesis's `T_GENESIS` ([§ Importing genesis](#importing-genesis)) |
 | `T_IMPORT` meta | — | a `StateSnapshot` account: `id`, `wallet`, `blockId` (the old chain's), `attachment` | `T_IMPORT` (20) |
-| `StateSnapshot` | 2 | `predecessor {networkId, height, blockHash, stateRoot, header}` (raw hashes; `header`: block *H* without its body), `config` (`BlockChainConfig` in force at `height`), `accounts`: `{id, wallet, blockId, attachment}`… by ascending id — the account leaf's fields (`attachment` in full; the leaf hashes it) | `pp-client export-state` file, for a re-genesis to import ([§ State export](#state-export)) |
+| `StateSnapshot` | 3 | `predecessor {networkId, height, blockHash, stateRoot, header}` (raw hashes; `header`: block *H* without its body), `config` (`BlockChainConfig` in force at `height`), `accounts`: `{id, wallet, blockId, attachment}`… by ascending id — the account leaf's fields (`attachment` in full; the leaf hashes it) | `pp-client export-state` file, for a re-genesis to import ([§ State export](#state-export)) |
 
-Code: `src/chain/Types.h` (authority, certificate, announcement), `src/client/Client.h` (tip,
+Code: `include/ledger/chain/Types.h` (authority, certificate, announcement), `include/ledger/client/Client.h` (tip,
 evidence, replies).
 
 ## Genesis authority
@@ -61,16 +61,17 @@ meta, except as the records below change it.
 | `beacon.publicKey` | Raw ML-DSA-65 beacon signing key: neither an admin nor a recovery key |
 | `beacon.cutoverHeight` | 0 at genesis |
 | `beacon.cutoverHash`, `beacon.dialHints` | Empty hash at genesis; hints optional (as below) |
+| `beacon.seedAnchor`, `beacon.seedAnchorEpoch`, `beacon.seedChainLength` | The beacon's seed chain ([§ Seed chain](#seed-chain)); `--init` sets anchor `H^10000(s)`, epoch 0, length 10000 |
 
 Code: `ChainAuthority`, checks in `chain_tx::validateGenesisAuthority`. `pp-beacon --init`
-generates the generation-1 key (`keys/beacon-signing.key`, `.pub`) and certifies it in the
-genesis record.
+generates the generation-1 key (`keys/beacon-signing.key`, `.pub`) and the seed secret
+(`keys/beacon-seed.secret`, hex, 0600), and certifies both in the genesis record.
 
 ## Later generations — `T_BEACON_CERT` (record 18)
 
 The admin set (genesis account, its `minSignatures`) certifies the next beacon. The record's `meta`
-is a `BeaconCertificate` (version `2`, then `networkId`, `generation`, `publicKey`,
-`cutoverHeight`, `cutoverHash`, `dialHints`); fee `0`; when `idempotentId` is non-zero (`mk-beacon-cert` sets one), an
+is a `BeaconCertificate` (version `3`, then `networkId`, `generation`, `publicKey`,
+`cutoverHeight`, `cutoverHash`, `dialHints`, `seedAnchor`, `seedAnchorEpoch`, `seedChainLength`); fee `0`; when `idempotentId` is non-zero (`mk-beacon-cert` sets one), an
 idempotency key (genesis account, `idempotentId`) with the usual validation window — except a certificate
 with a cutover, which has neither: it commits only in block `cutoverHeight` + 1, after the new beacon
 takes over, and binds nodes out of band until then ([§ Taking over](#taking-over)). Rules (`chain_tx::validateNextBeaconCertificate`):
@@ -93,6 +94,8 @@ takes over, and binds nodes out of band until then ([§ Taking over](#taking-ove
 - `dialHints`: at most 8 multiaddrs (each 1–256 bytes) of gateways — relays in front of the new
   beacon, never the beacon itself — where nodes may look for it (`--dial-hint`). Hints only: nodes
   trust tips, not addresses;
+- `seedAnchor` is empty or 32 bytes; with an anchor, `seedChainLength` is 1 to 100000
+  ([§ Seed chain](#seed-chain)). A certificate without one is legal: the beacon contributes no seed;
 - not in the genesis block (that block certifies generation 1);
 - **at most one per block** — a block holding two is refused whole (`validateAuthorityRecordCount`;
   `AuthorityTrail` likewise). The certificate is in force as soon as its block applies; a genesis
@@ -101,6 +104,48 @@ takes over, and binds nodes out of band until then ([§ Taking over](#taking-ove
 Out of band (a certificate a node receives outside a block), `Chain::verifyBeaconCertificateRecord`
 checks the same record against the authority the node has: any generation above the one in force
 passes, so a node that is behind can still recognise a newer beacon.
+
+## Seed chain
+
+The beacon contributes to each epoch's seed without being able to choose it late. The certificate
+commits to a hash chain: `seedAnchor` = `H^N(s)` for a secret `s`, `H(x) = SHA-256("pp-ledger/beacon-seed/v1" || x)`,
+`N` = `seedChainLength`, counted from `seedAnchorEpoch`. The reveal for epoch `e`
+(`seedAnchorEpoch < e ≤ seedAnchorEpoch + N`) is `H^(N − (e − seedAnchorEpoch))(s)`; the beacon
+publishes it during epoch `e − 1` in a `T_BEACON_SEED` record ([WIRE_SCHEMA.md](WIRE_SCHEMA.md#t_beacon_seed-record-22)),
+signed by the certified beacon key, and the seed of `e` mixes it
+([WIRE_SCHEMA.md § Epoch seed](WIRE_SCHEMA.md#epoch-seed)). An empty `seedAnchor`, a chain used up, or
+a missing reveal gives the "absent" seed for that epoch: the network goes on, only without the
+beacon's contribution.
+
+What can still bias a seed is a bit, never a value. The beacon may withhold a reveal (the absent
+seed instead of its reveal). A producer has the same include/omit bit, only when every earlier
+block of `e − 1` left the pooled reveal out: the leader of `e − 1`'s last block then picks the
+reveal seed or the absent seed for `e`. Honest leaders keep the pooled reveal a place ahead of
+due renewals, so it lands even in renewals-only blocks and this case is rare.
+
+Secret files (hex, 0600, in the beacon's work directory):
+
+| File | Use |
+|------|-----|
+| `keys/beacon-seed.secret` | Written by `--init` (never overwritten); its anchor is in the genesis certificate |
+| `keys/beacon-seed.next.secret` | Optional; staged for a promoted generation |
+
+The beacon matches the certificate in force against both files and pools its reveal for the next
+epoch each turn until the chain records it. If neither matches, it logs a warning and reveals nothing.
+Permissions are not checked on load.
+
+**Promotion.** The new beacon's chain is made before the certificate:
+
+1. `pp-client beacon-seed-keygen -o beacon-seed.next.secret [--length N]` prints the anchor and
+   length (default 10000); the secret is never printed. Copy the file to the promoted beacon's
+   `keys/beacon-seed.next.secret`.
+2. `pp-client mk-beacon-cert ... --seed-anchor <hex> --seed-anchor-epoch <n> --seed-chain-length <N>`;
+   `<n>` is an epoch at or before the one the certificate commits in. Without `--seed-anchor` the
+   certificate has no seed chain and the tool says so; `--seed-anchor-epoch` or
+   `--seed-chain-length` without `--seed-anchor` is refused.
+3. The admins sign (`sign-tx`) and `submit-tx`, as for any certificate.
+
+This change is for new networks only: certificates before version 3 are not readable.
 
 ## Recovery — `T_RECOVERY` (record 19)
 
@@ -341,20 +386,22 @@ admin-signed certificate of a higher generation, kept as above, can order it
   `cutoverHash` names does not rewind — its history forked at or below it, or the certificate names
   the wrong block — not even when approved: it refuses the old tips past the cutover, alerts once,
   and waits for an operator.
-- **Bounded** (`rewind::schedule`): a node rewinds on its own only as far as seven days of slot time
-  (`rewind::kMaxAutomaticRewind`), measured from the cutover block — or the first block it holds,
-  when the cutover is older — to the last block it would drop. Deeper, or when that cannot be read,
-  it does nothing more than before: it refuses the old generation's tips past the cutover, so it
-  stops at its own tip, and logs one error-level alert per certificate. Its operator checks the
-  certificate and restarts the node with `--approve-rewind <generation>` to apply it. A mistaken
-  certificate thus cannot cut a network's history unattended.
+- **Above finality** (`rewind::schedule`, [projects/finality](../../projects/finality/DESIGN.md)
+  FN003): a node rewinds on its own only when **no block it would drop is final** — the cutover is
+  at or above its finalized height ([WIRE_SCHEMA.md § Config updates](WIRE_SCHEMA.md#config-updates):
+  the blocks' `finalAt`, from `finalitySeconds`, a day by default). Deeper, or when that cannot be read, it does nothing more
+  than before: it refuses the old generation's tips past the cutover, so it stops at its own tip, and
+  logs one error-level alert per certificate. Undoing final blocks is the **emergency**: its operator
+  checks the certificate and restarts the node with `--approve-rewind <generation>`; the order is
+  then written `crossedFinality`. A mistaken certificate thus cannot cut final history unattended,
+  and services that treat final blocks as settled learn when it was.
 - **Order written.** Within reach (or approved), it writes the order (`RewindReport`: the cutover as
   `keptUpTo`, its last block as `droppedUpTo`, the generation) to `data/rewind.dat`, logs an
   error-level alert, keeps serving for 2 s (a forward in flight — the certificate itself —
   finishes), and restarts.
-- **Restart.** The app runs a fresh server on the same work directory (`pp-beacon`, `pp-relay` and
-  `pp-miner` loop in `main`); every object is rebuilt from disk, as at a cold start. A signal stops
-  the loop.
+- **Restart.** A fresh server runs on the same work directory (`RoleRunner`, which `pp-beacon`,
+  `pp-relay`, `pp-miner` and a host embedding a role use); every object is rebuilt from disk, as at
+  a cold start. A stop (a signal, the host) ends the loop.
 - **Apply**, at start, before the ledger mounts: the ledger keeps the blocks up to `keptUpTo`
   (`Ledger::rewindTo`); when that lies below the ledger's first block (a miner started at a later
   checkpoint) the ledger is removed and the node joins fresh. A beacon also drops a stored signed tip
@@ -364,8 +411,9 @@ admin-signed certificate of a higher generation, kept as above, can order it
   cutover) and syncs what is valid. Its blocks no longer pass the cutover, so the order is not
   issued again. A miner starts even when its registration is refused (a beacon that stood down
   refuses them) and registers again every minute.
-- **Reported:** the beacon's and relays' `STATUS` carries `rewound` (the last `RewindReport`;
-  absent if none) and `pp-client -b status` prints it. Clients that read blocks above the cutover
+- **Reported:** the beacon's and relays' `STATUS` carries `rewound` (the last `RewindReport`, with
+  `crossedFinality`; absent if none), `finalizedHeight` (absent while no block is final) and
+  `finalitySeconds`; `pp-client -b status` prints them. Clients that read blocks above the cutover
   see history change; transactions from them must be resubmitted (idempotency keys make that safe;
   re-signed if their validity window passed).
 
@@ -452,7 +500,9 @@ genesis imports a `StateSnapshot`. Anyone holding the old chain checks it by han
 - **Applied:** each account enters at its import block (its `blockId`; renewals are due from
   there) with its balances, keys, threshold, profile (stored in full in its `T_IMPORT`) and miner
   registration; its `lastProducedSlot`, `missedDue` and `autoDeregisteredEpoch` are reset (they
-  counted the old network's slots). System accounts take the genesis's keys; the genesis account
+  counted the old network's slots). A **pending account recovery** restarts its delay from the new
+  network's start: `applyEpoch` = `recoveryApplyEpoch(config, 0, delaySeconds)`, `announcedAt` = its
+  import block — never sooner than the owner was promised, at most one delay later. System accounts take the genesis's keys; the genesis account
   takes only the imported balances (its keys, profile and block 0 stay the genesis record's). Epoch
   0's committee is the registered miners after the import. The issuance baseline starts at the
   first produced block.
@@ -487,7 +537,7 @@ What the beacon authority adds to the ledger RPC ([LEDGER_TOPOLOGY.md § Realiza
 
 | Request (id) | Change |
 |--------------|--------|
-| `STATUS` (1), beacon and relays | Meta keys, each absent when there is none: `signedTip` (`SignedTip`, versioned bytes), `certificate` (packed `T_BEACON_CERT` record), `equivocation` (`Equivocation`, versioned bytes), `recovery` (packed `RecoveryStatus`), `rewound` (`RewindReport`, versioned bytes). A syncing node offers `certificate`, then `equivocation`, then checks `signedTip` |
+| `STATUS` (1), beacon and relays | Meta keys, each absent when there is none: `signedTip` (`SignedTip`, versioned bytes), `certificate` (packed `T_BEACON_CERT` record), `equivocation` (`Equivocation`, versioned bytes), `recovery` (packed `RecoveryStatus`), `rewound` (`RewindReport`, versioned bytes), `finalizedHeight` and `finalitySeconds` (numbers; projects/finality). A syncing node offers `certificate`, then `equivocation`, then checks `signedTip` |
 | `BLOCK_ADD` (1002), `BLOCK_WAIT` (1003) | Reply payload is a packed `TipReply` |
 | `AUTHORITY_PROOF` (1004) | New: [Authority proof](#authority-proof). Answered by nodes holding the chain from genesis |
 | `EQUIVOCATION_ADD` (1005) | New: payload `Equivocation` (versioned bytes), reply a short text; downstream to upstream only ([Equivocation halt](#equivocation-halt)) |

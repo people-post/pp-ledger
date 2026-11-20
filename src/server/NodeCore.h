@@ -1,12 +1,12 @@
 #ifndef PP_LEDGER_NODE_CORE_H
 #define PP_LEDGER_NODE_CORE_H
 
-#include "../consensus/SlotCommittee.h"
-#include "../ledger/Ledger.h"
-#include "CertificateStore.h"
-#include "Chain.h"
-#include "EquivocationStore.h"
-#include "Rewind.h"
+#include "ledger/consensus/SlotCommittee.h"
+#include "ledger/ledger/Ledger.h"
+#include "server/CertificateStore.h"
+#include "chain/Chain.h"
+#include "server/EquivocationStore.h"
+#include "server/Rewind.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
 
@@ -31,7 +31,8 @@ public:
     using RoeErrorBase::RoeErrorBase;
   };
 
-  template <typename T> using Roe = ResultOrError<T, Error>;
+  template <typename T>
+  using Roe = ResultOrError<T, Error>;
 
   ~NodeCore() override = default;
 
@@ -45,7 +46,7 @@ public:
   std::vector<consensus::Stakeholder> getStakeholders() const { return chain_.getStakeholders(); }
   /** The network id of the chain held (empty before it loads). */
   std::string getNetworkId() const { return chain_.getNetworkId(); }
-  std::string calculateHash(const Ledger::Block &block) const { return chain_.calculateHash(block); }
+  std::string calculateHash(const Ledger::Block& block) const { return chain_.calculateHash(block); }
 
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
   /** The genesis meta in force (Chain::genesisMetaInForce). */
@@ -56,9 +57,10 @@ public:
   /** AUTHORITY_PROOF up to `upToBlockId` (Chain::authorityProof). */
   Roe<Client::AuthorityProof> authorityProof(uint64_t upToBlockId) const;
   /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */
-  Roe<std::vector<Ledger::Record>> findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
+  Roe<std::vector<Ledger::Record>> findTransactionsByWalletId(uint64_t walletId, uint64_t& ioBlockId) const;
   /** Chain::accountProof. */
   Roe<Client::AccountProof> accountProof(uint64_t accountId) const;
+  Roe<Client::DomainProof> domainProof(const std::string& domain) const;
   /** Chain::producerStats. */
   Roe<Client::ProducerStatsResponse> producerStats(uint64_t fromBlockId, uint64_t toBlockId) const;
   /** Find transaction by global chain index (0-based). */
@@ -67,6 +69,10 @@ public:
   // ----------------- authority -------------------------------------
   /** The beacon generation in force (0 before the chain is loaded). */
   uint64_t getGeneration() const;
+  /** Recovery set and beacon certificate in force; none before genesis is applied. */
+  std::optional<Chain::ChainAuthority> getAuthority() const { return chain_.getAuthority(); }
+  /** The beacon's seed reveal for `epoch` the chain holds (Chain::getBeaconReveal). */
+  std::optional<std::string> getBeaconReveal(uint64_t epoch) const { return chain_.getBeaconReveal(epoch); }
   /** The current certificate for STATUS (Chain::currentCertificateRecord). */
   std::optional<Ledger::Record> getCurrentCertificate() const { return chain_.currentCertificateRecord(); }
   /** The certificate held out of band, above the generation in force (Chain::seenCertificate). */
@@ -82,12 +88,12 @@ public:
   uint64_t getMaxTransactionsPerBlock() const { return chain_.getMaxTransactionsPerBlock(); }
   uint64_t getMaxBlockBytes() const { return chain_.getMaxBlockBytes(); }
   /** `signatures` over `message` by account `accountId`'s keys (Chain::E_ACCOUNT_NOT_FOUND: no such account). */
-  Roe<void> verifyAccountSignatures(uint64_t accountId, const std::string &message,
-                                    const std::vector<std::string> &signatures) const;
+  Roe<void> verifyAccountSignatures(uint64_t accountId, const std::string& message,
+                                    const std::vector<std::string>& signatures) const;
   /** What a pool checks before it holds `record` (Chain::checkAdmission). */
-  Roe<void> checkAdmission(const Ledger::Record &record, int64_t nowSec, bool verifySignatures) const;
+  Roe<void> checkAdmission(const Ledger::Record& record, int64_t nowSec, bool verifySignatures) const;
   /** (payer, idempotent id) of a record that has one. */
-  std::optional<std::pair<uint64_t, uint64_t>> idempotencyKeyOf(const Ledger::Record &record) const {
+  std::optional<std::pair<uint64_t, uint64_t>> idempotencyKeyOf(const Ledger::Record& record) const {
     return chain_.idempotencyKeyOf(record);
   }
 
@@ -97,28 +103,34 @@ public:
   // ----------------- rewind -------------------------------------
   /**
    * When the held certificate orders a rewind (Chain::rewindOrder), write the order for the next
-   * start — unless it reaches back further than the node rewinds on its own and the operator has
-   * not approved its generation (`approvedGeneration`, 0 = none; rewind::schedule). True when an
-   * order was written: the caller restarts.
+   * start — unless it would drop a final block and the operator has not approved its generation
+   * (`approvedGeneration`, 0 = none; rewind::schedule, projects/finality FN003). True when an order
+   * was written: the caller restarts.
    */
   Roe<bool> scheduleRewind(uint64_t approvedGeneration);
-  /** Tests: how far back the node rewinds on its own (default rewind::kMaxAutomaticRewind). */
-  void setMaxAutomaticRewind(std::chrono::seconds reach) { maxAutomaticRewind_ = reach; }
+  /** Tests: the clock the chain reads (finality, slots); none = the real one. */
+  void setClockOverride(std::optional<int64_t> unixSeconds) { chain_.setClockOverride(unixSeconds); }
+
+  // ----------------- finality (projects/finality) ----------------
+  /** The highest block final here (Chain::finalizedHeight); none when none is, or unreadable. */
+  std::optional<uint64_t> getFinalizedHeight() const;
+  /** The finality bound in force, in seconds. */
+  uint64_t getFinalitySeconds() const { return chain_.getFinalitySeconds(); }
   /** The last rewind this node applied (STATUS); none if none. */
-  const std::optional<Client::RewindReport> &getLastRewind() const { return lastRewind_; }
+  const std::optional<Client::RewindReport>& getLastRewind() const { return lastRewind_; }
 
 protected:
   /** `name`: this node's logger (the chain logs under it). */
-  explicit NodeCore(const std::string &name);
+  explicit NodeCore(const std::string& name);
 
   /** Error code of a failure while opening the node (mount, rewind, stores). */
   static constexpr int32_t E_OPEN = 2;
 
-  constexpr static const char *DIR_LEDGER = "ledger";
+  constexpr static const char* DIR_LEDGER = "ledger";
 
   /** The work directory every file of the node lives under (set before applyPendingRewind). */
   void setWorkDir(std::string workDir) { workDir_ = std::move(workDir); }
-  const std::string &workDir() const { return workDir_; }
+  const std::string& workDir() const { return workDir_; }
   std::string ledgerDir() const { return workDir_ + "/" + DIR_LEDGER; }
 
   /**
@@ -140,13 +152,12 @@ protected:
 
 private:
   /** The highest beacon certificate seen out of band, beside the ledger. */
-  constexpr static const char *FILE_BEACON_CERT = "beacon-cert.dat";
+  constexpr static const char* FILE_BEACON_CERT = "beacon-cert.dat";
   /** Equivocation evidence this node halts on (ba6), beside the ledger. */
-  constexpr static const char *FILE_EQUIVOCATION = "equivocation.dat";
+  constexpr static const char* FILE_EQUIVOCATION = "equivocation.dat";
 
   std::string workDir_;
   std::optional<Client::RewindReport> lastRewind_;
-  std::chrono::seconds maxAutomaticRewind_{rewind::kMaxAutomaticRewind};
   /** Generation whose rewind was last reported as held back (one alert per certificate). */
   uint64_t heldBackGeneration_{0};
 };

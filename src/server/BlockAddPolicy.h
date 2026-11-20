@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_BLOCK_ADD_POLICY_H
 #define PP_LEDGER_BLOCK_ADD_POLICY_H
 
-#include "../ledger/Ledger.h"
+#include "ledger/ledger/Ledger.h"
 
 namespace pp {
 
@@ -17,7 +17,8 @@ enum class BlockAddCheck {
  * a lost reply, or a resend) is answered cheaply and is not forwarded again.
  * `chain` provides getNextBlockId / readBlock / calculateHash (Beacon, Relay).
  */
-template <typename ChainLike> BlockAddCheck checkBlockAdd(const ChainLike &chain, const Ledger::ChainNode &block) {
+template <typename ChainLike>
+BlockAddCheck checkBlockAdd(const ChainLike& chain, const Ledger::ChainNode& block) {
   if (block.block.index >= chain.getNextBlockId()) {
     return BlockAddCheck::New;
   }

@@ -25,6 +25,7 @@ flowchart TD
 
     subgraph servers[" "]
         server["server"]
+        gateway["gateway"]
     end
 
     subgraph apps[" "]
@@ -53,8 +54,13 @@ flowchart TD
     server --> network
     server --> chain
 
+    gateway --> lib
+    gateway --> client
+    gateway --> chain
+
     app --> lib
     app --> server
+    app --> gateway
     app -.-> client
     app -.-> ledger
     app -.-> consensus
@@ -68,6 +74,28 @@ flowchart TD
 - **`chain`** is the `pp_chain` static library: `Chain`, `AccountBuffer`, transaction helper modules (`ChainTx*`), and `Genesis` (block 0's records from a plan, for the beacon's init and an offline-signed genesis). Its data types (`Types.h`: chain config, genesis meta, beacon certificate, recovery announcement) are `pp_chain_types`, which links only `lib` and `ledger` — no network code.
 - **`operation`** is `pp_operation`: operation files ([OPERATION_FILE.md](../contracts/OPERATION_FILE.md)). It links `pp_chain_types`, `ledger` and `lib` only, so an offline signer needs no network code. Account state types (`UserAccount`, `Wallet`, `MinerState`) live in `ledger` (`Account.h`) for the same reason; `Client` keeps aliases.
 - **`server`** still links `lib`, `ledger`, `client`, `consensus`, and `network` directly because Beacon / Miner / Relay code includes those headers for AMP and consensus types, in addition to linking **`pp_chain`** for chain state and validation.
+
+## Includes
+
+The library layout, as in the other pp-cpp libraries:
+
+| Header | Where | Included as | By |
+|--------|-------|-------------|----|
+| Public | `include/ledger/<folder>/X.h` | `"ledger/<folder>/X.h"` | anyone: the library, its tests and apps, embedders |
+| Private | `src/<folder>/X.h` | `"<folder>/X.h"` | this repo's sources only |
+
+Sources and unit tests (`test/`) are in `src/<folder>/`. Targets export only `include/`; `src/` is
+an include directory of this repo's targets (a directory property, not a usage requirement), so an
+embedder cannot reach a private header. A public header includes public headers and dependencies
+only. Public is what an embedder needs: the headers pp-browser (pp-node's ledger role) and
+pp-ledger-apps include, and what those include — 49 of 109 headers. Make a header public when an
+embedder needs it, and keep internals out of public headers instead of hiding them (the restart
+loop is private `server/RoleLoop.h`, so `RoleRunner.h` needs no server).
+
+Other quoted includes are a dependency's (`common/…` pp-cpp-common, `crypto/…` pp-cpp-crypto,
+`amp/…` pp-cpp-amp) or a file beside its includer (an app's, a test fixture). The vendored CLI11
+and cpp-httplib keep their own (`<CLI/CLI.hpp>`, `<httplib.h>`). `scripts/check/check_includes.sh`
+(CI) holds the line.
 
 ## Tests
 
@@ -95,13 +123,13 @@ Other component tests remain under their folders (e.g. `src/lib/common/test`, `s
 |--------|------------|--------|
 | **lib** | — | Logger, Module, Service, ResultOrError, Serialize, BinaryPack shims; Utilities (ML-DSA via pp-cpp-crypto); Value/Meta/JSON via pp-cpp-common |
 | **consensus** | lib | SlotCommittee, EpochManager, SlotTimer, SlotLeaderSelection |
-| **network** | lib | AMP ledger RPC: LedgerAmpRuntime, AmpLedgerServer, ServerAmpSupport, NetworkTuning |
+| **network** | lib | AMP ledger RPC: AmpHost (LedgerAmpRuntime, HostedAmpRuntime), AmpLedgerServer, ServerAmpSupport, NetworkTuning |
 | **ledger** | lib | Ledger, DirStore, FileStore, FileDirStore, VolumeStore |
 | **client** | lib, ledger, network | Client; also includes `consensus/Types.hpp` (no `pp_consensus` link in CMake) |
 | **chain** | lib, ledger, client, consensus, network | `pp_chain`: Chain, AccountBuffer, `Tx*`, handler interface; `pp_chain_types` (Types) links lib and ledger only |
 | **operation** | lib, ledger, chain (`pp_chain_types` only) | `pp_operation`: operation files — build, read, sign, merge, summarize |
 | **server** | lib, ledger, client, consensus, network, **chain** | Beacon, Miner, Relay, `Server*` facades (Chain comes from `pp_chain`) |
-| **app** | lib, server | `pp-beacon`, `pp-relay`, `pp-miner` link `pp_server`; `pp-client` links `pp_client`, `pp_ledger`, `pp_operation` |
+| **app** | lib, server, chain | `pp-beacon`, `pp-relay`, `pp-miner` link `pp_server`; `pp-client` links `pp_client`, `pp_ledger`, `pp_operation`; `pp-http` links `pp_client` and `pp_chain` (decoding) |
 
 ## Root CMake order
 

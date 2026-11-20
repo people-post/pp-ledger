@@ -1,20 +1,21 @@
-#include "Chain.h"
-#include "AccountPolicy.h"
-#include "BeaconCertTxHandler.h"
-#include "BlockValidation.h"
-#include "ConfigPolicy.h"
-#include "EndUserTxHandler.h"
-#include "MinerLiveness.h"
-#include "RecordHandler.h"
-#include "TxFees.h"
-#include "TxLedgerMeta.h"
-#include "TxSignatures.h"
+#include "chain/Chain.h"
+#include "ledger/chain/Domains.h"
+#include "ledger/chain/AccountPolicy.h"
+#include "chain/BeaconCertTxHandler.h"
+#include "chain/BlockValidation.h"
+#include "ledger/chain/ConfigPolicy.h"
+#include "chain/EndUserTxHandler.h"
+#include "chain/MinerLiveness.h"
+#include "ledger/chain/RecordHandler.h"
+#include "ledger/chain/TxFees.h"
+#include "ledger/chain/TxLedgerMeta.h"
+#include "ledger/chain/TxSignatures.h"
 #include "common/Logger.h"
-#include "lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/BinaryPack.hpp"
 #include "common/Serialize.hpp"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 #include <limits>
-#include "../consensus/EpochSeed.h"
+#include "ledger/consensus/EpochSeed.h"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -26,7 +27,8 @@ namespace pp {
 
 namespace {
 
-template <typename T> Chain::Roe<T> mapTx(chain_tx::Roe<T> r) {
+template <typename T>
+Chain::Roe<T> mapTx(chain_tx::Roe<T> r) {
   if (!r) {
     return Chain::Error(r.error());
   }
@@ -47,25 +49,22 @@ Chain::Chain() {
   txContext_.ledger.redirectLogger(log().getFullName() + ".Ledger");
   txContext_.consensus.redirectLogger(log().getFullName() + ".Obo");
   recordHandler_.redirectLoggers(log().getFullName());
-  txContext_.fnAccountMetaForRecord = FnAccountMetaForRecord{
-      [this](const Ledger::Record &rec, uint64_t accountId) {
-        return recordHandler_.getUserAccountMeta(rec, accountId);
-      },
-      [this](const Ledger::Record &rec, const Ledger::Block &block) {
-        return recordHandler_.getGenesisAccountMeta(rec, block);
-      }};
-  txContext_.fnIdempotencyKeyForRecord =
-      [this](const Ledger::Record &rec) {
-        return recordHandler_.getIdempotencyKey(rec);
-      };
-  txContext_.fnBillableCustomMetaSizeForFee =
-      [this](const BlockChainConfig &config, const Ledger::TypedTx &tx) {
-        return recordHandler_.getBillableCustomMetaSizeForFee(config, tx);
-      };
+  txContext_.fnAccountMetaForRecord =
+      FnAccountMetaForRecord{[this](const Ledger::Record& rec, uint64_t accountId) {
+                               return recordHandler_.getUserAccountMeta(rec, accountId);
+                             },
+                             [this](const Ledger::Record& rec, const Ledger::Block& block) {
+                               return recordHandler_.getGenesisAccountMeta(rec, block);
+                             }};
+  txContext_.fnIdempotencyKeyForRecord = [this](const Ledger::Record& rec) {
+    return recordHandler_.getIdempotencyKey(rec);
+  };
+  txContext_.fnBillableCustomMetaSizeForFee = [this](const BlockChainConfig& config, const Ledger::TypedTx& tx) {
+    return recordHandler_.getBillableCustomMetaSizeForFee(config, tx);
+  };
 }
 
-bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId,
-                                    uint64_t slot) const {
+bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const {
   return txContext_.consensus.isSlotLeader(slot, stakeholderId);
 }
 
@@ -73,8 +72,8 @@ bool Chain::isSlotSealTime(uint64_t slot) const {
   return txContext_.consensus.isSlotSealTime(slot);
 }
 
-bool Chain::isBeforeDeliveryDeadline(uint64_t slot) const {
-  return txContext_.consensus.isBeforeDeliveryDeadline(slot);
+bool Chain::isInDeliveryWindow(uint64_t slot) const {
+  return txContext_.consensus.isInDeliveryWindow(slot);
 }
 
 uint64_t Chain::getProductionSlot() const {
@@ -85,22 +84,21 @@ bool Chain::isChainConfigReady() const {
   return txContext_.optChainConfig.has_value();
 }
 
-chain_block::BlockAdmissionMode
-Chain::admissionModeFor(uint64_t blockIndex) const {
+chain_block::BlockAdmissionMode Chain::admissionModeFor(uint64_t blockIndex) const {
   // Live tip from genesis (or never mounted at a later checkpoint).
   if (txContext_.checkpoint.currentId == 0) {
     return chain_block::BlockAdmissionMode::Full;
   }
   // Late join: loadFromLedger(startingBlockId) sets lastId == currentId ==
   // startingBlockId. Until a later checkpoint rotates currentId forward,
-  // ingest stays CheckpointReplay (structural + soft txs). Tip peers that
-  // started from genesis keep Full for index >= currentId.
+  // ingest stays CheckpointReplay (structural + soft txs); after it, Full.
+  // A replay asks this per block, so it admits each block as live did.
+  // Tip peers that started from genesis keep Full for index >= currentId.
   if (txContext_.checkpoint.currentId == txContext_.checkpoint.lastId) {
     return chain_block::BlockAdmissionMode::CheckpointReplay;
   }
-  return blockIndex >= txContext_.checkpoint.currentId
-             ? chain_block::BlockAdmissionMode::Full
-             : chain_block::BlockAdmissionMode::CheckpointReplay;
+  return blockIndex >= txContext_.checkpoint.currentId ? chain_block::BlockAdmissionMode::Full
+                                                       : chain_block::BlockAdmissionMode::CheckpointReplay;
 }
 
 Chain::Roe<void> Chain::sealReadiness(uint64_t slot) const {
@@ -118,9 +116,8 @@ Chain::Roe<void> Chain::sealReadiness(uint64_t slot) const {
   const int64_t windowStart = txContext_.consensus.getSlotStartTime(slot) -
                               static_cast<int64_t>(txContext_.optChainConfig->maxValidationTimespanSeconds);
   if (earliest.value().block.timestamp > windowStart) {
-    return Error(E_BLOCK_VALIDATION,
-                 "Cannot seal yet: this node holds blocks from " + std::to_string(first) +
-                     " only, and a transaction valid now may have been committed before them");
+    return Error(E_BLOCK_VALIDATION, "Cannot seal yet: this node holds blocks from " + std::to_string(first) +
+                                         " only, and a transaction valid now may have been committed before them");
   }
   return {};
 }
@@ -131,7 +128,9 @@ bool Chain::checkpointEligibleAt(uint64_t index, uint64_t epoch) const {
                                          txContext_.checkpoint, index, epoch);
 }
 
-Chain::Checkpoint Chain::getCheckpoint() const { return txContext_.checkpoint; }
+Chain::Checkpoint Chain::getCheckpoint() const {
+  return txContext_.checkpoint;
+}
 
 uint64_t Chain::getNextBlockId() const {
   return txContext_.ledger.getNextBlockId();
@@ -154,9 +153,7 @@ int64_t Chain::getSlotStartTime(uint64_t slot) const {
 }
 
 uint64_t Chain::getSlotDuration() const {
-  return txContext_.optChainConfig.has_value()
-             ? txContext_.optChainConfig.value().slotDuration
-             : 0;
+  return txContext_.optChainConfig.has_value() ? txContext_.optChainConfig.value().slotDuration : 0;
 }
 
 uint64_t Chain::getCurrentSlot() const {
@@ -176,9 +173,7 @@ uint64_t Chain::getStakeholderStake(uint64_t stakeholderId) const {
 }
 
 uint64_t Chain::getMaxTransactionsPerBlock() const {
-  return txContext_.optChainConfig.has_value()
-             ? txContext_.optChainConfig.value().maxTransactionsPerBlock
-             : 0;
+  return txContext_.optChainConfig.has_value() ? txContext_.optChainConfig.value().maxTransactionsPerBlock : 0;
 }
 
 uint64_t Chain::getMaxBlockBytes() const {
@@ -192,8 +187,8 @@ uint64_t Chain::estimateBlockShellBytes(uint64_t slot) const {
   }
   Ledger::ChainNode shell = linkNextBlock(last.value(), slot, 0, 0, {});
   shell.block.epoch = txContext_.consensus.getEpochFromSlot(slot);
-  for (std::string *root : {&shell.block.txRoot, &shell.block.stateRoot, &shell.block.stakeSnapshotHash,
-                            &shell.block.epochSeed}) {
+  for (std::string* root :
+       {&shell.block.txRoot, &shell.block.stateRoot, &shell.block.stakeSnapshotHash, &shell.block.epochSeed}) {
     root->assign(32, '\0');
   }
   if (chain_block::opensEpoch(txContext_.ledger, shell.block)) {
@@ -203,22 +198,17 @@ uint64_t Chain::estimateBlockShellBytes(uint64_t slot) const {
 }
 
 uint64_t Chain::getHeartbeatSlots() const {
-  return txContext_.optChainConfig.has_value()
-             ? txContext_.optChainConfig.value().heartbeatSlots
-             : 0;
+  return txContext_.optChainConfig.has_value() ? txContext_.optChainConfig.value().heartbeatSlots : 0;
 }
 
 std::string Chain::getNetworkId() const {
-  return txContext_.optChainConfig.has_value()
-             ? txContext_.optChainConfig.value().networkId
-             : std::string{};
+  return txContext_.optChainConfig.has_value() ? txContext_.optChainConfig.value().networkId : std::string{};
 }
 
 Chain::Roe<uint64_t> Chain::getSlotLeader(uint64_t slot) const {
   auto result = txContext_.consensus.getSlotLeader(slot);
   if (!result) {
-    return Error(E_CONSENSUS_QUERY,
-                 "Failed to get slot leader: " + result.error().message);
+    return Error(E_CONSENSUS_QUERY, "Failed to get slot leader: " + result.error().message);
   }
   return result.value();
 }
@@ -230,8 +220,7 @@ std::vector<consensus::Stakeholder> Chain::getStakeholders() const {
 Chain::Roe<Ledger::ChainNode> Chain::readBlock(uint64_t blockId) const {
   auto result = txContext_.ledger.readBlock(blockId);
   if (!result) {
-    return Error(E_BLOCK_NOT_FOUND,
-                 "Block not found: " + std::to_string(blockId));
+    return Error(E_BLOCK_NOT_FOUND, "Block not found: " + std::to_string(blockId));
   }
   return result.value();
 }
@@ -243,8 +232,8 @@ Chain::Roe<std::vector<StateSnapshot::Account>> Chain::exportAccounts() const {
     auto held = txContext_.bank.getAccount(id);
     auto full = getAccount(id);
     if (!held || !full) {
-      return Error(E_ACCOUNT_NOT_FOUND, "Account " + std::to_string(id) + " cannot be read: " +
-                                            (held ? full.error().message : held.error().message));
+      return Error(E_ACCOUNT_NOT_FOUND, "Account " + std::to_string(id) +
+                                            " cannot be read: " + (held ? full.error().message : held.error().message));
     }
     if (AccountBuffer::attachmentHashOf(full.value().meta) != held.value().attachmentHash) {
       return Error(E_INTERNAL, "Account " + std::to_string(id) + ": its recorded attachment does not match its hash");
@@ -262,27 +251,24 @@ Chain::Roe<std::vector<StateSnapshot::Account>> Chain::exportAccounts() const {
 Chain::Roe<Client::UserAccount> Chain::getAccount(uint64_t accountId) const {
   auto roeAccount = txContext_.bank.getAccount(accountId);
   if (!roeAccount) {
-    return Error(E_ACCOUNT_NOT_FOUND,
-                 "Account not found: " + std::to_string(accountId));
+    return Error(E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(accountId));
   }
-  auto const &account = roeAccount.value();
+  auto const& account = roeAccount.value();
   Client::UserAccount userAccount;
   userAccount.wallet = account.wallet;
 
   // Attachment is not kept in AccountBuffer (hot path stays light). Hydrate
   // ad-hoc from the account tip block.
-  const auto &fns = txContext_.fnAccountMetaForRecord;
+  const auto& fns = txContext_.fnAccountMetaForRecord;
   if (!fns.has_value()) {
-    return Error(E_INTERNAL,
-                 "Account meta extractors not configured on TxContext");
+    return Error(E_INTERNAL, "Account meta extractors not configured on TxContext");
   }
   auto blockResult = txContext_.ledger.readBlock(account.blockId);
   if (!blockResult) {
-    return Error(E_BLOCK_NOT_FOUND,
-                 "Block not found: " + std::to_string(account.blockId));
+    return Error(E_BLOCK_NOT_FOUND, "Block not found: " + std::to_string(account.blockId));
   }
-  auto metaRoe = chain_tx::getAccountCustomMetaFromBlock(
-      blockResult.value().block, accountId, fns->fnUser, fns->fnGenesis);
+  auto metaRoe =
+      chain_tx::getAccountCustomMetaFromBlock(blockResult.value().block, accountId, fns->fnUser, fns->fnGenesis);
   if (!metaRoe) {
     return Error(metaRoe.error());
   }
@@ -290,34 +276,29 @@ Chain::Roe<Client::UserAccount> Chain::getAccount(uint64_t accountId) const {
   return userAccount;
 }
 
-Chain::Roe<std::string> Chain::getUpdatedAccountMetadataForRenewal(
-    const Ledger::Block &block, const AccountBuffer::Account &account,
-    uint64_t minFee) const {
-  const auto &fns = txContext_.fnAccountMetaForRecord;
+Chain::Roe<std::string> Chain::getUpdatedAccountMetadataForRenewal(const Ledger::Block& block,
+                                                                   const AccountBuffer::Account& account,
+                                                                   uint64_t minFee) const {
+  const auto& fns = txContext_.fnAccountMetaForRecord;
   if (!fns.has_value()) {
-    return Error(E_INTERNAL,
-                 "Account meta extractors not configured on TxContext");
+    return Error(E_INTERNAL, "Account meta extractors not configured on TxContext");
   }
-  return mapTx(chain_tx::getUpdatedAccountMetadataForRenewal(
-      block, account, minFee, fns->fnUser, fns->fnGenesis));
+  return mapTx(chain_tx::getUpdatedAccountMetadataForRenewal(block, account, minFee, fns->fnUser, fns->fnGenesis));
 }
 
-Chain::Roe<Ledger::Record>
-Chain::createRenewalTx(uint64_t accountId, uint64_t slot) const {
+Chain::Roe<Ledger::Record> Chain::createRenewalTx(uint64_t accountId, uint64_t slot) const {
   auto accountResult = txContext_.bank.getAccount(accountId);
   if (!accountResult) {
-    return Error(E_ACCOUNT_NOT_FOUND,
-                 "Account not found: " + std::to_string(accountId));
+    return Error(E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(accountId));
   }
 
-  auto const &account = accountResult.value();
+  auto const& account = accountResult.value();
   Ledger::TxRenewal tx;
   tx.walletId = accountId;
   uint16_t type = Ledger::T_RENEWAL;
 
   // Compute minimum fee from current account metadata state.
-  auto minimumFeeResult =
-      calculateMinimumFeeForAccountMeta(txContext_.bank, accountId);
+  auto minimumFeeResult = calculateMinimumFeeForAccountMeta(txContext_.bank, accountId);
   if (!minimumFeeResult) {
     return minimumFeeResult.error();
   }
@@ -329,8 +310,7 @@ Chain::createRenewalTx(uint64_t accountId, uint64_t slot) const {
   const uint64_t minimumFee = feeFree ? 0 : minimumFeeResult.value();
 
   if (!AccountIds::isSystemAccount(accountId)) {
-    auto balance =
-        txContext_.bank.getBalance(accountId, AccountBuffer::ID_GENESIS);
+    auto balance = txContext_.bank.getBalance(accountId, AccountBuffer::ID_GENESIS);
     if (balance < static_cast<int64_t>(minimumFee)) {
       // Insufficient balance for renewal, terminate account with whatever
       // balance remains. Fee is 0 here; all remaining balances are transferred
@@ -344,13 +324,11 @@ Chain::createRenewalTx(uint64_t accountId, uint64_t slot) const {
     // Get account metadata from previous block
     auto blockResult = txContext_.ledger.readBlock(account.blockId);
     if (!blockResult) {
-      return Error(E_BLOCK_NOT_FOUND,
-                   "Block not found: " + std::to_string(account.blockId));
+      return Error(E_BLOCK_NOT_FOUND, "Block not found: " + std::to_string(account.blockId));
     }
-    auto const &block = blockResult.value().block;
+    auto const& block = blockResult.value().block;
     tx.fee = minimumFee;
-    auto metaResult =
-        getUpdatedAccountMetadataForRenewal(block, account, minimumFee);
+    auto metaResult = getUpdatedAccountMetadataForRenewal(block, account, minimumFee);
     if (!metaResult) {
       return metaResult.error();
     }
@@ -382,15 +360,12 @@ Chain::createRenewalTx(uint64_t accountId, uint64_t slot) const {
   return rec;
 }
 
-Chain::Roe<uint64_t>
-Chain::calculateMaxBlockIdForRenewal(uint64_t atBlockId, uint64_t atSlot) const {
+Chain::Roe<uint64_t> Chain::calculateMaxBlockIdForRenewal(uint64_t atBlockId, uint64_t atSlot) const {
   return mapTx(chain_block::calculateMaxBlockIdForRenewal(
-      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig,
-      txContext_.checkpoint, atBlockId, atSlot));
+      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig, txContext_.checkpoint, atBlockId, atSlot));
 }
 
-Chain::Roe<std::vector<Ledger::Record>>
-Chain::collectRenewals(uint64_t slot) const {
+Chain::Roe<std::vector<Ledger::Record>> Chain::collectRenewals(uint64_t slot) const {
   std::vector<Ledger::Record> renewals;
   const uint64_t nextBlockId = txContext_.ledger.getNextBlockId();
 
@@ -440,25 +415,21 @@ Chain::collectRenewals(uint64_t slot) const {
 Chain::Roe<Ledger::ChainNode> Chain::readLastBlock() const {
   auto result = txContext_.ledger.readLastBlock();
   if (!result) {
-    return Error(E_LEDGER_READ,
-                 "Failed to read last block: " + result.error().message);
+    return Error(E_LEDGER_READ, "Failed to read last block: " + result.error().message);
   }
   return result.value();
 }
 
-Chain::Roe<uint64_t>
-Chain::calculateMinimumFeeForTransaction(const BlockChainConfig &config,
-                                         const Ledger::TypedTx &tx) const {
+Chain::Roe<uint64_t> Chain::calculateMinimumFeeForTransaction(const BlockChainConfig& config,
+                                                              const Ledger::TypedTx& tx) const {
   return mapTx(chain_tx::calculateMinimumFeeForTransaction(
-      config, tx,
-      [this](const BlockChainConfig &cfg, const Ledger::TypedTx &t) {
+      config, tx, [this](const BlockChainConfig& cfg, const Ledger::TypedTx& t) {
         return recordHandler_.getBillableCustomMetaSizeForFee(cfg, t);
       }));
 }
 
-Chain::Roe<std::vector<Ledger::Record>>
-Chain::findTransactionsByWalletId(uint64_t walletId,
-                                  uint64_t &ioBlockId) const {
+Chain::Roe<std::vector<Ledger::Record>> Chain::findTransactionsByWalletId(uint64_t walletId,
+                                                                          uint64_t& ioBlockId) const {
   // ioBlockId is the block ID to start scanning from (exclusive). It is updated
   // to the last scanned block ID. Client sends 0 to mean "latest" (scan from
   // tip); we substitute getNextBlockId() so that scanning runs.
@@ -476,15 +447,13 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
   size_t nBlocksScanned = 0;
   size_t outBytes = 0;
   uint64_t currentBlockId = ioBlockId;
-  while (currentBlockId > 0 &&
-         nBlocksScanned < MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX) {
+  while (currentBlockId > 0 && nBlocksScanned < MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX) {
     --currentBlockId;
     auto blockRoe = txContext_.ledger.readBlock(currentBlockId);
     if (!blockRoe) {
-      return Error(E_BLOCK_NOT_FOUND,
-                   "Block not found: " + std::to_string(currentBlockId));
+      return Error(E_BLOCK_NOT_FOUND, "Block not found: " + std::to_string(currentBlockId));
     }
-    auto const &recs = blockRoe.value().block.records;
+    auto const& recs = blockRoe.value().block.records;
     std::vector<Ledger::Record> matches;
     size_t matchBytes = 0;
     for (auto it = recs.rbegin(); it != recs.rend(); ++it) {
@@ -514,8 +483,8 @@ Chain::Roe<Client::ProducerStatsResponse> Chain::producerStats(uint64_t fromBloc
   const uint64_t first = std::max<uint64_t>(fromBlockId, 1);
   const uint64_t end = std::min(toBlockId, txContext_.ledger.getNextBlockId());
   if (first < end && first < txContext_.ledger.getStartingBlockId()) {
-    return Error(E_BLOCK_NOT_FOUND, "This node holds blocks from " +
-                                        std::to_string(txContext_.ledger.getStartingBlockId()) + " on");
+    return Error(E_BLOCK_NOT_FOUND,
+                 "This node holds blocks from " + std::to_string(txContext_.ledger.getStartingBlockId()) + " on");
   }
   Client::ProducerStatsResponse response;
   response.fromBlockId = fromBlockId;
@@ -526,22 +495,30 @@ Chain::Roe<Client::ProducerStatsResponse> Chain::producerStats(uint64_t fromBloc
     if (!read) {
       return Error(E_BLOCK_NOT_FOUND, "Block not found: " + std::to_string(id));
     }
-    const auto &block = read.value().block;
-    auto &producer = byAccount[block.slotLeader];
+    const auto& block = read.value().block;
+    auto& producer = byAccount[block.slotLeader];
     producer.accountId = block.slotLeader;
     ++producer.blocks;
-    for (const auto &record : block.records) {
+    for (const auto& record : block.records) {
       auto typed = record.decode();
       if (!typed) {
         continue;
       }
-      const uint64_t fee = std::visit([](const auto &tx) -> uint64_t { return tx.fee; }, typed.value());
+      const uint64_t fee = std::visit(
+          [](const auto& tx) -> uint64_t {
+            if constexpr (std::is_base_of_v<Ledger::TxCommon, std::decay_t<decltype(tx)>>) {
+              return tx.fee;
+            } else {
+              return 0; // T_BEACON_SEED: no fee
+            }
+          },
+          typed.value());
       producer.fees += fee;
       response.fees += fee;
     }
     if (auto misses = chargedMisses_.find(id); misses != chargedMisses_.end()) {
       for (uint64_t leader : misses->second) {
-        auto &missed = byAccount[leader];
+        auto& missed = byAccount[leader];
         missed.accountId = leader;
         ++missed.missesCharged;
       }
@@ -553,10 +530,56 @@ Chain::Roe<Client::ProducerStatsResponse> Chain::producerStats(uint64_t fromBloc
     ++response.blocks;
   }
   response.nextBlockId = id;
-  for (auto &[account, stats] : byAccount) {
+  for (auto& [account, stats] : byAccount) {
     response.producers.push_back(stats);
   }
   return response;
+}
+
+namespace {
+
+/** The non-empty siblings of a path and the mask saying which heights they are (proofs leave the rest out). */
+void packPath(const std::vector<std::string>& siblings, uint64_t& mask, std::vector<std::string>& out) {
+  for (size_t h = 0; h < siblings.size(); ++h) {
+    if (!AccountStateTree::isEmptyAt(static_cast<int>(h), siblings[h])) {
+      mask |= 1ULL << h;
+      out.push_back(siblings[h]);
+    }
+  }
+}
+
+} // namespace
+
+std::optional<AccountBuffer::DomainEntry> Chain::findDomain(const std::string& domain) const {
+  return txContext_.bank.findDomain(domain);
+}
+
+Chain::Roe<Client::DomainProof> Chain::domainProof(const std::string& domain) const {
+  if (!chain_domain::isWellFormed(domain)) {
+    return Error(E_INVALID_ARGUMENT, "Not a domain: 1 to 7 capital letters A-Z");
+  }
+  const uint64_t next = txContext_.ledger.getNextBlockId();
+  if (next == 0) {
+    return Error(E_BLOCK_NOT_FOUND, "No blocks yet");
+  }
+  auto tip = txContext_.ledger.readBlock(next - 1);
+  if (!tip) {
+    return Error(E_BLOCK_NOT_FOUND, "Cannot read the tip block: " + tip.error().message);
+  }
+  const auto& bank = txContext_.bank;
+  if (bank.calculateStateRoot() != tip.value().block.stateRoot) {
+    return Error(E_ACCOUNT_BUFFER, "The account state is not the tip's right now (a block is being sealed): ask again");
+  }
+  Client::DomainProof proof;
+  proof.domain = domain;
+  proof.blockId = tip.value().block.index;
+  proof.stateRoot = tip.value().block.stateRoot;
+  if (auto bound = bank.findDomain(domain)) {
+    proof.present = true;
+    proof.accountId = bound->accountId;
+  }
+  packPath(bank.domainSiblings(domain), proof.siblingMask, proof.siblings);
+  return proof;
 }
 
 Chain::Roe<Client::AccountProof> Chain::accountProof(uint64_t accountId) const {
@@ -568,7 +591,7 @@ Chain::Roe<Client::AccountProof> Chain::accountProof(uint64_t accountId) const {
   if (!tip) {
     return Error(E_BLOCK_NOT_FOUND, "Cannot read the tip block: " + tip.error().message);
   }
-  const auto &bank = txContext_.bank;
+  const auto& bank = txContext_.bank;
   if (bank.calculateStateRoot() != tip.value().block.stateRoot) {
     return Error(E_ACCOUNT_BUFFER, "The account state is not the tip's right now (a block is being sealed): ask again");
   }
@@ -582,18 +605,11 @@ Chain::Roe<Client::AccountProof> Chain::accountProof(uint64_t accountId) const {
     proof.lastWriteBlockId = account.value().blockId;
     proof.attachmentHash = account.value().attachmentHash;
   }
-  const auto siblings = bank.stateSiblings(accountId);
-  for (size_t h = 0; h < siblings.size(); ++h) {
-    if (!AccountStateTree::isEmptyAt(static_cast<int>(h), siblings[h])) {
-      proof.siblingMask |= 1ULL << h;
-      proof.siblings.push_back(siblings[h]);
-    }
-  }
+  packPath(bank.stateSiblings(accountId), proof.siblingMask, proof.siblings);
   return proof;
 }
 
-Chain::Roe<Ledger::Record>
-Chain::findTransactionByIndex(uint64_t txIndex) const {
+Chain::Roe<Ledger::Record> Chain::findTransactionByIndex(uint64_t txIndex) const {
   const uint64_t firstBlockId = txContext_.ledger.getStartingBlockId();
   const uint64_t nextBlockId = txContext_.ledger.getNextBlockId();
   if (nextBlockId <= firstBlockId) {
@@ -602,19 +618,16 @@ Chain::findTransactionByIndex(uint64_t txIndex) const {
 
   auto lastBlockRoe = txContext_.ledger.readLastBlock();
   if (!lastBlockRoe) {
-    return Error(E_LEDGER_READ,
-                 "Failed to read last block: " + lastBlockRoe.error().message);
+    return Error(E_LEDGER_READ, "Failed to read last block: " + lastBlockRoe.error().message);
   }
 
-  const auto &lastBlock = lastBlockRoe.value().block;
-  const uint64_t lastBlockTxCount =
-      static_cast<uint64_t>(lastBlock.records.size());
+  const auto& lastBlock = lastBlockRoe.value().block;
+  const uint64_t lastBlockTxCount = static_cast<uint64_t>(lastBlock.records.size());
   const uint64_t totalTxCount = lastBlock.txIndex + lastBlockTxCount;
 
   if (txIndex >= totalTxCount) {
     return Error(E_INVALID_ARGUMENT,
-                 "Transaction index out of range: " + std::to_string(txIndex) +
-                     " >= " + std::to_string(totalTxCount));
+                 "Transaction index out of range: " + std::to_string(txIndex) + " >= " + std::to_string(totalTxCount));
   }
 
   uint64_t low = firstBlockId;
@@ -624,16 +637,13 @@ Chain::findTransactionByIndex(uint64_t txIndex) const {
     const uint64_t mid = low + (high - low) / 2;
     auto blockRoe = txContext_.ledger.readBlock(mid);
     if (!blockRoe) {
-      return Error(
-          E_LEDGER_READ,
-          "Failed to read block " + std::to_string(mid) +
-              " during findTransactionByIndex: " + blockRoe.error().message);
+      return Error(E_LEDGER_READ, "Failed to read block " + std::to_string(mid) +
+                                      " during findTransactionByIndex: " + blockRoe.error().message);
     }
 
-    const auto &block = blockRoe.value().block;
+    const auto& block = blockRoe.value().block;
     const uint64_t blockStart = block.txIndex;
-    const uint64_t blockTxCount =
-        static_cast<uint64_t>(block.records.size());
+    const uint64_t blockTxCount = static_cast<uint64_t>(block.records.size());
 
     if (txIndex < blockStart) {
       if (mid == firstBlockId) {
@@ -658,41 +668,34 @@ Chain::findTransactionByIndex(uint64_t txIndex) const {
     return block.records[static_cast<size_t>(localIndex)];
   }
 
-  return Error(E_LEDGER_READ, "Transaction index " + std::to_string(txIndex) +
-                                  " not found in any block");
+  return Error(E_LEDGER_READ, "Transaction index " + std::to_string(txIndex) + " not found in any block");
 }
 
-std::string Chain::calculateHash(const Ledger::Block &block) const {
+std::string Chain::calculateHash(const Ledger::Block& block) const {
   return chain_block::calculateBlockHash(block);
 }
 
-Ledger::ChainNode Chain::linkNextBlock(
-    const Ledger::ChainNode &previous, uint64_t slot, uint64_t slotLeader,
-    int64_t timestamp, std::vector<Ledger::Record> records) const {
+Ledger::ChainNode Chain::linkNextBlock(const Ledger::ChainNode& previous, uint64_t slot, uint64_t slotLeader,
+                                       int64_t timestamp, std::vector<Ledger::Record> records) const {
   Ledger::ChainNode block;
   block.block.index = previous.block.index + 1;
   block.block.previousHash = previous.hash;
   block.block.slot = slot;
   block.block.slotLeader = slotLeader;
   block.block.timestamp = timestamp;
-  block.block.txIndex =
-      previous.block.txIndex + previous.block.records.size();
+  block.block.txIndex = previous.block.txIndex + previous.block.records.size();
   block.block.records = std::move(records);
   return block;
 }
 
-Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode &block) {
+Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode& block) {
   if (block.block.index == 0) {
     block.block.epoch = 0;
-    block.block.stakeSnapshotHash =
-        chain_block::calculateStakeSnapshotHash({});
-    if (block.block.records.empty() ||
-        block.block.records[0].type != Ledger::T_GENESIS) {
-      return Error(E_BLOCK_VALIDATION,
-                   "Genesis seal requires T_GENESIS as first record");
+    block.block.stakeSnapshotHash = chain_block::calculateStakeSnapshotHash({});
+    if (block.block.records.empty() || block.block.records[0].type != Ledger::T_GENESIS) {
+      return Error(E_BLOCK_VALIDATION, "Genesis seal requires T_GENESIS as first record");
     }
-    auto genesisTx =
-        utl::binaryUnpack<Ledger::TxGenesis>(block.block.records[0].data);
+    auto genesisTx = utl::binaryUnpack<Ledger::TxGenesis>(block.block.records[0].data);
     if (!genesisTx) {
       return Error(E_BLOCK_VALIDATION, "Failed to unpack genesis tx for epochSeed");
     }
@@ -700,10 +703,8 @@ Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode &block) {
     if (!gm.ltsFromString(genesisTx->meta)) {
       return Error(E_BLOCK_VALIDATION, "Failed to unpack genesis meta for epochSeed");
     }
-    const std::string cfgDigest =
-        chain_block::calculateGenesisConfigDigest(gm.config);
-    block.block.epochSeed =
-        consensus::deriveGenesisEpochSeed(gm.config.networkId, cfgDigest);
+    const std::string cfgDigest = chain_block::calculateGenesisConfigDigest(gm.config);
+    block.block.epochSeed = consensus::deriveGenesisEpochSeed(gm.config.networkId, cfgDigest);
     // Do not setEpochSeed yet — processGenesisTxRecord → GenesisTxHandler
     // calls consensus.init() and would clear it.
   } else if (isImportBlock(block)) {
@@ -718,11 +719,11 @@ Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode &block) {
     }
     block.block.epochSeed = genesis.value().block.epochSeed;
   } else {
-    block.block.epoch =
-        txContext_.consensus.getEpochFromSlot(block.block.slot);
-    refreshStakeholders(block.block.slot);
-    block.block.stakeSnapshotHash = chain_block::calculateStakeSnapshotHash(
-        txContext_.consensus.getStakeholders());
+    block.block.epoch = txContext_.consensus.getEpochFromSlot(block.block.slot);
+    if (auto committee = refreshStakeholders(block.block.slot); !committee) {
+      return committee;
+    }
+    block.block.stakeSnapshotHash = chain_block::calculateStakeSnapshotHash(txContext_.consensus.getStakeholders());
     block.block.committee.clear();
     if (chain_block::opensEpoch(txContext_.ledger, block.block)) {
       block.block.committee = chain_block::toCommittee(txContext_.consensus.getStakeholders());
@@ -737,16 +738,14 @@ Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode &block) {
   return {};
 }
 
-Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
+Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode& block) {
   if (pendingSeal_.has_value()) {
-    return Error(E_BLOCK_VALIDATION,
-                 "Cannot seal while a previous sealed block is uncommitted");
+    return Error(E_BLOCK_VALIDATION, "Cannot seal while a previous sealed block is uncommitted");
   }
 
   // Slot checks run before any tip mutation so a bad slot fails cleanly.
   if (block.block.index > 0 && !isImportBlock(block)) {
-    auto arrival = mapTxVoid(chain_block::checkBlockArrival(
-        block, txContext_.ledger, txContext_.consensus));
+    auto arrival = mapTxVoid(chain_block::checkBlockArrival(block, txContext_.ledger, txContext_.consensus));
     if (!arrival) {
       return Error(E_BLOCK_VALIDATION, arrival.error().message);
     }
@@ -773,12 +772,22 @@ void Chain::abandonSeal() {
 
 Chain::TipSnapshot Chain::beginTipUpdate() {
   txContext_.bank.beginOverlay();
-  return TipSnapshot{txContext_.consensus.saveTipState(), txContext_.optChainConfig,
-                     txContext_.pendingChainConfig, txContext_.issuanceBaseline, txContext_.checkpoint,
-                     txContext_.optAuthority, txContext_.importProgress};
+  return TipSnapshot{txContext_.consensus.saveTipState(),
+                     txContext_.optChainConfig,
+                     txContext_.pendingChainConfig,
+                     txContext_.issuanceBaseline,
+                     txContext_.checkpoint,
+                     txContext_.optAuthority,
+                     txContext_.importProgress,
+                     txContext_.beaconReveals,
+                     txContext_.beaconRevealChain,
+                     epochStakeSnapshots_,
+                     epochCommittees_};
 }
 
-void Chain::commitTipUpdate() { txContext_.bank.commitOverlay(); }
+void Chain::commitTipUpdate() {
+  txContext_.bank.commitOverlay();
+}
 
 void Chain::rollbackTipUpdate(TipSnapshot snapshot) {
   txContext_.bank.rollbackOverlay();
@@ -789,9 +798,14 @@ void Chain::rollbackTipUpdate(TipSnapshot snapshot) {
   txContext_.checkpoint = snapshot.checkpoint;
   txContext_.optAuthority = std::move(snapshot.optAuthority);
   txContext_.importProgress = std::move(snapshot.importProgress);
+  txContext_.beaconReveals = std::move(snapshot.beaconReveals);
+  txContext_.beaconRevealChain = std::move(snapshot.beaconRevealChain);
+  // A refused block leaves no committee behind: one taken from it would refuse the honest block.
+  epochStakeSnapshots_ = std::move(snapshot.epochStakeSnapshots);
+  epochCommittees_ = std::move(snapshot.epochCommittees);
 }
 
-Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
+Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode& block) {
   // Assemble → Check (non-genesis Full layers) → Apply (always Full) →
   // Commit-hold (pendingSeal). Do not use admissionModeFor for seal apply:
   // late-join CheckpointReplay is for trusted catch-up ingest only.
@@ -815,14 +829,13 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
     }
     // Shared Full policy before apply (peers run the same layers via checkBlock).
     // Structural (hash) waits until stateRoot is known after apply.
-    auto consensusCheck = mapTxVoid(
-        chain_block::checkBlockConsensus(block, txContext_.consensus));
+    auto consensusCheck = mapTxVoid(chain_block::checkBlockConsensus(block, txContext_.consensus));
     if (!consensusCheck) {
       return Error(E_BLOCK_VALIDATION, consensusCheck.error().message);
     }
-    auto bodyCheck = mapTxVoid(chain_block::checkBlockBodyPolicy(
-        block, txContext_.bank, txContext_.ledger, txContext_.consensus,
-        txContext_.optChainConfig, txContext_.checkpoint, recordHandler_));
+    auto bodyCheck =
+        mapTxVoid(chain_block::checkBlockBodyPolicy(block, txContext_.bank, txContext_.ledger, txContext_.consensus,
+                                                    txContext_.optChainConfig, txContext_.checkpoint, recordHandler_));
     if (!bodyCheck) {
       return Error(E_BLOCK_VALIDATION, bodyCheck.error().message);
     }
@@ -830,18 +843,16 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
 
   // Single apply on the tip bank (same path addBlock would use). Matching
   // addBlock persists only — no second apply, no AccountBuffer overlay.
-  for (const auto &rec : block.block.records) {
+  for (const auto& rec : block.block.records) {
     Roe<void> applied;
     if (block.block.index == 0) {
       applied = processGenesisTxRecord(rec);
     } else {
-      applied = processNormalTxRecord(
-          rec, block.block.index, block.block.slot, block.block.slotLeader,
-          chain_block::BlockAdmissionMode::Full);
+      applied = processNormalTxRecord(rec, block.block.index, block.block.slot, block.block.slotLeader,
+                                      chain_block::BlockAdmissionMode::Full);
     }
     if (!applied) {
-      return Error(E_TX_VALIDATION,
-                   "Failed to apply block for seal: " + applied.error().message);
+      return Error(E_TX_VALIDATION, "Failed to apply block for seal: " + applied.error().message);
     }
   }
   if (importing) {
@@ -852,6 +863,7 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
     if (auto liveness = applyMinerLiveness(block, chain_block::BlockAdmissionMode::Full); !liveness) {
       return liveness;
     }
+    applyDueAccountRecoveries(block);
   }
 
   if (block.block.index == 0) {
@@ -860,11 +872,12 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
   }
 
   block.block.stateRoot = txContext_.bank.calculateStateRoot();
+  block.block.finalAt = expectedFinalAt(block.block);
   block.hash = calculateHash(block.block);
   return {};
 }
 
-Chain::Roe<void> Chain::applyMinerLiveness(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode) {
+Chain::Roe<void> Chain::applyMinerLiveness(const Ledger::ChainNode& block, chain_block::BlockAdmissionMode mode) {
   if (!txContext_.optChainConfig.has_value() || block.block.index == 0) {
     return {};
   }
@@ -886,9 +899,8 @@ Chain::Roe<void> Chain::applyMinerLiveness(const Ledger::ChainNode &block, chain
   const bool chargeSkipped = !BeaconCertTxHandler::commitsCutover(block.block);
   std::vector<uint64_t> charged;
   auto applied = mapTxVoid(chain_tx::applyMinerLiveness(txContext_.bank, txContext_.consensus,
-                                                        txContext_.optChainConfig.value(), prevSlot,
-                                                        block.block, chain_block::admissionTxStrict(mode),
-                                                        chargeSkipped, &charged));
+                                                        txContext_.optChainConfig.value(), prevSlot, block.block,
+                                                        chain_block::admissionTxStrict(mode), chargeSkipped, &charged));
   if (!applied) {
     return Error(E_TX_VALIDATION, "Miner liveness: " + applied.error().message);
   }
@@ -900,6 +912,21 @@ Chain::Roe<void> Chain::applyMinerLiveness(const Ledger::ChainNode &block, chain
   return {};
 }
 
+void Chain::applyDueAccountRecoveries(const Ledger::ChainNode& block) {
+  // At the first block of an epoch (or the first this node holds), after its records: the set's
+  // withdrawal in the block clears a recovery before it applies; renewals there carry the keys before.
+  if (block.block.index > 0) {
+    if (auto prev = txContext_.ledger.readBlock(block.block.index - 1);
+        prev && prev.value().block.epoch == block.block.epoch) {
+      return;
+    }
+  }
+  for (uint64_t id : txContext_.bank.applyDueRecoveries(block.block.epoch)) {
+    log().info << "Account " << id << ": its recovery applied at block " << block.block.index << " (epoch "
+               << block.block.epoch << "): the announced keys sign for it now";
+  }
+}
+
 bool Chain::isMinerDue(uint64_t accountId, uint64_t slot) const {
   if (!txContext_.optChainConfig.has_value()) {
     return false;
@@ -909,19 +936,26 @@ bool Chain::isMinerDue(uint64_t accountId, uint64_t slot) const {
 }
 
 std::vector<consensus::Stakeholder> Chain::electionCandidates() const {
-  const uint64_t minStake =
-      txContext_.optChainConfig.has_value() ? txContext_.optChainConfig->minerMinStake : 0;
+  const uint64_t minStake = txContext_.optChainConfig.has_value() ? txContext_.optChainConfig->minerMinStake : 0;
   return txContext_.bank.getStakeholders(minStake);
 }
 
 void Chain::refreshStakeholders() {
   const uint64_t clockEpoch = txContext_.consensus.getCurrentEpoch();
-  if (auto recorded = epochStakeSnapshots_.find(clockEpoch); recorded != epochStakeSnapshots_.end()) {
+  if (auto recorded = epochCommittees_.find(clockEpoch); recorded != epochCommittees_.end()) {
     txContext_.consensus.setStakeholders(recorded->second, clockEpoch);
   } else if (txContext_.consensus.isStakeUpdateNeeded()) {
-    // Provisional (leader election before this epoch's first block). Not
-    // recorded: blocks of earlier epochs may still arrive and change it.
-    txContext_.consensus.setStakeholders(electionCandidates(), clockEpoch);
+    // Provisional (leader election before this epoch's first block), as that block will validate
+    // it. Not recorded: blocks of earlier epochs may still arrive and change it.
+    if (auto committee = committeeFor(clockEpoch, nullptr)) {
+      txContext_.consensus.setStakeholders(committee.value(), clockEpoch);
+    } else {
+      // Keeping an earlier epoch's committee would elect by a wrong schedule: elect no one (and seal
+      // nothing) here until a block installs this epoch's. Once per epoch: it is marked updated.
+      log().warning << "No committee for epoch " << clockEpoch << " yet: this node elects no leader in it ("
+                    << committee.error().message << ")";
+      txContext_.consensus.setStakeholders({}, clockEpoch);
+    }
   }
   // Prefer tip epoch (chain progress) over wall-clock epoch so tests and
   // late-start nodes with mismatched genesisTime still keep a usable seed.
@@ -936,59 +970,99 @@ void Chain::refreshStakeholders() {
   if (!txContext_.consensus.hasEpochSeedFor(tipEpoch)) {
     (void)ensureEpochSeed(tipEpoch);
   }
-  if (clockEpoch != tipEpoch &&
-      !txContext_.consensus.hasEpochSeedFor(clockEpoch)) {
+  if (clockEpoch != tipEpoch && !txContext_.consensus.hasEpochSeedFor(clockEpoch)) {
     (void)ensureEpochSeed(clockEpoch);
   }
 }
 
-void Chain::recordEpochStakeSnapshot(uint64_t epoch, std::vector<consensus::Stakeholder> stakeholders) {
+void Chain::recordEpochCommittee(uint64_t epoch, std::vector<consensus::Stakeholder> committee) {
   epochStakeSnapshots_.erase(epochStakeSnapshots_.lower_bound(epoch), epochStakeSnapshots_.end());
-  epochStakeSnapshots_.emplace(epoch, std::move(stakeholders));
+  epochCommittees_.erase(epochCommittees_.lower_bound(epoch), epochCommittees_.end());
+  epochCommittees_.emplace(epoch, std::move(committee));
+  if (epoch > kStakeSnapshotsKept) {
+    epochCommittees_.erase(epochCommittees_.begin(), epochCommittees_.lower_bound(epoch - kStakeSnapshotsKept));
+  }
 }
 
-void Chain::refreshStakeholders(uint64_t blockSlot) {
+bool Chain::heldSince(uint64_t epoch, uint64_t endBlockId) const {
+  if (endBlockId == 0) {
+    return false;
+  }
+  auto previous = txContext_.ledger.readBlock(endBlockId - 1);
+  if (!previous) {
+    return true;
+  }
+  if (previous.value().block.epoch < epoch) {
+    return false;
+  }
+  // Genesis and import blocks (epoch 0) take no snapshot and elect no one.
+  return previous.value().block.index != 0 && !isImportBlock(previous.value());
+}
+
+Chain::Roe<std::vector<consensus::Stakeholder>> Chain::committeeFor(uint64_t epoch,
+                                                                    const Ledger::Block* opening) const {
+  return committeeFor(epoch, opening, opening ? opening->index : txContext_.ledger.getNextBlockId());
+}
+
+Chain::Roe<std::vector<consensus::Stakeholder>> Chain::committeeFor(uint64_t epoch, const Ledger::Block* opening,
+                                                                    uint64_t endBlockId) const {
+  if (epoch > 0) {
+    if (auto snapshot = epochStakeSnapshots_.find(epoch - 1); snapshot != epochStakeSnapshots_.end()) {
+      return snapshot->second;
+    }
+  }
+  // No block since epoch - 2 ended: the bank holds that state.
+  if (epoch == 0 || !heldSince(epoch - 1, endBlockId)) {
+    return electionCandidates();
+  }
+  // Epoch - 1's start state was never this node's (it warmed up from a checkpoint): the opening
+  // block's committee, checked against its stakeSnapshotHash.
+  if (opening != nullptr && opening->epoch == epoch && !opening->committee.empty()) {
+    auto committee = chain_block::fromCommittee(opening->committee);
+    if (chain_block::calculateStakeSnapshotHash(committee) != opening->stakeSnapshotHash) {
+      return Error(E_BLOCK_VALIDATION, "Block " + std::to_string(opening->index) + " opens epoch " +
+                                           std::to_string(epoch) + ": its committee does not match stakeSnapshotHash");
+    }
+    return committee;
+  }
+  return Error(E_BLOCK_VALIDATION, "Committee of epoch " + std::to_string(epoch) +
+                                       " unknown: no stake snapshot of epoch " + std::to_string(epoch - 1) +
+                                       " was taken here");
+}
+
+Chain::Roe<void> Chain::refreshStakeholders(uint64_t blockSlot, const Ledger::Block* block) {
   const uint64_t epoch = txContext_.consensus.getEpochFromSlot(blockSlot);
-  // Snapshots recorded for later epochs predate this block: drop them.
+  const uint64_t endBlockId = block ? block->index : txContext_.ledger.getNextBlockId();
+  // Recorded for later epochs, they predate this block: drop them.
   epochStakeSnapshots_.erase(epochStakeSnapshots_.upper_bound(epoch), epochStakeSnapshots_.end());
-  auto recorded = epochStakeSnapshots_.find(epoch);
-  if (recorded == epochStakeSnapshots_.end()) {
-    // First block of this epoch on this tip: the bank holds the state after
-    // the last block of earlier epochs — the same on every node.
-    recorded = epochStakeSnapshots_.emplace(epoch, electionCandidates()).first;
+  epochCommittees_.erase(epochCommittees_.upper_bound(epoch), epochCommittees_.end());
+  auto recorded = epochCommittees_.find(epoch);
+  if (recorded == epochCommittees_.end()) {
+    const bool exact = admissionModeFor(endBlockId) == chain_block::BlockAdmissionMode::Full;
+    if (exact && !heldSince(epoch, endBlockId)) {
+      // First block of this epoch on this tip: the bank holds the state after the last block of
+      // earlier epochs — the same on every node. Epoch + 1's committee.
+      epochStakeSnapshots_.try_emplace(epoch, electionCandidates());
+    }
+    // A block that is not its epoch's first carries no committee (checkBlockStructural refuses one).
+    auto committee = committeeFor(epoch, block, endBlockId);
+    if (!committee) {
+      return committee.error();
+    }
+    if (!exact) {
+      // A warming node's own state is partial: install, but record only what opening blocks carry.
+      txContext_.consensus.setStakeholders(committee.value(), epoch);
+      return {};
+    }
+    recorded = epochCommittees_.emplace(epoch, std::move(committee.value())).first;
     if (epoch > kStakeSnapshotsKept) {
       epochStakeSnapshots_.erase(epochStakeSnapshots_.begin(),
                                  epochStakeSnapshots_.lower_bound(epoch - kStakeSnapshotsKept));
+      epochCommittees_.erase(epochCommittees_.begin(), epochCommittees_.lower_bound(epoch - kStakeSnapshotsKept));
     }
   }
   txContext_.consensus.setStakeholders(recorded->second, epoch);
-}
-
-std::vector<std::string>
-Chain::collectPrevEpochLookbackHashes(uint64_t prevEpoch, uint64_t endBlockId) const {
-  std::vector<std::string> newestFirst;
-  const uint64_t nextId = std::min(endBlockId, txContext_.ledger.getNextBlockId());
-  if (nextId == 0) {
-    return {};
-  }
-  for (uint64_t id = nextId; id > 0; --id) {
-    auto blockRoe = txContext_.ledger.readBlock(id - 1);
-    if (!blockRoe) {
-      break;
-    }
-    if (blockRoe->block.epoch > prevEpoch) {
-      continue;
-    }
-    if (blockRoe->block.epoch < prevEpoch) {
-      break;
-    }
-    newestFirst.push_back(blockRoe->hash);
-    if (newestFirst.size() >= consensus::kEpochSeedLookback) {
-      break;
-    }
-  }
-  std::reverse(newestFirst.begin(), newestFirst.end());
-  return newestFirst;
+  return {};
 }
 
 Chain::Roe<std::pair<uint64_t, std::string>> Chain::readLatestEpochSeed(uint64_t maxEpoch, uint64_t endBlockId) const {
@@ -998,22 +1072,17 @@ Chain::Roe<std::pair<uint64_t, std::string>> Chain::readLatestEpochSeed(uint64_t
     if (!blockRoe) {
       break;
     }
-    if (blockRoe->block.epoch <= maxEpoch &&
-        blockRoe->block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
+    if (blockRoe->block.epoch <= maxEpoch && blockRoe->block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
       return std::make_pair(blockRoe->block.epoch, blockRoe->block.epochSeed);
     }
   }
   return Error(E_STATE_INIT, "No stored epochSeed at or before epoch " + std::to_string(maxEpoch));
 }
 
-std::string Chain::deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed, const std::string &stakeHash,
-                                       uint64_t endBlockId) const {
+std::string Chain::deriveNextEpochSeed(uint64_t epoch, const std::string& prevSeed) const {
   const std::string networkId =
       txContext_.optChainConfig.has_value() ? txContext_.optChainConfig->networkId : std::string{};
-  // No blocks in epoch - 1 → no lookback hashes → empty-prev tip material.
-  auto lookback = collectPrevEpochLookbackHashes(epoch - 1, endBlockId);
-  const std::string tipMaterial = consensus::lookbackTipMaterial(epoch - 1, prevSeed, lookback);
-  return consensus::deriveEpochSeed(epoch, networkId, prevSeed, tipMaterial, stakeHash);
+  return consensus::deriveEpochSeedV2(epoch, networkId, prevSeed, getBeaconReveal(epoch));
 }
 
 Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch, std::optional<uint64_t> endBlockId) {
@@ -1024,51 +1093,40 @@ Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch, std::optional<uint64_t> 
 
   if (epoch == 0) {
     if (!txContext_.optChainConfig.has_value()) {
-      return Error(E_STATE_INIT,
-                   "Cannot derive genesis epoch seed without chain config");
+      return Error(E_STATE_INIT, "Cannot derive genesis epoch seed without chain config");
     }
-    const std::string cfgDigest =
-        chain_block::calculateGenesisConfigDigest(*txContext_.optChainConfig);
-    const std::string seed =
-        consensus::deriveGenesisEpochSeed(txContext_.optChainConfig->networkId, cfgDigest);
+    const std::string cfgDigest = chain_block::calculateGenesisConfigDigest(*txContext_.optChainConfig);
+    const std::string seed = consensus::deriveGenesisEpochSeed(txContext_.optChainConfig->networkId, cfgDigest);
     txContext_.consensus.setEpochSeed(0, seed);
     return {};
   }
 
-  // Start from the newest stored seed before this epoch. Epochs after it had no blocks: each
-  // seed follows from the one before (empty-prev tip material), so a chain survives idle epochs.
-  auto base = readLatestEpochSeed(epoch - 1, end);
+  // An epoch already in a block below `end` takes that block's (validated) seed: deriving it again
+  // could miss a reveal pruned since. Otherwise start from the newest stored seed before this epoch.
+  // Epochs after it had no blocks: each seed follows from the one before, so a chain survives idle
+  // epochs.
+  auto base = readLatestEpochSeed(epoch, end);
   if (!base) {
     return Error(base.error().code, base.error().message);
+  }
+  if (base.value().first == epoch) {
+    txContext_.consensus.setEpochSeed(epoch, base.value().second);
+    return {};
   }
   if (epoch - base.value().first > consensus::kMaxEmptyEpochs + 1) {
     return Error(E_STATE_INIT, "Epoch " + std::to_string(epoch) + " is more than " +
                                    std::to_string(consensus::kMaxEmptyEpochs) +
-                                   " empty epochs past the last block's epoch " +
-                                   std::to_string(base.value().first));
+                                   " empty epochs past the last block's epoch " + std::to_string(base.value().first));
   }
-  // Each epoch's own snapshot, not whatever is installed: the wall-clock refresh installs the
-  // clock epoch's (provisional) stakes before deriving the tip epoch's seed. Epochs with no
-  // recorded snapshot share the provisional one (the bank does not change without blocks).
-  std::optional<std::string> provisionalStakeHash;
   std::string seed = base.value().second;
   for (uint64_t next = base.value().first + 1; next <= epoch; ++next) {
-    std::string stakeHash;
-    if (auto recorded = epochStakeSnapshots_.find(next); recorded != epochStakeSnapshots_.end()) {
-      stakeHash = chain_block::calculateStakeSnapshotHash(recorded->second);
-    } else {
-      if (!provisionalStakeHash) {
-        provisionalStakeHash = chain_block::calculateStakeSnapshotHash(electionCandidates());
-      }
-      stakeHash = *provisionalStakeHash;
-    }
-    seed = deriveNextEpochSeed(next, seed, stakeHash, end);
+    seed = deriveNextEpochSeed(next, seed);
   }
   txContext_.consensus.setEpochSeed(epoch, seed);
   return {};
 }
 
-Chain::Roe<void> Chain::ensureBlockEpochSeed(const Ledger::ChainNode &block) {
+Chain::Roe<void> Chain::ensureBlockEpochSeed(const Ledger::ChainNode& block) {
   const uint64_t epoch = block.block.epoch;
   bool firstOfEpoch = true;
   if (block.block.index > 0) {
@@ -1081,9 +1139,10 @@ Chain::Roe<void> Chain::ensureBlockEpochSeed(const Ledger::ChainNode &block) {
   return ensureEpochSeed(epoch, block.block.index); // from the blocks before it, not the ledger's tip
 }
 
-void Chain::initConsensus(const consensus::SlotCommittee::Config &config) {
+void Chain::initConsensus(const consensus::SlotCommittee::Config& config) {
   txContext_.consensus.init(config);
   epochStakeSnapshots_.clear();
+  epochCommittees_.clear();
 }
 
 void Chain::setClockOverride(std::optional<int64_t> unixSeconds) {
@@ -1098,11 +1157,10 @@ void Chain::clearForcedSlotLeaders() {
   txContext_.consensus.clearForcedSlotLeaders();
 }
 
-Chain::Roe<void> Chain::initLedger(const Ledger::InitConfig &config) {
+Chain::Roe<void> Chain::initLedger(const Ledger::InitConfig& config) {
   auto result = txContext_.ledger.init(config);
   if (!result) {
-    return Error(E_STATE_INIT,
-                 "Failed to initialize ledger: " + result.error().message);
+    return Error(E_STATE_INIT, "Failed to initialize ledger: " + result.error().message);
   }
   authoritySteps_.clear();
   authorityStepsFrom_ = config.startingBlockId;
@@ -1110,11 +1168,10 @@ Chain::Roe<void> Chain::initLedger(const Ledger::InitConfig &config) {
   return {};
 }
 
-Chain::Roe<void> Chain::mountLedger(const std::string &workDir) {
+Chain::Roe<void> Chain::mountLedger(const std::string& workDir) {
   auto result = txContext_.ledger.mount(workDir);
   if (!result) {
-    return Error(E_STATE_MOUNT,
-                 "Failed to mount ledger: " + result.error().message);
+    return Error(E_STATE_MOUNT, "Failed to mount ledger: " + result.error().message);
   }
   return {};
 }
@@ -1129,7 +1186,10 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   log().info << "Resetting account buffer";
   txContext_.bank.reset();
   txContext_.importProgress.reset();
+  txContext_.beaconReveals.clear();
+  txContext_.beaconRevealChain.reset();
   epochStakeSnapshots_.clear();
+  epochCommittees_.clear();
   chargedMisses_.clear();
   pendingSeal_.reset();
   authoritySteps_.clear();
@@ -1141,12 +1201,6 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   txContext_.checkpoint.currentId = startingBlockId;
   uint64_t blockId = startingBlockId;
   uint64_t logInterval = 1000; // Log every 1000 blocks
-  // Same mode matrix as live late join: genesis→tip is Full; mount at a
-  // checkpoint is CheckpointReplay for the whole replay loop (see
-  // admissionModeFor / BLOCK_PIPELINE.md).
-  const auto replayMode =
-      startingBlockId == 0 ? chain_block::BlockAdmissionMode::Full
-                           : chain_block::BlockAdmissionMode::CheckpointReplay;
   while (true) {
     auto blockResult = txContext_.ledger.readBlock(blockId);
     if (!blockResult) {
@@ -1154,26 +1208,27 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
       break;
     }
 
-    auto const &block = blockResult.value();
+    auto const& block = blockResult.value();
     if (blockId != block.block.index) {
-      return Error(E_BLOCK_INDEX, "Block index mismatch: expected " +
-                                      std::to_string(blockId) + " got " +
+      return Error(E_BLOCK_INDEX, "Block index mismatch: expected " + std::to_string(blockId) + " got " +
                                       std::to_string(block.block.index));
     }
 
+    // Each block in the mode it was admitted under live (admissionModeFor / BLOCK_PIPELINE.md):
+    // genesis→tip is Full; from a checkpoint, CheckpointReplay until the next rotation and Full
+    // after it, so the replay records the same epoch start snapshots as the first run did.
+    const auto replayMode = admissionModeFor(blockId);
     if (auto prepared = prepareBlockEpoch(block, replayMode); !prepared) {
       return Error(prepared.error().code, "Block " + std::to_string(blockId) + ": " + prepared.error().message);
     }
 
     auto processResult = processBlock(block, replayMode);
     if (!processResult) {
-      return Error(E_BLOCK_VALIDATION, "Failed to process block " +
-                                           std::to_string(blockId) + ": " +
-                                           processResult.error().message);
+      return Error(E_BLOCK_VALIDATION,
+                   "Failed to process block " + std::to_string(blockId) + ": " + processResult.error().message);
     }
     if (block.block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
-      txContext_.consensus.setEpochSeed(block.block.epoch,
-                                        block.block.epochSeed);
+      txContext_.consensus.setEpochSeed(block.block.epoch, block.block.epochSeed);
     }
     noteAuthoritySteps(block);
 
@@ -1189,10 +1244,9 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   return blockId;
 }
 
-Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
+Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode& block) {
   if (pendingSeal_.has_value()) {
-    if (pendingSeal_->index != block.block.index ||
-        pendingSeal_->hash != block.hash) {
+    if (pendingSeal_->index != block.block.index || pendingSeal_->hash != block.hash) {
       return Error(E_BLOCK_VALIDATION,
                    "Tip has an uncommitted sealed block; commit it before "
                    "adding a different block");
@@ -1209,20 +1263,16 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
   // legitimately has index < the ledger's final block count.)
   const uint64_t expectedIndex = txContext_.ledger.getNextBlockId();
   if (block.block.index != expectedIndex) {
-    return Error(E_BLOCK_VALIDATION,
-                 "Invalid block index: expected " +
-                     std::to_string(expectedIndex) + " got " +
-                     std::to_string(block.block.index));
+    return Error(E_BLOCK_VALIDATION, "Invalid block index: expected " + std::to_string(expectedIndex) + " got " +
+                                         std::to_string(block.block.index));
   }
 
   // Slot monotonicity / future bound: arriving blocks under Full admission
   // only. loadFromLedger and CheckpointReplay catch-up skip them so history
   // written before these rules still loads.
   if (block.block.index > 0 && !isImportBlock(block) &&
-      admissionModeFor(block.block.index) ==
-          chain_block::BlockAdmissionMode::Full) {
-    auto arrival = mapTxVoid(chain_block::checkBlockArrival(
-        block, txContext_.ledger, txContext_.consensus));
+      admissionModeFor(block.block.index) == chain_block::BlockAdmissionMode::Full) {
+    auto arrival = mapTxVoid(chain_block::checkBlockArrival(block, txContext_.ledger, txContext_.consensus));
     if (!arrival) {
       return Error(E_BLOCK_VALIDATION, arrival.error().message);
     }
@@ -1239,21 +1289,19 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
   commitTipUpdate();
   noteAuthoritySteps(block);
 
-  log().info << "Block added: " << block.block.index
-             << " from slot leader: " << block.block.slotLeader;
+  log().info << "Block added: " << block.block.index << " from slot leader: " << block.block.slotLeader;
 
   return {};
 }
 
-Chain::Roe<void> Chain::applyNextBlock(const Ledger::ChainNode &block) {
+Chain::Roe<void> Chain::applyNextBlock(const Ledger::ChainNode& block) {
   const auto admissionMode = admissionModeFor(block.block.index);
   if (auto prepared = prepareBlockEpoch(block, admissionMode); !prepared) {
     return prepared;
   }
   auto processResult = processBlock(block, admissionMode);
   if (!processResult) {
-    return Error(E_BLOCK_VALIDATION,
-                 "Failed to process block: " + processResult.error().message);
+    return Error(E_BLOCK_VALIDATION, "Failed to process block: " + processResult.error().message);
   }
   if (block.block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
     txContext_.consensus.setEpochSeed(block.block.epoch, block.block.epochSeed);
@@ -1261,13 +1309,12 @@ Chain::Roe<void> Chain::applyNextBlock(const Ledger::ChainNode &block) {
 
   auto ledgerResult = txContext_.ledger.addBlock(block);
   if (!ledgerResult) {
-    return Error(E_LEDGER_WRITE,
-                 "Failed to persist block: " + ledgerResult.error().message);
+    return Error(E_LEDGER_WRITE, "Failed to persist block: " + ledgerResult.error().message);
   }
   return {};
 }
 
-Chain::Roe<void> Chain::commitSealedBlock(const Ledger::ChainNode &block) {
+Chain::Roe<void> Chain::commitSealedBlock(const Ledger::ChainNode& block) {
   auto committed = commitSealedOnTip(block);
   pendingSeal_.reset();
   if (sealSnapshot_.has_value()) {
@@ -1282,24 +1329,21 @@ Chain::Roe<void> Chain::commitSealedBlock(const Ledger::ChainNode &block) {
     return committed;
   }
   noteAuthoritySteps(block);
-  log().info << "Block added: " << block.block.index
-             << " from slot leader: " << block.block.slotLeader;
+  log().info << "Block added: " << block.block.index << " from slot leader: " << block.block.slotLeader;
   return {};
 }
 
-Chain::Roe<void> Chain::commitSealedOnTip(const Ledger::ChainNode &block) {
+Chain::Roe<void> Chain::commitSealedOnTip(const Ledger::ChainNode& block) {
   // Effects already applied in sealBlock; verify commitments then persist.
   if (block.block.index == 0) {
-    auto genesisValidation =
-        mapTxVoid(chain_block::validateGenesisBlock(block, recordHandler_));
+    auto genesisValidation = mapTxVoid(chain_block::validateGenesisBlock(block, recordHandler_));
     if (!genesisValidation) {
       return Error(E_BLOCK_VALIDATION, genesisValidation.error().message);
     }
   } else {
     auto structural = mapTxVoid(chain_block::checkBlock(
-        block, chain_block::BlockAdmissionMode::SealedCommitVerify,
-        txContext_.ledger, txContext_.consensus, txContext_.bank,
-        txContext_.optChainConfig, txContext_.checkpoint, recordHandler_));
+        block, chain_block::BlockAdmissionMode::SealedCommitVerify, txContext_.ledger, txContext_.consensus,
+        txContext_.bank, txContext_.optChainConfig, txContext_.checkpoint, recordHandler_));
     if (!structural) {
       return Error(E_BLOCK_VALIDATION, structural.error().message);
     }
@@ -1308,6 +1352,10 @@ Chain::Roe<void> Chain::commitSealedOnTip(const Ledger::ChainNode &block) {
   if (block.block.stateRoot != txContext_.bank.calculateStateRoot()) {
     return Error(E_BLOCK_HASH, "Block stateRoot mismatch");
   }
+  if (auto finality = checkFinalAt(block.block); !finality) {
+    return finality;
+  }
+  noteFinalAt(block.block);
 
   // Rotate before persist, as the processNormalBlock → addBlock path does (the rule reads the
   // block before this one from the ledger).
@@ -1315,8 +1363,7 @@ Chain::Roe<void> Chain::commitSealedOnTip(const Ledger::ChainNode &block) {
 
   auto ledgerResult = txContext_.ledger.addBlock(block);
   if (!ledgerResult) {
-    return Error(E_LEDGER_WRITE,
-                 "Failed to persist block: " + ledgerResult.error().message);
+    return Error(E_LEDGER_WRITE, "Failed to persist block: " + ledgerResult.error().message);
   }
 
   if (block.block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
@@ -1325,7 +1372,7 @@ Chain::Roe<void> Chain::commitSealedOnTip(const Ledger::ChainNode &block) {
   return {};
 }
 
-Chain::Roe<void> Chain::prepareBlockEpoch(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode) {
+Chain::Roe<void> Chain::prepareBlockEpoch(const Ledger::ChainNode& block, chain_block::BlockAdmissionMode mode) {
   // Genesis installs consensus while its record applies; import blocks take no stake snapshot.
   if (block.block.index == 0 || isImportBlock(block)) {
     return {};
@@ -1340,26 +1387,35 @@ Chain::Roe<void> Chain::prepareBlockEpoch(const Ledger::ChainNode &block, chain_
     // from the block opening it (checked against stakeSnapshotHash) and the block's own seed (the
     // epochs before it may not be held). Leaders, and the liveness charges they drive, are exact.
     if (chain_block::opensEpoch(txContext_.ledger, block.block)) {
-      if (auto committee = mapTxVoid(chain_block::validateBlockCommittee(txContext_.ledger, block.block));
-          !committee) {
+      if (auto committee = mapTxVoid(chain_block::validateBlockCommittee(txContext_.ledger, block.block)); !committee) {
         return committee;
       }
-      recordEpochStakeSnapshot(block.block.epoch, chain_block::fromCommittee(block.block.committee));
+      recordEpochCommittee(block.block.epoch, chain_block::fromCommittee(block.block.committee));
     }
-    refreshStakeholders(block.block.slot);
+    epochStakeSnapshots_.erase(epochStakeSnapshots_.upper_bound(block.block.epoch), epochStakeSnapshots_.end());
+    epochCommittees_.erase(epochCommittees_.upper_bound(block.block.epoch), epochCommittees_.end());
+    auto committee = epochCommittees_.find(block.block.epoch);
+    if (committee == epochCommittees_.end()) {
+      return Error(E_BLOCK_VALIDATION,
+                   "No committee for epoch " + std::to_string(block.block.epoch) + ": its opening block was not taken");
+    }
+    txContext_.consensus.setStakeholders(committee->second, block.block.epoch);
     if (block.block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
       txContext_.consensus.setEpochSeed(block.block.epoch, block.block.epochSeed);
     }
     return {};
   }
-  refreshStakeholders(block.block.slot);
+  // Full: this epoch's committee was fixed one epoch ahead (committeeFor).
+  if (auto committee = refreshStakeholders(block.block.slot, &block.block); !committee) {
+    return committee;
+  }
   if (auto seeded = ensureBlockEpochSeed(block); !seeded) {
     return Error(E_BLOCK_VALIDATION, "Failed to ensure epoch seed: " + seeded.error().message);
   }
   return {};
 }
 
-Chain::Roe<void> Chain::installCheckpointState(const Ledger::ChainNode &block) {
+Chain::Roe<void> Chain::installCheckpointState(const Ledger::ChainNode& block) {
   if (block.block.records.empty() || !chain_block::isGenesisRenewal(block.block.records.front())) {
     return Error(E_STATE_INIT, "Block " + std::to_string(block.block.index) +
                                    " is not a checkpoint: it does not open with the genesis renewal");
@@ -1367,8 +1423,8 @@ Chain::Roe<void> Chain::installCheckpointState(const Ledger::ChainNode &block) {
   auto tx = utl::binaryUnpack<Ledger::TxRenewal>(block.block.records.front().data);
   GenesisAccountMeta gm;
   if (!tx || !gm.ltsFromString(tx.value().meta)) {
-    return Error(E_INTERNAL_DESERIALIZE, "Unreadable genesis renewal in checkpoint block " +
-                                             std::to_string(block.block.index));
+    return Error(E_INTERNAL_DESERIALIZE,
+                 "Unreadable genesis renewal in checkpoint block " + std::to_string(block.block.index));
   }
   txContext_.optChainConfig = gm.config;
   if (gm.hasPending) {
@@ -1380,10 +1436,11 @@ Chain::Roe<void> Chain::installCheckpointState(const Ledger::ChainNode &block) {
   // Slot timing is fixed at genesis; this node keeps its clock offset.
   txContext_.consensus.setSlotTiming(gm.config.genesisTime, gm.config.slotDuration, gm.config.slotsPerEpoch);
   epochStakeSnapshots_.clear();
+  epochCommittees_.clear();
   // The renewal records genesis as the previous epoch left it (it renews first): in place before
   // the block, so this epoch's issuance baseline is right too.
-  if (auto placed = mapTxVoid(chain_tx::replaceGenesisAccount(txContext_.bank, block.block.index, gm.genesis.wallet,
-                                                                  gm.genesis.meta));
+  if (auto placed = mapTxVoid(
+          chain_tx::replaceGenesisAccount(txContext_.bank, block.block.index, gm.genesis.wallet, gm.genesis.meta));
       !placed) {
     return placed;
   }
@@ -1393,7 +1450,7 @@ Chain::Roe<void> Chain::installCheckpointState(const Ledger::ChainNode &block) {
   return {};
 }
 
-void Chain::maybeRotateCheckpoint(const Ledger::ChainNode &block) {
+void Chain::maybeRotateCheckpoint(const Ledger::ChainNode& block) {
   if (block.block.index == 0) {
     return;
   }
@@ -1407,8 +1464,7 @@ void Chain::maybeRotateCheckpoint(const Ledger::ChainNode &block) {
   }
 }
 
-Chain::Roe<void> Chain::processBlock(const Ledger::ChainNode &block,
-                                     chain_block::BlockAdmissionMode mode) {
+Chain::Roe<void> Chain::processBlock(const Ledger::ChainNode& block, chain_block::BlockAdmissionMode mode) {
   if (block.block.index == 0) {
     return processGenesisBlock(block);
   }
@@ -1418,11 +1474,11 @@ Chain::Roe<void> Chain::processBlock(const Ledger::ChainNode &block,
   return processNormalBlock(block, mode);
 }
 
-bool Chain::isImportBlock(const Ledger::ChainNode &block) const {
+bool Chain::isImportBlock(const Ledger::ChainNode& block) const {
   return block.block.index > 0 && txContext_.importProgress.has_value();
 }
 
-Chain::Roe<void> Chain::processImportBlock(const Ledger::ChainNode &block) {
+Chain::Roe<void> Chain::processImportBlock(const Ledger::ChainNode& block) {
   if (auto structural = mapTxVoid(chain_block::checkBlockStructural(block, txContext_.ledger)); !structural) {
     return Error(E_BLOCK_VALIDATION, structural.error().message);
   }
@@ -1432,11 +1488,11 @@ Chain::Roe<void> Chain::processImportBlock(const Ledger::ChainNode &block) {
       !valid) {
     return Error(E_BLOCK_VALIDATION, valid.error().message);
   }
-  for (const auto &rec : block.block.records) {
+  for (const auto& rec : block.block.records) {
     auto applied = processNormalTxRecord(rec, block.block.index, 0, 0, chain_block::BlockAdmissionMode::Full);
     if (!applied) {
-      return Error(E_TX_VALIDATION, "Import block " + std::to_string(block.block.index) + ": " +
-                                        applied.error().message);
+      return Error(E_TX_VALIDATION,
+                   "Import block " + std::to_string(block.block.index) + ": " + applied.error().message);
     }
   }
   if (auto finished = finishImportBlock(); !finished) {
@@ -1445,11 +1501,15 @@ Chain::Roe<void> Chain::processImportBlock(const Ledger::ChainNode &block) {
   if (block.block.stateRoot != txContext_.bank.calculateStateRoot()) {
     return Error(E_BLOCK_HASH, "Import block " + std::to_string(block.block.index) + " stateRoot mismatch");
   }
+  if (auto finality = checkFinalAt(block.block); !finality) {
+    return finality;
+  }
+  noteFinalAt(block.block);
   return {};
 }
 
 Chain::Roe<void> Chain::finishImportBlock() {
-  auto &progress = txContext_.importProgress;
+  auto& progress = txContext_.importProgress;
   if (!progress.has_value() || !progress->complete()) {
     return {};
   }
@@ -1464,19 +1524,17 @@ Chain::Roe<void> Chain::finishImportBlock() {
   return {};
 }
 
-Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
+Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode& block) {
   auto roe = mapTxVoid(chain_block::validateGenesisBlock(block, recordHandler_));
   if (!roe) {
-    return Error(E_BLOCK_VALIDATION, "Block validation failed for block " +
-                                         std::to_string(block.block.index) +
-                                         ": " + roe.error().message);
+    return Error(E_BLOCK_VALIDATION,
+                 "Block validation failed for block " + std::to_string(block.block.index) + ": " + roe.error().message);
   }
 
-  for (const auto &rec : block.block.records) {
+  for (const auto& rec : block.block.records) {
     auto result = processGenesisTxRecord(rec);
     if (!result) {
-      return Error(E_TX_VALIDATION,
-                   "Failed to process transaction: " + result.error().message);
+      return Error(E_TX_VALIDATION, "Failed to process transaction: " + result.error().message);
     }
   }
 
@@ -1484,22 +1542,31 @@ Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
   if (block.block.stateRoot != expectedStateRoot) {
     return Error(E_BLOCK_HASH, "Genesis block stateRoot mismatch");
   }
-
+  if (auto finality = checkFinalAt(block.block); !finality) {
+    return finality;
+  }
+  noteFinalAt(block.block);
   return {};
 }
 
 void Chain::enterBlockEpoch(uint64_t epoch) {
   applyDueRecovery(epoch);
-  auto &pending = txContext_.pendingChainConfig;
+  // Reveals for the epochs whose seeds are still derived; this block records at most epoch + 1.
+  if (epoch + 1 > kStakeSnapshotsKept) {
+    auto& reveals = txContext_.beaconReveals;
+    reveals.erase(reveals.begin(), reveals.lower_bound(epoch + 1 - kStakeSnapshotsKept));
+  }
+  auto& pending = txContext_.pendingChainConfig;
   if (pending.has_value() && epoch >= pending->activationEpoch) {
     txContext_.optChainConfig = std::move(pending->config);
     log().info << "Config update in force from epoch " << pending->activationEpoch << ": "
                << txContext_.optChainConfig.value();
     pending.reset();
   }
-  auto &baseline = txContext_.issuanceBaseline;
+  auto& baseline = txContext_.issuanceBaseline;
   if (!baseline.has_value() || baseline->epoch < epoch) {
-    baseline = IssuanceBaseline{epoch, txContext_.bank.getBalance(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS)};
+    baseline =
+        IssuanceBaseline{epoch, txContext_.bank.getBalance(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS)};
   }
 }
 
@@ -1507,7 +1574,7 @@ std::optional<Client::RecoveryStatus> Chain::recoveryStatus() const {
   if (!txContext_.optAuthority.has_value() || !txContext_.optAuthority->hasPendingRecovery) {
     return std::nullopt;
   }
-  const PendingRecovery &pending = txContext_.optAuthority->pendingRecovery;
+  const PendingRecovery& pending = txContext_.optAuthority->pendingRecovery;
   Client::RecoveryStatus status;
   status.announcedAt = pending.announcedAt;
   status.applyEpoch = pending.applyEpoch;
@@ -1517,7 +1584,7 @@ std::optional<Client::RecoveryStatus> Chain::recoveryStatus() const {
 }
 
 void Chain::applyDueRecovery(uint64_t epoch) {
-  auto &authority = txContext_.optAuthority;
+  auto& authority = txContext_.optAuthority;
   if (!authority.has_value() || !authority->hasPendingRecovery) {
     return;
   }
@@ -1536,8 +1603,7 @@ void Chain::applyDueRecovery(uint64_t epoch) {
   authority->hasPendingRecovery = false;
   authority->pendingRecovery = {};
   // In place: the genesis account's blockId (where renewal reads its meta) does not move.
-  if (auto replaced = txContext_.bank.setWalletKeys(AccountBuffer::ID_GENESIS,
-                                                    recovery.announcement.adminPublicKeys,
+  if (auto replaced = txContext_.bank.setWalletKeys(AccountBuffer::ID_GENESIS, recovery.announcement.adminPublicKeys,
                                                     recovery.announcement.adminMinSignatures);
       !replaced) {
     // Held by every node that applies blocks; one that does not (a warm-up before its start) has no
@@ -1552,30 +1618,49 @@ void Chain::applyDueRecovery(uint64_t epoch) {
   refreshSeenCertificate();
 }
 
-Chain::Roe<void> Chain::processNormalBlock(
-    const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode) {
+Chain::Roe<void> Chain::checkProducerSigned(const Ledger::ChainNode& block) const {
+  // The elected leader is public: only its account's keys (as held before this block) make a
+  // block of its slot, so no one else can take the slot with a block in its name.
+  auto producer = txContext_.bank.getAccount(block.block.slotLeader);
+  if (!producer) {
+    return Error(E_BLOCK_VALIDATION, "Block " + std::to_string(block.block.index) + ": slot leader " +
+                                         std::to_string(block.block.slotLeader) + " not found");
+  }
+  if (auto signed_ = verifySignaturesAgainstAccount(Ledger::Block::producerSigningMessage(getNetworkId(), block.hash),
+                                                    block.block.producerSignatures, producer.value());
+      !signed_) {
+    return Error(E_BLOCK_VALIDATION, "Block " + std::to_string(block.block.index) +
+                                         " is not signed by its slot leader " + std::to_string(block.block.slotLeader) +
+                                         ": " + signed_.error().message);
+  }
+  return {};
+}
+
+Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode& block, chain_block::BlockAdmissionMode mode) {
   // A block of a new epoch is checked and applied under that epoch's config.
   enterBlockEpoch(block.block.epoch);
-  auto roe = mapTxVoid(chain_block::checkBlock(
-      block, mode, txContext_.ledger, txContext_.consensus, txContext_.bank,
-      txContext_.optChainConfig, txContext_.checkpoint, recordHandler_));
+  auto roe = mapTxVoid(chain_block::checkBlock(block, mode, txContext_.ledger, txContext_.consensus, txContext_.bank,
+                                               txContext_.optChainConfig, txContext_.checkpoint, recordHandler_));
   if (!roe) {
-    return Error(E_BLOCK_VALIDATION, "Block validation failed for block " +
-                                         std::to_string(block.block.index) +
-                                         ": " + roe.error().message);
+    return Error(E_BLOCK_VALIDATION,
+                 "Block validation failed for block " + std::to_string(block.block.index) + ": " + roe.error().message);
+  }
+  if (chain_block::admissionRunsConsensusAndBody(mode)) {
+    if (auto produced = checkProducerSigned(block); !produced) {
+      return produced;
+    }
   }
 
-  for (const auto &rec : block.block.records) {
-    auto result = processNormalTxRecord(rec, block.block.index, block.block.slot,
-                                        block.block.slotLeader, mode);
+  for (const auto& rec : block.block.records) {
+    auto result = processNormalTxRecord(rec, block.block.index, block.block.slot, block.block.slotLeader, mode);
     if (!result) {
-      return Error(E_TX_VALIDATION,
-                   "Failed to process transaction: " + result.error().message);
+      return Error(E_TX_VALIDATION, "Failed to process transaction: " + result.error().message);
     }
   }
   if (auto liveness = applyMinerLiveness(block, mode); !liveness) {
     return liveness;
   }
+  applyDueAccountRecoveries(block);
 
   // A node warming up from a checkpoint holds only the accounts renewed so far: its root cannot
   // match until Full admission (from the next checkpoint), which checks every block.
@@ -1584,22 +1669,23 @@ Chain::Roe<void> Chain::processNormalBlock(
     if (block.block.stateRoot != expectedStateRoot) {
       return Error(E_BLOCK_HASH, "Block stateRoot mismatch");
     }
+    if (auto finality = checkFinalAt(block.block); !finality) {
+      return finality;
+    }
   }
+  noteFinalAt(block.block);
 
   maybeRotateCheckpoint(block);
 
   return {};
 }
 
-Chain::Roe<void> Chain::addBufferTransaction(
-    AccountBuffer &bank,
-    const Ledger::Record &record,
-    uint64_t slotLeaderId) const {
-  auto roe = validateTxSignatures(record, slotLeaderId,
-                                  chain_block::BlockAdmissionMode::Full);
+Chain::Roe<void> Chain::addBufferTransaction(AccountBuffer& bank, const Ledger::Record& record,
+                                             uint64_t slotLeaderId) const {
+  // Against the keys this draft holds: an earlier record in it may have changed them, as the seal will.
+  auto roe = validateTxSignatures(record, slotLeaderId, chain_block::BlockAdmissionMode::Full, &bank);
   if (!roe) {
-    return Error(E_TX_SIGNATURE, "Failed to validate buffer transaction: " +
-                                     roe.error().message);
+    return Error(E_TX_SIGNATURE, "Failed to validate buffer transaction: " + roe.error().message);
   }
 
   // One key per block (BlockValidation): the cross-block scan below only sees the ledger, so a
@@ -1608,7 +1694,7 @@ Chain::Roe<void> Chain::addBufferTransaction(
   if (!keyRoe) {
     return Error(E_TX_IDEMPOTENCY, keyRoe.error().message);
   }
-  const auto &key = keyRoe.value();
+  const auto& key = keyRoe.value();
   if (key && bank.hasIdempotencyKey(*key)) {
     return Error(E_TX_IDEMPOTENCY, "Duplicate idempotent id in block draft: " + std::to_string(key->second) +
                                        " for wallet: " + std::to_string(key->first));
@@ -1617,10 +1703,7 @@ Chain::Roe<void> Chain::addBufferTransaction(
   auto blockId = getNextBlockId();
   // The slot the block would carry: a leader seals the slot that just ended (delivery window).
   const uint64_t productionSlot = getProductionSlot();
-  BufferApplyContext ctx{ txContext_,
-                          blockId,
-                          productionSlot,
-                          chain_block::BlockAdmissionMode::Full };
+  BufferApplyContext ctx{txContext_, blockId, productionSlot, chain_block::BlockAdmissionMode::Full};
   // A rejected tx must not leave partial effects in the scratch bank.
   bank.beginOverlay();
   auto applied = mapTxVoid(recordHandler_.applyBuffer(record, bank, ctx));
@@ -1635,7 +1718,7 @@ Chain::Roe<void> Chain::addBufferTransaction(
   return applied;
 }
 
-void Chain::setStateInForce(GenesisAccountMeta &gm, uint64_t epoch) const {
+void Chain::setStateInForce(GenesisAccountMeta& gm, uint64_t epoch) const {
   gm.setConfigStateAt(txContext_.optChainConfig.value(), txContext_.pendingChainConfig, epoch);
   if (txContext_.optAuthority.has_value()) {
     // As the block's epoch will hold it: a recovery due by then has replaced the admin set
@@ -1660,48 +1743,36 @@ Chain::Roe<GenesisAccountMeta> Chain::genesisMetaInForce() const {
   return gm;
 }
 
-Chain::Roe<void> Chain::processGenesisTxRecord(
-    const Ledger::Record &record) {
-  auto roe =
-      validateTxSignatures(record, 0, chain_block::BlockAdmissionMode::Full);
+Chain::Roe<void> Chain::processGenesisTxRecord(const Ledger::Record& record) {
+  auto roe = validateTxSignatures(record, 0, chain_block::BlockAdmissionMode::Full);
   if (!roe) {
-    return Error(E_TX_SIGNATURE,
-                 "Failed to validate transaction: " + roe.error().message);
+    return Error(E_TX_SIGNATURE, "Failed to validate transaction: " + roe.error().message);
   }
 
   // Genesis records are applied as if they are in the genesis block (blockId=0).
   // Slot leader is not applicable for genesis init.
-  BlockApplyContext ctx{ txContext_, 0, 0, 0,
-                         chain_block::BlockAdmissionMode::Full };
+  BlockApplyContext ctx{txContext_, 0, 0, 0, chain_block::BlockAdmissionMode::Full};
   return mapTxVoid(recordHandler_.applyBlock(record, txContext_.bank, ctx));
 }
 
-Chain::Roe<void> Chain::processNormalTxRecord(
-    const Ledger::Record &record, uint64_t blockId,
-    uint64_t blockSlot, uint64_t slotLeaderId,
-    chain_block::BlockAdmissionMode admissionMode) {
+Chain::Roe<void> Chain::processNormalTxRecord(const Ledger::Record& record, uint64_t blockId, uint64_t blockSlot,
+                                              uint64_t slotLeaderId, chain_block::BlockAdmissionMode admissionMode) {
   auto roe = validateTxSignatures(record, slotLeaderId, admissionMode);
   if (!roe) {
-    return Error(E_TX_SIGNATURE,
-                 "Failed to validate transaction: " + roe.error().message);
+    return Error(E_TX_SIGNATURE, "Failed to validate transaction: " + roe.error().message);
   }
 
-  BlockApplyContext ctx{ txContext_,
-                         blockId,
-                         blockSlot,
-                         slotLeaderId,
-                         admissionMode };
+  BlockApplyContext ctx{txContext_, blockId, blockSlot, slotLeaderId, admissionMode};
   return mapTxVoid(recordHandler_.applyBlock(record, txContext_.bank, ctx));
 }
 
-Chain::Roe<void> Chain::verifySignaturesAgainstAccount(
-    const std::string &message, const std::vector<std::string> &signatures,
-    const AccountBuffer::Account &account) const {
-  return mapTxVoid(chain_tx::verifySignaturesAgainstAccount(
-      message, signatures, account, txContext_.crypto, log()));
+Chain::Roe<void> Chain::verifySignaturesAgainstAccount(const std::string& message,
+                                                       const std::vector<std::string>& signatures,
+                                                       const AccountBuffer::Account& account) const {
+  return mapTxVoid(chain_tx::verifySignaturesAgainstAccount(message, signatures, account, txContext_.crypto, log()));
 }
 
-Chain::Roe<Chain::BeaconCertificate> Chain::verifyBeaconCertificateRecord(const Ledger::Record &record) const {
+Chain::Roe<Chain::BeaconCertificate> Chain::verifyBeaconCertificateRecord(const Ledger::Record& record) const {
   if (record.type != Ledger::T_BEACON_CERT) {
     return Error(E_TX_VALIDATION, "Not a beacon certificate record");
   }
@@ -1721,8 +1792,8 @@ Chain::Roe<Chain::BeaconCertificate> Chain::verifyBeaconCertificateRecord(const 
     return Error(E_TX_VALIDATION, frozen.error().message);
   }
   const std::string networkId = getNetworkId();
-  if (auto signed_ = verifyAccountSignatures(AccountBuffer::ID_GENESIS, record.signingMessage(networkId),
-                                             record.signatures);
+  if (auto signed_ =
+          verifyAccountSignatures(AccountBuffer::ID_GENESIS, record.signingMessage(networkId), record.signatures);
       !signed_) {
     return Error(E_TX_SIGNATURE, "Beacon certificate not signed by the admin set: " + signed_.error().message);
   }
@@ -1731,14 +1802,14 @@ Chain::Roe<Chain::BeaconCertificate> Chain::verifyBeaconCertificateRecord(const 
     return Error(E_ACCOUNT_NOT_FOUND, "Genesis account not found");
   }
   if (auto valid = chain_tx::validateNextBeaconCertificate(cert.value(), txContext_.optAuthority.value(),
-                                                          admin.value().wallet, networkId, std::nullopt);
+                                                           admin.value().wallet, networkId, std::nullopt);
       !valid) {
     return Error(E_TX_VALIDATION, valid.error().message);
   }
   return cert.value();
 }
 
-Chain::Roe<Chain::CertificateOffer> Chain::offerCertificate(const Ledger::Record &record) {
+Chain::Roe<Chain::CertificateOffer> Chain::offerCertificate(const Ledger::Record& record) {
   if (record.type != Ledger::T_BEACON_CERT) {
     return Error(E_TX_VALIDATION, "Not a beacon certificate record");
   }
@@ -1755,8 +1826,7 @@ Chain::Roe<Chain::CertificateOffer> Chain::offerCertificate(const Ledger::Record
   }
   // Order first: only a certificate that would be kept is worth its signature checks.
   const uint64_t generation = cert.value().generation;
-  if (generation <= txContext_.optAuthority->beacon.generation ||
-      (seenCert_ && generation < seenCert_->generation)) {
+  if (generation <= txContext_.optAuthority->beacon.generation || (seenCert_ && generation < seenCert_->generation)) {
     return CertificateOffer::Older;
   }
   const bool sameGeneration = seenCert_ && generation == seenCert_->generation;
@@ -1794,7 +1864,7 @@ bool Chain::isGenerationSuperseded(uint64_t generation) const {
          (seenCert_ && generation < seenCert_->generation);
 }
 
-Chain::Roe<Chain::EquivocationOffer> Chain::offerEquivocation(const Client::Equivocation &evidence) {
+Chain::Roe<Chain::EquivocationOffer> Chain::offerEquivocation(const Client::Equivocation& evidence) {
   if (!txContext_.optAuthority.has_value()) {
     return Error(E_STATE_INIT, "Chain authority not initialized");
   }
@@ -1808,18 +1878,20 @@ Chain::Roe<Chain::EquivocationOffer> Chain::offerEquivocation(const Client::Equi
   if (equivocation_) {
     return *equivocation_ == evidence ? EquivocationOffer::Same : EquivocationOffer::Ignored;
   }
-  const auto &inForce = txContext_.optAuthority->beacon;
-  const std::string *publicKey = generation == inForce.generation ? &inForce.publicKey
+  const auto& inForce = txContext_.optAuthority->beacon;
+  const std::string* publicKey = generation == inForce.generation                   ? &inForce.publicKey
                                  : seenCert_ && generation == seenCert_->generation ? &seenCert_->publicKey
-                                                                                     : nullptr;
+                                                                                    : nullptr;
   if (!publicKey) {
     return Error(E_TX_VALIDATION, "Equivocation evidence names beacon generation " + std::to_string(generation) +
                                       ", which no certificate here names (generation " +
                                       std::to_string(inForce.generation) + " is in force)");
   }
   if (!evidence.verify(*publicKey)) {
-    return Error(E_TX_SIGNATURE, "Equivocation evidence is not two different blocks at one height signed by "
-                                 "the beacon of generation " + std::to_string(generation));
+    return Error(E_TX_SIGNATURE,
+                 "Equivocation evidence is not two different blocks at one height signed by "
+                 "the beacon of generation " +
+                     std::to_string(generation));
   }
   equivocation_ = evidence;
   log().error << "EQUIVOCATION: beacon generation " << generation << " signed two blocks at height "
@@ -1849,7 +1921,7 @@ std::optional<Client::RewindReport> Chain::rewindOrder() const {
   return order;
 }
 
-bool Chain::mayFollowTip(const Client::SignedTip &tip) const {
+bool Chain::mayFollowTip(const Client::SignedTip& tip) const {
   if (txContext_.optAuthority) { // else nothing loaded yet: an empty node takes its first block on trust
     const uint64_t inForce = txContext_.optAuthority->beacon.generation;
     if (tip.generation < inForce) {
@@ -1871,8 +1943,8 @@ bool Chain::mayFollowTip(const Client::SignedTip &tip) const {
 
 std::vector<std::string> Chain::dialHints() const {
   std::vector<std::string> hints;
-  auto add = [&hints](const BeaconCertificate &cert) {
-    for (const auto &hint : cert.dialHints) {
+  auto add = [&hints](const BeaconCertificate& cert) {
+    for (const auto& hint : cert.dialHints) {
       if (std::find(hints.begin(), hints.end(), hint) == hints.end()) {
         hints.push_back(hint);
       }
@@ -1918,7 +1990,7 @@ std::optional<Ledger::Record> Chain::certificateDueAt(uint64_t blockId) const {
   return seenCertRecord_;
 }
 
-std::optional<uint64_t> Chain::rewindDepthSeconds(const Client::RewindReport &order) const {
+std::optional<uint64_t> Chain::rewindDepthSeconds(const Client::RewindReport& order) const {
   const uint64_t from = std::max(order.keptUpTo, txContext_.ledger.getStartingBlockId());
   auto cut = readBlock(from);
   auto last = readBlock(order.droppedUpTo);
@@ -1926,6 +1998,94 @@ std::optional<uint64_t> Chain::rewindDepthSeconds(const Client::RewindReport &or
     return std::nullopt;
   }
   return (last.value().block.slot - cut.value().block.slot) * getSlotDuration();
+}
+
+std::optional<bool> Chain::rewindCrossesFinality(const Client::RewindReport& order) const {
+  auto finalized = finalizedHeight();
+  if (!finalized) {
+    return std::nullopt;
+  }
+  return finalized.value().has_value() && *finalized.value() > order.keptUpTo;
+}
+
+uint64_t Chain::getFinalitySeconds() const {
+  return txContext_.optChainConfig ? txContext_.optChainConfig->finalitySeconds : 0;
+}
+
+std::optional<int64_t> Chain::finalAtBelow(const Ledger::Block& block) const {
+  if (block.index == 0) {
+    return std::nullopt;
+  }
+  if (lastFinalAt_ && lastFinalAt_->first == block.previousHash) {
+    return lastFinalAt_->second;
+  }
+  auto below = txContext_.ledger.readBlock(block.index - 1);
+  if (!below) {
+    return std::nullopt;
+  }
+  return below.value().block.finalAt;
+}
+
+void Chain::noteFinalAt(const Ledger::Block& block) {
+  lastFinalAt_ = std::make_pair(calculateHash(block), block.finalAt);
+}
+
+int64_t Chain::expectedFinalAt(const Ledger::Block& block) const {
+  const int64_t own = getSlotStartTime(block.slot) + static_cast<int64_t>(getFinalitySeconds());
+  const auto below = finalAtBelow(block);
+  return below ? std::max(own, *below) : own;
+}
+
+Chain::Roe<void> Chain::checkFinalAt(const Ledger::Block& block) const {
+  const int64_t own = getSlotStartTime(block.slot) + static_cast<int64_t>(getFinalitySeconds());
+  const auto below = finalAtBelow(block);
+  // A node holding no block below (its first) knows only the lower bound.
+  const bool known = block.index == 0 || below.has_value();
+  const bool ok = known ? block.finalAt == (below ? std::max(own, *below) : own) : block.finalAt >= own;
+  if (!ok) {
+    return Error(E_BLOCK_HASH, "Block " + std::to_string(block.index) +
+                                   " finalAt mismatch: " + std::to_string(block.finalAt) + ", expected " +
+                                   std::to_string(below ? std::max(own, *below) : own));
+  }
+  return {};
+}
+
+Chain::Roe<std::optional<uint64_t>> Chain::finalizedHeight() const {
+  const uint64_t first = txContext_.ledger.getStartingBlockId();
+  const uint64_t next = getNextBlockId();
+  if (next <= first) {
+    return std::optional<uint64_t>{};
+  }
+  const int64_t now = getConsensusTimestamp();
+  auto finalAt = [&](uint64_t id) -> Roe<int64_t> {
+    auto b = readBlock(id);
+    if (!b) {
+      return b.error();
+    }
+    return b.value().block.finalAt;
+  };
+  // finalAt never falls along the chain (a running maximum, FN007): the final blocks are a prefix.
+  auto lowest = finalAt(first);
+  if (!lowest) {
+    return lowest.error();
+  }
+  if (lowest.value() > now) {
+    return std::optional<uint64_t>{};
+  }
+  uint64_t lo = first, hi = next - 1;
+  while (lo < hi) {
+    const uint64_t mid = lo + (hi - lo + 1) / 2;
+    auto f = finalAt(mid);
+    if (!f) {
+      return f.error();
+    }
+    if (f.value() <= now) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return std::optional<uint64_t>(lo);
 }
 
 std::optional<Ledger::Record> Chain::currentCertificateRecord() const {
@@ -1940,19 +2100,18 @@ std::optional<Ledger::Record> Chain::currentCertificateRecord() const {
   return std::nullopt;
 }
 
-Chain::Roe<void> Chain::checkSeenCutover(const Ledger::Block &block) const {
+Chain::Roe<void> Chain::checkSeenCutover(const Ledger::Block& block) const {
   if (!seenCert_ || block.index <= seenCert_->cutoverHeight) {
     return {};
   }
-  for (const auto &record : block.records) {
+  for (const auto& record : block.records) {
     if (record.type == Ledger::T_BEACON_CERT) {
       return {};
     }
   }
   return Error(E_BLOCK_VALIDATION, "Block " + std::to_string(block.index) + " is past block " +
                                        std::to_string(seenCert_->cutoverHeight) +
-                                       ", the cutover of beacon generation " +
-                                       std::to_string(seenCert_->generation) +
+                                       ", the cutover of beacon generation " + std::to_string(seenCert_->generation) +
                                        ": it must commit a beacon certificate");
 }
 
@@ -1960,7 +2119,7 @@ void Chain::refreshSeenCertificate() {
   if (!seenCert_ || !txContext_.optAuthority.has_value()) {
     return;
   }
-  const auto &inForce = txContext_.optAuthority->beacon;
+  const auto& inForce = txContext_.optAuthority->beacon;
   if (seenCert_->generation <= inForce.generation) {
     if (seenCert_->generation == inForce.generation && seenCert_->publicKey != inForce.publicKey) {
       log().warning << "The chain committed another beacon certificate for generation " << inForce.generation
@@ -1994,9 +2153,9 @@ Chain::Roe<AuthorityTrail> Chain::authorityTrail() const {
   return trail;
 }
 
-void Chain::noteAuthoritySteps(const Ledger::ChainNode &block) {
+void Chain::noteAuthoritySteps(const Ledger::ChainNode& block) {
   bool changed = false;
-  for (const auto &record : block.block.records) {
+  for (const auto& record : block.block.records) {
     if (AuthorityTrail::changesAuthority(record)) {
       authoritySteps_.push_back(Client::AuthorityStep{block.block.index, block.block.epoch, record});
       changed = true;
@@ -2010,14 +2169,14 @@ void Chain::noteAuthoritySteps(const Ledger::ChainNode &block) {
 
 Chain::Roe<Client::AuthorityProof> Chain::authorityProof(uint64_t upToBlockId) const {
   if (authorityStepsFrom_ != 0) {
-    return Error(E_STATE_INIT, "This node holds the chain from block " + std::to_string(authorityStepsFrom_) +
-                                   ", not from genesis");
+    return Error(E_STATE_INIT,
+                 "This node holds the chain from block " + std::to_string(authorityStepsFrom_) + ", not from genesis");
   }
   if (upToBlockId >= getNextBlockId()) {
     return Error(E_BLOCK_INDEX, "Block " + std::to_string(upToBlockId) + " is beyond this node's tip");
   }
   Client::AuthorityProof proof;
-  for (const auto &step : authoritySteps_) {
+  for (const auto& step : authoritySteps_) {
     if (step.blockId > upToBlockId) {
       break;
     }
@@ -2026,13 +2185,13 @@ Chain::Roe<Client::AuthorityProof> Chain::authorityProof(uint64_t upToBlockId) c
   return proof;
 }
 
-Chain::Roe<void> Chain::verifySignedTip(const Client::SignedTip &tip,
-                                        const std::vector<const Ledger::Block *> &pending) const {
+Chain::Roe<void> Chain::verifySignedTip(const Client::SignedTip& tip,
+                                        const std::vector<const Ledger::Block*>& pending) const {
   auto trail = authorityTrail();
   if (!trail) {
     return trail.error();
   }
-  for (const auto *block : pending) {
+  for (const auto* block : pending) {
     if (auto observed = trail.value().observe(*block); !observed) {
       return Error(observed.error().code, observed.error().message);
     }
@@ -2044,8 +2203,8 @@ Chain::Roe<void> Chain::verifySignedTip(const Client::SignedTip &tip,
   return {};
 }
 
-Chain::Roe<void> Chain::verifyAccountSignatures(uint64_t accountId, const std::string &message,
-                                                const std::vector<std::string> &signatures) const {
+Chain::Roe<void> Chain::verifyAccountSignatures(uint64_t accountId, const std::string& message,
+                                                const std::vector<std::string>& signatures) const {
   auto account = txContext_.bank.getAccount(accountId);
   if (!account) {
     return Error(E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(accountId));
@@ -2053,8 +2212,22 @@ Chain::Roe<void> Chain::verifyAccountSignatures(uint64_t accountId, const std::s
   return verifySignaturesAgainstAccount(message, signatures, account.value());
 }
 
-Chain::Roe<void> Chain::checkAdmission(const Ledger::Record &record, int64_t nowSec,
-                                      bool verifySignatures) const {
+std::optional<std::string> Chain::getBeaconReveal(uint64_t epoch) const {
+  auto it = txContext_.beaconReveals.find(epoch);
+  return it == txContext_.beaconReveals.end() ? std::nullopt : std::optional<std::string>(it->second);
+}
+
+Chain::Roe<void> Chain::checkAdmission(const Ledger::Record& record, int64_t nowSec, bool verifySignatures) const {
+  switch (record.type) {
+    case Ledger::T_GENESIS:
+    case Ledger::T_RENEWAL:
+    case Ledger::T_END_USER:
+    case Ledger::T_IMPORT:
+      // Written by a leader or a genesis, never submitted: no leader takes one from the pool.
+      return Error(E_TX_VALIDATION, "A record of type " + std::to_string(record.type) + " is not submitted");
+    default:
+      break;
+  }
   auto typed = record.decode();
   if (!typed) {
     return Error(E_TX_VALIDATION, "Unknown or malformed transaction payload");
@@ -2064,116 +2237,126 @@ Chain::Roe<void> Chain::checkAdmission(const Ledger::Record &record, int64_t now
       return signed_;
     }
   }
-  const auto &bank = txContext_.bank;
-  return std::visit(
-      [&](const auto &tx) -> Roe<void> {
+  const bool ended = std::visit(
+      [&](const auto& tx) {
         using T = std::decay_t<decltype(tx)>;
         if constexpr (std::is_base_of_v<Ledger::TxIdempotencyWindow, T>) {
-          if (tx.validationTsMax > 0 && nowSec > tx.validationTsMax) {
-            return Error(E_TX_VALIDATION, "Transaction validity window ended");
-          }
+          return tx.validationTsMax > 0 && nowSec > tx.validationTsMax;
+        } else {
+          return false; // in an else: MSVC calls code after a taken `if constexpr` unreachable (C4702)
         }
-        // The payer covers it on the committed state (pending spends are the leader's to weigh).
-        auto covers = [&](uint64_t payer, uint64_t tokenId, uint64_t amount, uint64_t fee) -> Roe<void> {
-          const int64_t native = bank.getBalance(payer, AccountBuffer::ID_GENESIS);
-          // An issuer sending its own token issues it: only the fee needs covering.
-          const bool issuing = AccountBuffer::issuesToken(payer, tokenId);
-          const bool enough = tokenId == AccountBuffer::ID_GENESIS
-                                  ? native >= 0 && static_cast<uint64_t>(native) >= amount + fee
-                                  : (issuing || bank.getBalance(payer, tokenId) >= static_cast<int64_t>(amount)) &&
-                                        native >= 0 && static_cast<uint64_t>(native) >= fee;
-          if (!enough) {
-            return Error(E_TX_TRANSFER, "Account " + std::to_string(payer) + " cannot cover the amount and fee");
-          }
-          return {};
-        };
-        if constexpr (std::is_same_v<T, Ledger::TxDefault>) {
-          if (tx.fromWalletId != AccountBuffer::ID_GENESIS) { // genesis issues the native token
-            return covers(tx.fromWalletId, tx.tokenId, tx.amount, tx.fee);
-          }
-        } else if constexpr (std::is_same_v<T, Ledger::TxNewUser>) {
-          return covers(tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee);
-        }
-        return {};
       },
       typed.value());
+  if (ended) {
+    return Error(E_TX_VALIDATION, "Transaction validity window ended");
+  }
+  if (record.type == Ledger::T_BEACON_CERT) {
+    return {}; // checked as a certificate (offerCertificate); it applies only in the block it is due
+  }
+  // Only what could apply takes a place in the pool: the record through the leader's own apply path
+  // (fee floor, idempotency, amounts, funds, each type's rules) on the committed state. Pending
+  // spends are the leader's to weigh.
+  AccountBuffer scratch;
+  BufferApplyContext ctx{txContext_, getNextBlockId(), getProductionSlot(), chain_block::BlockAdmissionMode::Full};
+  return mapTxVoid(recordHandler_.applyBuffer(record, scratch, ctx));
 }
 
-std::optional<std::pair<uint64_t, uint64_t>> Chain::idempotencyKeyOf(const Ledger::Record &record) const {
+std::optional<std::pair<uint64_t, uint64_t>> Chain::idempotencyKeyOf(const Ledger::Record& record) const {
   auto key = recordHandler_.getIdempotencyKey(record);
   return key ? key.value() : std::nullopt;
 }
 
-Chain::Roe<void> Chain::validateTxSignatures(
-    const Ledger::Record &record,
-    uint64_t slotLeaderId,
-    chain_block::BlockAdmissionMode admissionMode) const {
+Chain::Roe<void> Chain::validateTxSignatures(const Ledger::Record& record, uint64_t slotLeaderId,
+                                             chain_block::BlockAdmissionMode admissionMode,
+                                             const AccountBuffer* working) const {
+  // Keys as the state this record applies to holds them (the seal applies on the tip bank, in order).
+  auto bankHolding = [&](uint64_t id) -> const AccountBuffer& {
+    return working && working->hasAccount(id) ? *working : txContext_.bank;
+  };
   if (record.type == Ledger::T_IMPORT) {
     // Unsigned: the predecessor's state root authenticates the import (B032).
     return record.signatures.empty() ? Roe<void>() : Error(E_TX_SIGNATURE, "An import is unsigned");
   }
   if (record.signatures.size() < 1) {
-    return Error(E_TX_SIGNATURE,
-                 "Transaction must have at least one signature");
+    return Error(E_TX_SIGNATURE, "Transaction must have at least one signature");
   }
 
   if (record.type == Ledger::T_RECOVERY) {
     // Signed by the recovery set in the chain authority, not by an account (ba7).
     if (!txContext_.optAuthority.has_value()) {
-      return chain_block::admissionTxStrict(admissionMode)
-                 ? Error(E_STATE_INIT, "Chain authority not initialized")
-                 : Roe<void>();
+      return chain_block::admissionTxStrict(admissionMode) ? Error(E_STATE_INIT, "Chain authority not initialized")
+                                                           : Roe<void>();
     }
     return mapTxVoid(chain_tx::verifyRecoverySigned(record, txContext_.optAuthority->recovery, getNetworkId(),
                                                     txContext_.crypto, log()));
   }
-  auto signerAccountIdRoe =
-      recordHandler_.getSignerAccountId(record, slotLeaderId);
+  if (record.type == Ledger::T_BEACON_SEED) {
+    // Signed by the beacon key of the certificate in force, not by an account.
+    if (!txContext_.optAuthority.has_value()) {
+      return chain_block::admissionTxStrict(admissionMode) ? Error(E_STATE_INIT, "Chain authority not initialized")
+                                                           : Roe<void>();
+    }
+    return mapTxVoid(chain_tx::verifyBeaconSigned(record, txContext_.optAuthority->beacon, getNetworkId(),
+                                                  txContext_.crypto, log()));
+  }
+  if (record.type == Ledger::T_ACCOUNT_RECOVERY) {
+    // Signed by the account's recovery set, not its keys (projects/account-recovery).
+    auto tx = utl::binaryUnpack<Ledger::TxAccountRecovery>(record.data);
+    if (!tx) {
+      return Error(E_TX_VALIDATION, "Malformed account recovery");
+    }
+    auto account = bankHolding(tx.value().walletId).getAccount(tx.value().walletId);
+    if (!account) {
+      return chain_block::admissionTxStrict(admissionMode)
+                 ? Error(E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(tx.value().walletId))
+                 : Roe<void>();
+    }
+    const Client::AccountRecovery& recovery = account.value().wallet.recovery;
+    if (!recovery.hasSet()) {
+      return Error(E_TX_SIGNATURE, "Account " + std::to_string(tx.value().walletId) + " has no recovery set");
+    }
+    AccountBuffer::Account signers = account.value();
+    signers.wallet.publicKeys = recovery.publicKeys;
+    signers.wallet.minSignatures = recovery.minSignatures;
+    return verifySignaturesAgainstAccount(record.signingMessage(getNetworkId()), record.signatures, signers);
+  }
+  auto signerAccountIdRoe = recordHandler_.getSignerAccountId(record, slotLeaderId);
   if (!signerAccountIdRoe) {
     return Error(signerAccountIdRoe.error());
   }
   const uint64_t signerAccountId = signerAccountIdRoe.value();
 
-  auto accountResult = txContext_.bank.getAccount(signerAccountId);
+  auto accountResult = bankHolding(signerAccountId).getAccount(signerAccountId);
   if (!accountResult) {
     if (chain_block::admissionTxStrict(admissionMode)) {
-      if (txContext_.bank.isEmpty() &&
-          signerAccountId == AccountBuffer::ID_GENESIS) {
+      if (txContext_.bank.isEmpty() && signerAccountId == AccountBuffer::ID_GENESIS) {
         // Genesis account is created by the system checkpoint, this is not very
         // good way of handling Should avoid using this generic handlers for
         // specific case
         return {};
       }
-      return Error(
-          E_ACCOUNT_NOT_FOUND,
-          "Failed to get account when validating transaction signatures: " +
-              accountResult.error().message);
+      return Error(E_ACCOUNT_NOT_FOUND,
+                   "Failed to get account when validating transaction signatures: " + accountResult.error().message);
     } else {
       // CheckpointReplay: account may not exist yet in the catch-up bank.
       // Soft skip is only safe when the block source is trusted (beacon).
       return {};
     }
   }
-  return verifySignaturesAgainstAccount(
-      record.signingMessage(getNetworkId()), record.signatures,
-      accountResult.value());
+  return verifySignaturesAgainstAccount(record.signingMessage(getNetworkId()), record.signatures,
+                                        accountResult.value());
 }
 
-Chain::Roe<uint64_t>
-Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
-                                         uint64_t accountId) const {
+Chain::Roe<uint64_t> Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer& bank, uint64_t accountId) const {
   if (!txContext_.optChainConfig.has_value()) {
-    return Error(E_INTERNAL,
-                 "Chain config required for minimum fee from account meta");
+    return Error(E_INTERNAL, "Chain config required for minimum fee from account meta");
   }
-  const auto &fns = txContext_.fnAccountMetaForRecord;
+  const auto& fns = txContext_.fnAccountMetaForRecord;
   if (!fns.has_value()) {
-    return Error(E_INTERNAL,
-                 "Account meta extractors not configured on TxContext");
+    return Error(E_INTERNAL, "Account meta extractors not configured on TxContext");
   }
-  return mapTx(chain_tx::calculateMinimumFeeForAccountMeta(
-      txContext_.ledger, txContext_.optChainConfig.value(), bank, accountId,
-      fns->fnUser, fns->fnGenesis));
+  return mapTx(chain_tx::calculateMinimumFeeForAccountMeta(txContext_.ledger, txContext_.optChainConfig.value(), bank,
+                                                           accountId, fns->fnUser, fns->fnGenesis));
 }
 
 } // namespace pp

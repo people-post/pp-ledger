@@ -1,8 +1,8 @@
-#include "AmpLedgerTransport.h"
-#include "Client.h"
+#include "client/AmpLedgerTransport.h"
+#include "ledger/client/Client.h"
 
-#include "../network/LedgerAmpRuntime.h"
-#include "../network/LedgerRpcProtocol.h"
+#include "ledger/network/AmpHost.h"
+#include "ledger/network/LedgerRpcProtocol.h"
 #include "amp/L3/ChannelSession.h"
 
 #include <atomic>
@@ -23,10 +23,13 @@ using TransportRoe = ILedgerTransport::Roe<std::string>;
 /** Extra wall time a threaded waiter allows past the io-lane timeout before giving up. */
 constexpr std::chrono::milliseconds kWaiterGrace{1000};
 
-TransportRoe TransportError(const std::string& message) { return LedgerTransportError(-1, message); }
+TransportRoe TransportError(const std::string& message) {
+  return LedgerTransportError(-1, message);
+}
 
 /** One-shot result slot shared by the io lane (producer) and the waiting caller. */
-template <typename T> class ResultSlot {
+template <typename T>
+class ResultSlot {
 public:
   /** First result wins; later ones are dropped. Returns true if this call set it. */
   bool set(T value) {
@@ -75,10 +78,14 @@ public:
 
   using Done = ILedgerTransport::Done;
 
-  RoundTripCall(pp::amp::MeshRuntime& mesh, std::string peer_key, std::string body,
-                std::chrono::milliseconds timeout, std::shared_ptr<network::InFlightLimit> limit, Done done = {})
-      : mesh_(mesh), peer_key_(std::move(peer_key)), body_(std::move(body)), timeout_(timeout),
-        limit_(std::move(limit)), done_(std::move(done)) {}
+  RoundTripCall(pp::amp::MeshRuntime& mesh, std::string peer_key, std::string body, std::chrono::milliseconds timeout,
+                std::shared_ptr<network::InFlightLimit> limit, Done done = {})
+      : mesh_(mesh),
+        peer_key_(std::move(peer_key)),
+        body_(std::move(body)),
+        timeout_(timeout),
+        limit_(std::move(limit)),
+        done_(std::move(done)) {}
 
   ResultSlot<TransportRoe>& result() { return result_; }
 
@@ -93,18 +100,19 @@ public:
     std::weak_ptr<RoundTripCall> weak = self;
     const auto type = Client::peekRequestType(body_);
     const auto cls = type && Client::isChainDuty(*type) ? network::InFlightLimit::Class::Duty
-                                                         : network::InFlightLimit::Class::Normal;
-    const bool queued = limit_->run(peer_key_, network::InFlightLimit::Waiter{
-                               [weak]() {
-                                 auto call = weak.lock();
-                                 return call && !call->result_.isSet();
-                               },
-                               [weak]() {
-                                 if (auto call = weak.lock()) {
-                                   call->start();
-                                 } // gone: InFlightLimit counted it in flight; nothing to release later
-                               }},
-                                    cls);
+                                                        : network::InFlightLimit::Class::Normal;
+    const bool queued = limit_->run(
+        peer_key_,
+        network::InFlightLimit::Waiter{[weak]() {
+                                         auto call = weak.lock();
+                                         return call && !call->result_.isSet();
+                                       },
+                                       [weak]() {
+                                         if (auto call = weak.lock()) {
+                                           call->start();
+                                         } // gone: InFlightLimit counted it in flight; nothing to release later
+                                       }},
+        cls);
     if (!queued) { // as many wait for this peer as may: busy now, not a timeout later
       finish(LedgerTransportError(Client::E_BUSY, "AmpLedgerTransport: too many requests waiting for the peer"));
     }
@@ -121,8 +129,7 @@ public:
       mesh_.CancelTimer(timer_);
       timer_ = 0;
     }
-    const auto remaining =
-        timeout_ - std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - queued_at_);
+    const auto remaining = timeout_ - std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - queued_at_);
     if (remaining.count() <= 0) {
       finish(TransportError(timeoutMessage()));
       return;
@@ -156,16 +163,16 @@ public:
 private:
   const char* timeoutMessage() const {
     switch (stage_.load()) {
-    case Stage::Waiting:
-      return "AmpLedgerTransport: timeout waiting for a free channel to the peer";
-    case Stage::Association:
-      return "AmpLedgerTransport: association timeout";
-    case Stage::ChannelOpen:
-      return "AmpLedgerTransport: channel open timeout";
-    case Stage::ChannelReady:
-      return "AmpLedgerTransport: channel not open";
-    case Stage::Response:
-      break;
+      case Stage::Waiting:
+        return "AmpLedgerTransport: timeout waiting for a free channel to the peer";
+      case Stage::Association:
+        return "AmpLedgerTransport: association timeout";
+      case Stage::ChannelOpen:
+        return "AmpLedgerTransport: channel open timeout";
+      case Stage::ChannelReady:
+        return "AmpLedgerTransport: channel not open";
+      case Stage::Response:
+        break;
     }
     return "AmpLedgerTransport: response timeout";
   }
@@ -329,12 +336,15 @@ private:
 
 } // namespace
 
-AmpLedgerTransport::AmpLedgerTransport(network::LedgerAmpRuntime& runtime, std::string peer_key)
+AmpLedgerTransport::AmpLedgerTransport(network::AmpHost& runtime, std::string peer_key)
     : mesh_(runtime.runtime()), runtime_(&runtime), peer_key_(std::move(peer_key)) {}
 
 AmpLedgerTransport::AmpLedgerTransport(pp::amp::MeshRuntime& mesh, std::string peer_key, DriveFn drive)
-    : mesh_(mesh), drive_(std::move(drive)), peer_key_(std::move(peer_key)),
-      own_limit_(network::makeInFlightLimit()), own_bulk_limit_(network::makeBulkInFlightLimit()) {}
+    : mesh_(mesh),
+      drive_(std::move(drive)),
+      peer_key_(std::move(peer_key)),
+      own_limit_(network::makeInFlightLimit()),
+      own_bulk_limit_(network::makeBulkInFlightLimit()) {}
 
 std::shared_ptr<network::InFlightLimit> AmpLedgerTransport::inFlightLimit(const size_t requestBytes) const {
   const bool bulk = requestBytes > pp::ledger::rpc::kMaxSmallRequestBytes;
@@ -361,13 +371,11 @@ bool AmpLedgerTransport::registerEndpoint(const std::string& peer_key, const std
   if (runtime_ && !runtime_->isRunning()) {
     return false;
   }
-  if (runtime_ && runtime_->onPumpThread()) {
+  if (runtime_ && runtime_->onIoThread()) {
     return mesh_.RegisterEndpoint(peer_key, multiaddr).isOk();
   }
   auto done = std::make_shared<ResultSlot<bool>>();
-  post([&mesh = mesh_, done, peer_key, multiaddr]() {
-    done->set(mesh.RegisterEndpoint(peer_key, multiaddr).isOk());
-  });
+  post([&mesh = mesh_, done, peer_key, multiaddr]() { done->set(mesh.RegisterEndpoint(peer_key, multiaddr).isOk()); });
   const auto deadline = Clock::now() + kWaiterGrace;
   if (drive_) {
     while (!done->isSet() && Clock::now() < deadline) {
@@ -392,11 +400,12 @@ AmpLedgerTransport::Roe<std::string> AmpLedgerTransport::roundTrip(const std::st
   if (runtime_ && !runtime_->isRunning()) {
     return TransportError("AmpLedgerTransport: AMP runtime not running");
   }
-  if (runtime_ && runtime_->onPumpThread()) {
+  if (runtime_ && runtime_->onIoThread()) {
     return TransportError("AmpLedgerTransport: roundTrip on the AMP pump thread would deadlock");
   }
 
-  auto call = std::make_shared<RoundTripCall>(mesh_, peer_key_, requestBody, timeout, inFlightLimit(requestBody.size()));
+  auto call =
+      std::make_shared<RoundTripCall>(mesh_, peer_key_, requestBody, timeout, inFlightLimit(requestBody.size()));
   post([call]() { call->enqueue(); });
 
   const auto postTask = [this](std::function<void()> task) { post(std::move(task)); };
@@ -432,8 +441,13 @@ void AmpLedgerTransport::roundTripAsync(const std::string& requestBody, const st
     done(TransportError("AmpLedgerTransport: AMP runtime not running"));
     return;
   }
-  // The io-lane amp timer bounds the call; no thread waits on it.
-  auto call = std::make_shared<RoundTripCall>(mesh_, peer_key_, requestBody, timeout, inFlightLimit(requestBody.size()), std::move(done));
+  // The io-lane amp timer bounds the call; no thread waits on it. On a host's runtime the reply may
+  // come after its caller went away: `done` runs only while the host is open.
+  if (runtime_) {
+    done = runtime_->guard(std::move(done));
+  }
+  auto call = std::make_shared<RoundTripCall>(mesh_, peer_key_, requestBody, timeout, inFlightLimit(requestBody.size()),
+                                              std::move(done));
   post([call]() { call->enqueue(); });
 }
 

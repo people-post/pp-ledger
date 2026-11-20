@@ -20,7 +20,7 @@ namespace pp::test {
  * process id goes before any extension (`ledger-test` → `ledger-test-4242`, `out.txt` →
  * `out-4242.txt`). Tests still remove what they create.
  */
-inline std::filesystem::path uniqueTempPath(const std::string &name) {
+inline std::filesystem::path uniqueTempPath(const std::string& name) {
 #ifdef _WIN32
   const auto pid = _getpid();
 #else

@@ -1,7 +1,7 @@
-#include "Miner.h"
+#include "server/Miner.h"
 #include "common/Logger.h"
-#include "lib/common/BinaryPack.hpp"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/Utilities.h"
 #include <algorithm>
 #include <limits>
 #include <chrono>
@@ -9,17 +9,24 @@
 
 namespace pp {
 
+namespace {
+bool isSeedReveal(const Ledger::Record& record) {
+  return record.type == Ledger::T_BEACON_SEED;
+}
+} // namespace
+
 Miner::Miner() : FollowerCore("Miner") {}
 
 bool Miner::isSlotLeader() const {
   return chain_.isStakeholderSlotLeader(config_.minerId, getProductionSlot());
 }
 
-uint64_t Miner::getProductionSlot() const { return chain_.getProductionSlot(); }
+uint64_t Miner::getProductionSlot() const {
+  return chain_.getProductionSlot();
+}
 
 int64_t Miner::msUntilSlotEnd(uint64_t slot) const {
-  const int64_t slotEndMs =
-      (chain_.getSlotStartTime(slot) + static_cast<int64_t>(chain_.getSlotDuration())) * 1000;
+  const int64_t slotEndMs = (chain_.getSlotStartTime(slot) + static_cast<int64_t>(chain_.getSlotDuration())) * 1000;
   return slotEndMs - chain_.getConsensusTimestampMs();
 }
 
@@ -27,9 +34,13 @@ bool Miner::isSlotLeaderForSlot(uint64_t slot) const {
   return chain_.isStakeholderSlotLeader(config_.minerId, slot);
 }
 
-bool Miner::isConfigReady() const { return chain_.isChainConfigReady(); }
+bool Miner::isConfigReady() const {
+  return chain_.isChainConfigReady();
+}
 
-Miner::Roe<uint64_t> Miner::getSlotLeaderId() const { return getSlotLeaderIdForSlot(getCurrentSlot()); }
+Miner::Roe<uint64_t> Miner::getSlotLeaderId() const {
+  return getSlotLeaderIdForSlot(getCurrentSlot());
+}
 
 Miner::Roe<uint64_t> Miner::getSlotLeaderIdForSlot(uint64_t slot) const {
   auto result = chain_.getSlotLeader(slot);
@@ -52,7 +63,9 @@ uint64_t Miner::getStake() const {
   return chain_.getStakeholderStake(config_.minerId);
 }
 
-size_t Miner::getPendingTransactionCount() const { return pendingTxes_.size(); }
+size_t Miner::getPendingTransactionCount() const {
+  return pendingTxes_.size();
+}
 
 int64_t Miner::getConsensusTimestamp() const {
   return chain_.getConsensusTimestamp();
@@ -62,7 +75,7 @@ int64_t Miner::getSlotStartTime(uint64_t slot) const {
   return chain_.getSlotStartTime(slot);
 }
 
-Miner::Roe<void> Miner::init(const InitConfig &config) {
+Miner::Roe<void> Miner::init(const InitConfig& config) {
   if (config.privateKeys.empty()) {
     return Error(1, "At least one private key is required");
   }
@@ -80,7 +93,7 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
   return {};
 }
 
-bool Miner::BlockBudget::take(const Ledger::Record &record) {
+bool Miner::BlockBudget::take(const Ledger::Record& record) {
   const uint64_t bytes = utl::binaryPack(record).size();
   if (recordsLeft == 0 || bytes > bytesLeft) {
     return false;
@@ -110,15 +123,24 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
     const uint64_t maxBytes = chain_.getMaxBlockBytes();
     const uint64_t shell = maxBytes > 0 ? chain_.estimateBlockShellBytes(slot) : 0;
     slotCache_.budget.recordsLeft = maxTx > 0 ? maxTx : std::numeric_limits<uint64_t>::max();
-    slotCache_.budget.bytesLeft = maxBytes == 0 ? std::numeric_limits<uint64_t>::max() : maxBytes > shell ? maxBytes - shell : 0;
+    slotCache_.budget.bytesLeft = maxBytes == 0      ? std::numeric_limits<uint64_t>::max()
+                                  : maxBytes > shell ? maxBytes - shell
+                                                     : 0;
     const auto certificate = chain_.certificateDueAt(chain_.getNextBlockId());
     if (certificate && !slotCache_.budget.take(*certificate)) {
       log().error << "The beacon certificate due does not fit block " << chain_.getNextBlockId();
     }
+    // The beacon's seed reveal must land in the epoch before its own (beacon epoch seed): keep it a
+    // place ahead of the renewals, so a block leaving renewals waiting still carries it. Leave a
+    // renewal at least: a block leaving due renewals out must renew one.
+    if (const auto it = std::find_if(pendingTxes_.begin(), pendingTxes_.end(), isSeedReveal);
+        it != pendingTxes_.end() && (renewals.empty() || slotCache_.budget.recordsLeft > 1)) {
+      slotCache_.seedRevealReserved = slotCache_.budget.take(*it);
+    }
     const std::string networkId = chain_.getNetworkId();
-    for (auto &rec : renewals) {
+    for (auto& rec : renewals) {
       const std::string message = rec.signingMessage(networkId);
-      for (const auto &privateKey : config_.privateKeys) {
+      for (const auto& privateKey : config_.privateKeys) {
         auto result = utl::mlDsaSign(privateKey, message);
         if (!result) {
           slotCache_ = {};
@@ -132,18 +154,16 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
                       << " due renewal(s) wait for the next block (block limits)";
         break;
       }
-      auto addResult =
-          chain_.addBufferTransaction(bufferBank_, rec, config_.minerId);
+      auto addResult = chain_.addBufferTransaction(bufferBank_, rec, config_.minerId);
       if (!addResult) {
         slotCache_ = {};
-        return Error(12, "Failed to add renewal transaction: " +
-                             addResult.error().message);
+        return Error(12, "Failed to add renewal transaction: " + addResult.error().message);
       }
       slotCache_.leaderRecords.push_back(std::move(rec));
     }
     // The block after a cutover commits the certificate held (bp3): the beacon taking over commits
     // nothing else there. After the renewals: a checkpoint block opens with its genesis renewal.
-    if (const auto &due = certificate) {
+    if (const auto& due = certificate) {
       if (auto added = chain_.addBufferTransaction(bufferBank_, *due, config_.minerId); !added) {
         log().error << "The beacon certificate held does not apply to block " << chain_.getNextBlockId() << ": "
                     << added.error().message;
@@ -158,13 +178,12 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
     // spent, window ended) is dropped: aborting here would stall every slot.
     std::vector<Ledger::Record> stillValid;
     stillValid.reserve(pendingTxes_.size());
-    for (auto &rec : pendingTxes_) {
+    for (auto& rec : pendingTxes_) {
       auto addResult = chain_.addBufferTransaction(bufferBank_, rec, config_.minerId);
       if (addResult) {
         stillValid.push_back(std::move(rec));
       } else {
-        log().warning << "Dropping pending transaction that no longer applies: "
-                      << addResult.error().message;
+        log().warning << "Dropping pending transaction that no longer applies: " << addResult.error().message;
       }
     }
     pendingTxes_ = std::move(stillValid);
@@ -173,25 +192,21 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
   return {};
 }
 
-Miner::Roe<bool> Miner::shouldAttemptProduction(uint64_t slot,
-                                                uint64_t &tipSlotOut) const {
+Miner::Roe<bool> Miner::shouldAttemptProduction(uint64_t slot, uint64_t& tipSlotOut) const {
   tipSlotOut = 0;
   // Halted (ba6): no tip of the equivocating generation will cover a block above its height.
-  if (const auto &evidence = chain_.equivocation(); evidence && chain_.getNextBlockId() > evidence->height()) {
+  if (const auto& evidence = chain_.equivocation(); evidence && chain_.getNextBlockId() > evidence->height()) {
     return false;
   }
-  const bool hasWork =
-      !slotCache_.leaderRecords.empty() || !pendingTxes_.empty();
+  const bool hasWork = !slotCache_.leaderRecords.empty() || !pendingTxes_.empty();
   if (!hasWork) {
     auto tipRoe = chain_.readLastBlock();
     if (!tipRoe) {
-      return Error(12, "Failed to read tip for heartbeat: " +
-                           tipRoe.error().message);
+      return Error(12, "Failed to read tip for heartbeat: " + tipRoe.error().message);
     }
     tipSlotOut = tipRoe->block.slot;
     // A due miner must show up in a slot it leads, with an empty block if need be.
-    if (!shouldSealEmptyHeartbeat(slot, tipSlotOut,
-                                  chain_.getHeartbeatSlots()) &&
+    if (!shouldSealEmptyHeartbeat(slot, tipSlotOut, chain_.getHeartbeatSlots()) &&
         !chain_.isMinerDue(config_.minerId, slot)) {
       return false;
     }
@@ -204,7 +219,7 @@ Miner::Roe<bool> Miner::shouldAttemptProduction(uint64_t slot,
   return true;
 }
 
-Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
+Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode& block) {
   const uint64_t slot = getProductionSlot();
   if (lastProducedSlot_ == slot) {
     return false;
@@ -240,13 +255,11 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
     return false;
   }
 
-  const bool hasWork =
-      !slotCache_.leaderRecords.empty() || !pendingTxes_.empty();
+  const bool hasWork = !slotCache_.leaderRecords.empty() || !pendingTxes_.empty();
   if (hasWork) {
     log().info << "Producing block for slot " << slot;
   } else {
-    log().info << "Producing heartbeat empty block for slot " << slot
-               << " (tip slot " << tipSlot << ")";
+    log().info << "Producing heartbeat empty block for slot " << slot << " (tip slot " << tipSlot << ")";
   }
 
   Miner::BlockTxSet txSet = getBlockTransactionSet();
@@ -254,6 +267,15 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
   // The committee estimate fell short: drop the last record until the block fits (B034).
   while (!createResult && createResult.error().code == E_BLOCK_TOO_LARGE && txSet.records.size() > 1) {
     txSet.records.pop_back();
+    createResult = createBlock(slot, txSet.records);
+  }
+  // The draft took records the seal refuses (it should not): seal the leader's own records alone
+  // rather than leave the slot empty; the pending ones stay in the beacon's pool.
+  const size_t leaderOwn = slotCache_.leaderRecords.size();
+  if (!createResult && createResult.error().code != E_BLOCK_TOO_LARGE && txSet.records.size() > leaderOwn) {
+    log().error << "Sealing slot " << slot << " with " << txSet.records.size() - leaderOwn
+                << " pending record(s) failed, sealing without them: " << createResult.error().message;
+    txSet.records.resize(leaderOwn);
     createResult = createBlock(slot, txSet.records);
   }
   if (!createResult) {
@@ -268,27 +290,23 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
   return true;
 }
 
-void Miner::markBlockProduction(const Ledger::ChainNode &block) {
+void Miner::markBlockProduction(const Ledger::ChainNode& block) {
   lastProducedBlockId_ = block.block.index;
   lastProducedSlot_ = block.block.slot;
 }
 
-void Miner::abandonBlock(const Ledger::ChainNode &block) {
+void Miner::abandonBlock(const Ledger::ChainNode& block) {
   chain_.abandonSeal();
   // The leader's own records (renewals, a certificate due) lead the list and are rebuilt per slot; keep
   // the rest.
-  const size_t leaderOwn =
-      std::min(slotCache_.leaderRecords.size(), block.block.records.size());
-  pendingTxes_.insert(pendingTxes_.begin(),
-                      block.block.records.begin() +
-                          static_cast<std::ptrdiff_t>(leaderOwn),
+  const size_t leaderOwn = std::min(slotCache_.leaderRecords.size(), block.block.records.size());
+  pendingTxes_.insert(pendingTxes_.begin(), block.block.records.begin() + static_cast<std::ptrdiff_t>(leaderOwn),
                       block.block.records.end());
   // The leader's records and the buffer were built on the abandoned tip; rebuild next time.
   slotCache_ = {};
 }
 
-Miner::Roe<void>
-Miner::addTransaction(const Ledger::Record &record) {
+Miner::Roe<void> Miner::addTransaction(const Ledger::Record& record) {
   // Validate against this slot's buffer rebuilt from the current tip, never a
   // buffer left over from an earlier slot.
   const uint64_t slot = getProductionSlot();
@@ -301,18 +319,23 @@ Miner::addTransaction(const Ledger::Record &record) {
   if (!slotCache_.isLeader) {
     return Error(9, "Not slot leader for slot " + std::to_string(slot));
   }
-  auto result =
-      chain_.addBufferTransaction(bufferBank_, record, config_.minerId);
+  auto result = chain_.addBufferTransaction(bufferBank_, record, config_.minerId);
   if (!result) {
     return Error(9, result.error().message);
   }
 
   pendingTxes_.push_back(record);
+  // A seed reveal arriving after the renewals took the budget: rebuild the slot so it gets its place.
+  if (isSeedReveal(record) && !slotCache_.seedRevealReserved) {
+    if (auto rebuilt = initSlotCache(slot); !rebuilt) {
+      return Error(12, rebuilt.error().message);
+    }
+  }
 
   return {};
 }
 
-Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode &block) {
+Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode& block) {
   auto added = FollowerCore::addBlock(block);
   if (added) {
     slotCache_ = {}; // the tip moved: this slot's renewals and buffer are stale
@@ -325,34 +348,40 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode &block) {
 Miner::BlockTxSet Miner::getBlockTransactionSet() const {
   Miner::BlockTxSet out;
   out.records = slotCache_.leaderRecords;
-  if (slotCache_.renewalsWait) {
-    return out; // renewals only while some wait (B035)
-  }
-  // Pending transactions in order while they fit what the leader's records left (B034).
-  BlockBudget budget = slotCache_.budget;
-  for (const auto &rec : pendingTxes_) {
-    if (!budget.take(rec)) {
-      break;
+  // The seed reveal the budget holds a place for goes in whatever else waits.
+  bool seedPlaced = !slotCache_.seedRevealReserved;
+  // Pending transactions in order while they fit what the leader's records left (B034); none while
+  // renewals wait (B035).
+  if (!slotCache_.renewalsWait) {
+    BlockBudget budget = slotCache_.budget;
+    for (const auto& rec : pendingTxes_) {
+      if (!seedPlaced && isSeedReveal(rec)) {
+        seedPlaced = true; // its place is already taken from the budget
+      } else if (!budget.take(rec)) {
+        break;
+      }
+      out.records.push_back(rec);
+      ++out.nPendingIncluded;
     }
-    out.records.push_back(rec);
-    ++out.nPendingIncluded;
+  }
+  if (!seedPlaced) {
+    if (auto it = std::find_if(pendingTxes_.begin(), pendingTxes_.end(), isSeedReveal); it != pendingTxes_.end()) {
+      out.records.push_back(*it);
+      ++out.nPendingIncluded;
+    }
   }
   return out;
 }
 
-Miner::Roe<Ledger::ChainNode> Miner::createBlock(
-    uint64_t slot,
-    const std::vector<Ledger::Record> &records) {
+Miner::Roe<Ledger::ChainNode> Miner::createBlock(uint64_t slot, const std::vector<Ledger::Record>& records) {
   auto timestamp = chain_.getConsensusTimestamp();
 
   auto latestBlockResult = chain_.readLastBlock();
   if (!latestBlockResult) {
-    return Error(11, "Failed to read latest block: " +
-                         latestBlockResult.error().message);
+    return Error(11, "Failed to read latest block: " + latestBlockResult.error().message);
   }
   auto latestBlock = latestBlockResult.value();
-  auto block = chain_.linkNextBlock(latestBlock, slot, config_.minerId,
-                                    timestamp, records);
+  auto block = chain_.linkNextBlock(latestBlock, slot, config_.minerId, timestamp, records);
   auto sealResult = chain_.sealBlock(block);
   if (!sealResult) {
     // The seal assembled the header in place: its size is the block's.
@@ -363,8 +392,18 @@ Miner::Roe<Ledger::ChainNode> Miner::createBlock(
     return Error(12, "Failed to seal block: " + sealResult.error().message);
   }
 
-  log().debug << "Created block " << block.block.index << " with "
-              << block.block.records.size() << " transactions";
+  // Only the slot leader's account makes its block: it signs the sealed hash (BLOCK_ADD checks it).
+  const std::string message = Ledger::Block::producerSigningMessage(chain_.getNetworkId(), block.hash);
+  for (const auto& privateKey : config_.privateKeys) {
+    auto signature = utl::mlDsaSign(privateKey, message);
+    if (!signature) {
+      chain_.abandonSeal();
+      return Error(12, "Failed to sign block: " + signature.error().message);
+    }
+    block.block.producerSignatures.push_back(signature.value());
+  }
+
+  log().debug << "Created block " << block.block.index << " with " << block.block.records.size() << " transactions";
 
   return block;
 }

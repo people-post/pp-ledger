@@ -21,11 +21,11 @@ namespace consensus {
 class EpochManager : public Module {
 public:
   struct EpochInfo {
-    uint64_t number{ 0 };
-    int64_t startTime{ 0 };
-    int64_t endTime{ 0 };
-    uint64_t startSlot{ 0 };
-    uint64_t endSlot{ 0 };
+    uint64_t number{0};
+    int64_t startTime{0};
+    int64_t endTime{0};
+    uint64_t startSlot{0};
+    uint64_t endSlot{0};
     std::string nonce;
     std::map<uint64_t, std::string> slotLeaders; // slot -> leader mapping
   };
@@ -40,9 +40,8 @@ public:
   ~EpochManager() override = default;
 
   // Epoch operations
-  void initializeEpoch(uint64_t epochNumber, const std::string &nonce);
-  void finalizeEpoch(uint64_t epochNumber,
-                     const std::vector<std::string> &blockHashes);
+  void initializeEpoch(uint64_t epochNumber, const std::string& nonce);
+  void finalizeEpoch(uint64_t epochNumber, const std::vector<std::string>& blockHashes);
 
   // Epoch queries
   EpochInfo getEpochInfo(uint64_t epochNumber) const;
@@ -51,8 +50,7 @@ public:
   bool isEpochInitialized(uint64_t epochNumber) const;
 
   // Slot leader management
-  void setSlotLeader(uint64_t epochNumber, uint64_t slot,
-                     const std::string &leader);
+  void setSlotLeader(uint64_t epochNumber, uint64_t slot, const std::string& leader);
   std::string getSlotLeader(uint64_t epochNumber, uint64_t slot) const;
 
   // Configuration
@@ -71,12 +69,12 @@ public:
   int64_t getSlotEndTime(uint64_t slot) const;
 
 private:
-  uint64_t slotsPerEpoch_{ 0 };
-  uint64_t slotDuration_{ 0 };
-  int64_t genesisTime_{ 0 };
+  uint64_t slotsPerEpoch_{0};
+  uint64_t slotDuration_{0};
+  int64_t genesisTime_{0};
   std::map<uint64_t, EpochInfo> epochs_;
-  mutable uint64_t cachedCurrentEpoch_{ 0 };
-  mutable int64_t lastUpdateTime_{ 0 };
+  mutable uint64_t cachedCurrentEpoch_{0};
+  mutable int64_t lastUpdateTime_{0};
 };
 
 } // namespace consensus

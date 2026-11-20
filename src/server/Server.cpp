@@ -1,13 +1,15 @@
-#include "Server.h"
-#include "../client/Client.h"
-#include "lib/common/BinaryPack.hpp"
+#include "server/Server.h"
+#include "ledger/network/amp/AmpIdentity.h"
+#include "ledger/client/Client.h"
+#include "ledger/lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 #include "amp/link/AdpMultiaddr.h"
-#include "../network/LedgerRpcProtocol.h"
-#include "../chain/ConfigPolicy.h"
+#include "ledger/network/LedgerRpcProtocol.h"
+#include "ledger/chain/ConfigPolicy.h"
 #include "common/io/Json.h"
 
+#include <algorithm>
 #include <set>
 #include <mutex>
 #include <filesystem>
@@ -60,7 +62,9 @@ uint64_t elapsedMs(RequestQueue::Clock::time_point from, RequestQueue::Clock::ti
 
 Server::Server() : requests_(std::make_unique<RequestQueue>(requestCapacity_)) {}
 
-Server::~Server() { stopAmpServer(); }
+Server::~Server() {
+  stopAmpServer();
+}
 
 void Server::setNetworkTuning(const network::NetworkTuning& tuning) {
   tuning_ = tuning;
@@ -74,9 +78,8 @@ void Server::setRequestLimits(size_t capacity, std::chrono::milliseconds maxWait
   blockWaits_ = BlockWaitList(requestCapacity_);
 }
 
-Service::Roe<void> Server::ensureWorkDirectory(const std::string& workDir,
-                                                 const std::string& signatureFileName,
-                                                 int32_t errorCode) {
+Service::Roe<void> Server::ensureWorkDirectory(const std::string& workDir, const std::string& signatureFileName,
+                                               int32_t errorCode) {
   const std::filesystem::path workDirPath(workDir);
   const std::filesystem::path signaturePath = workDirPath / signatureFileName;
 
@@ -84,8 +87,7 @@ Service::Roe<void> Server::ensureWorkDirectory(const std::string& workDir,
     std::filesystem::create_directories(workDirPath);
     auto result = utl::writeToNewFile(signaturePath.string(), "");
     if (!result) {
-      return Error(errorCode,
-                   "Failed to create signature file: " + result.error().message);
+      return Error(errorCode, "Failed to create signature file: " + result.error().message);
     }
     return {};
   }
@@ -104,8 +106,7 @@ Service::Roe<void> Server::ensureWorkDirectory(const std::string& workDir,
 
   auto result = utl::writeToNewFile(signaturePath.string(), "");
   if (!result) {
-    return Error(errorCode,
-                 "Failed to create signature file: " + result.error().message);
+    return Error(errorCode, "Failed to create signature file: " + result.error().message);
   }
   return {};
 }
@@ -114,8 +115,7 @@ Service::Roe<void> Server::run(const std::string& workDir) {
   workDir_ = workDir;
 
   if (useSignatureFile()) {
-    auto ensured =
-        ensureWorkDirectory(workDir, getSignatureFileName(), getRunErrorCode());
+    auto ensured = ensureWorkDirectory(workDir, getSignatureFileName(), getRunErrorCode());
     if (!ensured) {
       return ensured;
     }
@@ -127,9 +127,9 @@ Service::Roe<void> Server::run(const std::string& workDir) {
   static std::mutex handlersMutex;
   static std::set<std::string> handlersAdded;
   if (logFile_ != "none") {
-    const std::string path = logFile_.empty() ? workDir + "/" + getLogFileName()
+    const std::string path = logFile_.empty()                                ? workDir + "/" + getLogFileName()
                              : std::filesystem::path(logFile_).is_absolute() ? logFile_
-                                                                              : workDir + "/" + logFile_;
+                                                                             : workDir + "/" + logFile_;
     std::lock_guard<std::mutex> lock(handlersMutex);
     const std::string key = log().getFullName() + "|" + path;
     if (handlersAdded.insert(key).second) {
@@ -165,7 +165,9 @@ std::string Server::packError(uint16_t code, const std::string& message, uint32_
   return utl::binaryPack(resp);
 }
 
-void Server::onStop() { stopAmpServer(); }
+void Server::onStop() {
+  stopAmpServer();
+}
 
 void Server::fillHealth(Client::NodeHealth& health) const {
   const std::string listen = listenMultiaddr();
@@ -203,7 +205,7 @@ void Server::fillHealth(Client::NodeHealth& health) const {
   if (ampSupport_ && ampSupport_->isRunning()) {
     health.links = ampSupport_->links().CountLinks();
   }
-  if (const auto socket = ampSupport_ ? ampSupport_->runtime().socketStats() : std::nullopt) {
+  if (const auto socket = ampSupport_ && ampSupport_->isRunning() ? ampSupport_->host().socketStats() : std::nullopt) {
     health.udpReceiveBufferBytes = socket->receive_buffer_bytes;
     health.udpReceiveDrops = socket->receive_drops;
   }
@@ -249,9 +251,9 @@ std::string Server::healthResponse() const {
       return packResponse(Client::E_SERVER_ERROR, "Health not published yet: starting");
     }
     health = *health_;
-    health.reportAgeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                             std::chrono::steady_clock::now() - healthPublishedAt_)
-                             .count();
+    health.reportAgeMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - healthPublishedAt_)
+            .count();
   }
   return packResponse(utl::binaryPack(health.ltsToMeta()));
 }
@@ -280,8 +282,8 @@ void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::st
   // A reply the transport cannot carry is an error to the client, not a silent timeout (B034).
   reply = [reply = std::move(reply)](std::string response) {
     if (response.size() > ledger::rpc::kMaxMessageBytes) {
-      response = packResponse(Client::E_SERVER_ERROR, "Reply of " + std::to_string(response.size()) +
-                                                          " bytes is larger than the RPC carries");
+      response = packResponse(Client::E_SERVER_ERROR,
+                              "Reply of " + std::to_string(response.size()) + " bytes is larger than the RPC carries");
     }
     reply(std::move(response));
   };
@@ -315,15 +317,15 @@ void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::st
 std::string Server::refusalResponse(const network::AmpLedgerServer::Refusal why) {
   using Refusal = network::AmpLedgerServer::Refusal;
   switch (why) {
-  case Refusal::NotAllowed:
-    ++requestsRefused_;
-    return packResponse(1, "Peer not allowed by this node");
-  case Refusal::PeerBusy:
-    ++requestsBusy_;
-    return packError(Client::E_RATE_LIMITED, "Too many requests in progress from this peer, please retry",
-                     kBusyRetryAfterMs);
-  case Refusal::NodeBusy:
-    break;
+    case Refusal::NotAllowed:
+      ++requestsRefused_;
+      return packResponse(1, "Peer not allowed by this node");
+    case Refusal::PeerBusy:
+      ++requestsBusy_;
+      return packError(Client::E_RATE_LIMITED, "Too many requests in progress from this peer, please retry",
+                       kBusyRetryAfterMs);
+    case Refusal::NodeBusy:
+      break;
   }
   ++requestsBusy_;
   return packError(Client::E_BUSY, "Too many large requests in progress, please retry", kBusyRetryAfterMs);
@@ -347,13 +349,24 @@ bool Server::isTrustedPeer(const std::string& peerId) const {
   return it != minerPeers_.end() && it->second > std::chrono::steady_clock::now();
 }
 
-void Server::noteMinerPeer(const std::string& peerId) {
+void Server::noteMinerPeer(uint64_t minerId, const std::string& peerId) {
   if (peerId.empty()) {
     return;
   }
   const auto now = std::chrono::steady_clock::now();
   std::lock_guard<std::mutex> lock(minerPeersMutex_);
   std::erase_if(minerPeers_, [now](const auto& entry) { return entry.second <= now; });
+  std::erase_if(minerPeerOf_, [this](const auto& entry) { return !minerPeers_.contains(entry.second); });
+  if (auto it = minerPeerOf_.find(minerId); it != minerPeerOf_.end() && it->second != peerId) {
+    const std::string moved = it->second;
+    minerPeerOf_.erase(it);
+    // The miner moved: its old peer stays trusted only for another miner that names it.
+    if (std::none_of(minerPeerOf_.begin(), minerPeerOf_.end(),
+                     [&](const auto& entry) { return entry.second == moved; })) {
+      minerPeers_.erase(moved);
+    }
+  }
+  minerPeerOf_[minerId] = peerId;
   minerPeers_[peerId] = now + kMinerPeerTtl;
 }
 
@@ -366,8 +379,8 @@ bool Server::isAllowedPeer(const std::string& peerId) const {
 }
 
 Service::Roe<pp::common::Object> Server::loadRunConfig(const std::vector<env_config::Field>& fields,
-                                                     const pp::common::Object& templateJson,
-                                                     const std::string& whatToSet) {
+                                                       const pp::common::Object& templateJson,
+                                                       const std::string& whatToSet) {
   const std::string path = (std::filesystem::path(workDir_) / "config.json").string();
   auto loaded = env_config::loadConfig(path, fields);
   if (!loaded) {
@@ -377,8 +390,8 @@ Service::Roe<pp::common::Object> Server::loadRunConfig(const std::vector<env_con
     return std::move(*loaded.value());
   }
   log().info << "No config.json found, writing a template";
-  auto encoded = pp::common::io::valueToJsonString(
-      pp::common::Value(std::make_shared<pp::common::Object>(templateJson)), 2);
+  auto encoded =
+      pp::common::io::valueToJsonString(pp::common::Value(std::make_shared<pp::common::Object>(templateJson)), 2);
   if (!encoded.isOk()) {
     return Error(E_CONFIG, "Failed to encode config.json: " + encoded.error().message);
   }
@@ -392,42 +405,42 @@ Service::Roe<pp::common::Object> Server::loadRunConfig(const std::vector<env_con
 
 bool Server::isAllowedFrom(const uint32_t type, const Origin origin) {
   switch (type) {
-  // Writes that only travel up the tree toward the beacon: this node's
-  // upstream never sends them down, so one from there is misuse.
-  case Client::T_REQ_BLOCK_ADD:
-  case Client::T_REQ_REGISTER:
-  case Client::T_REQ_TX_ADD:
-  // Equivocation evidence travels up to the beacon; down, it rides STATUS.
-  case Client::T_REQ_EQUIVOCATION_ADD:
-  // Blocks flow down: our upstream never waits on us for them.
-  case Client::T_REQ_BLOCK_WAIT:
-  // The registry and the transaction pool live upstream: our upstream never
-  // asks us for them.
-  case Client::T_REQ_MINER_LIST:
-  case Client::T_REQ_TX_PULL:
-    return origin == Origin::Downstream;
-  default:
-    return true;
+    // Writes that only travel up the tree toward the beacon: this node's
+    // upstream never sends them down, so one from there is misuse.
+    case Client::T_REQ_BLOCK_ADD:
+    case Client::T_REQ_REGISTER:
+    case Client::T_REQ_TX_ADD:
+    // Equivocation evidence travels up to the beacon; down, it rides STATUS.
+    case Client::T_REQ_EQUIVOCATION_ADD:
+    // Blocks flow down: our upstream never waits on us for them.
+    case Client::T_REQ_BLOCK_WAIT:
+    // The registry and the transaction pool live upstream: our upstream never
+    // asks us for them.
+    case Client::T_REQ_MINER_LIST:
+    case Client::T_REQ_TX_PULL:
+      return origin == Origin::Downstream;
+    default:
+      return true;
   }
 }
 
 RequestQueue::Lane Server::laneFor(const uint32_t type) {
   switch (type) {
-  case Client::T_REQ_BLOCK_GET:
-  case Client::T_REQ_BLOCK_WAIT:
-  case Client::T_REQ_AUTHORITY_PROOF:
-  case Client::T_REQ_ACCOUNT_GET:
-  case Client::T_REQ_CONFIG_GET:
-  case Client::T_REQ_TX_GET_BY_WALLET:
-  case Client::T_REQ_TX_GET_BY_INDEX:
-  case Client::T_REQ_PRODUCER_STATS:
-  case Client::T_REQ_ACCOUNT_PROOF:
-  case Client::T_REQ_DOMAIN_GET:
-  case Client::T_REQ_NAME_GET:
-  case Client::T_REQ_NAME_GET_BY_WALLET:
-    return RequestQueue::Lane::Low;
-  default:
-    return RequestQueue::Lane::Normal;
+    case Client::T_REQ_BLOCK_GET:
+    case Client::T_REQ_BLOCK_WAIT:
+    case Client::T_REQ_AUTHORITY_PROOF:
+    case Client::T_REQ_ACCOUNT_GET:
+    case Client::T_REQ_CONFIG_GET:
+    case Client::T_REQ_TX_GET_BY_WALLET:
+    case Client::T_REQ_TX_GET_BY_INDEX:
+    case Client::T_REQ_PRODUCER_STATS:
+    case Client::T_REQ_ACCOUNT_PROOF:
+    case Client::T_REQ_DOMAIN_GET:
+    case Client::T_REQ_NAME_GET:
+    case Client::T_REQ_NAME_GET_BY_WALLET:
+      return RequestQueue::Lane::Low;
+    default:
+      return RequestQueue::Lane::Normal;
   }
 }
 
@@ -467,6 +480,11 @@ Service::Roe<void> Server::addUpstream(const std::string& multiaddr) {
   std::lock_guard<std::mutex> lock(upstreamMutex_);
   upstreamPeerIds_.insert(peerId.value());
   return {};
+}
+
+std::string Server::localPeerId() const {
+  auto self = upstreamPeerId(listenMultiaddr());
+  return self ? self.value() : std::string{};
 }
 
 bool Server::isSelf(const std::string& multiaddr) const {
@@ -511,8 +529,8 @@ UpstreamSet::Hooks Server::upstreamHooks(Client& fanout) {
 }
 
 clock_calibration::Fetch Server::calibrationFetch(Client& client, std::string dialKey, std::string multiaddr) {
-  return [this, &client, dialKey = std::move(dialKey), multiaddr = std::move(multiaddr)](
-             Client::Done<Client::CalibrationResponse> done) {
+  return [this, &client, dialKey = std::move(dialKey),
+          multiaddr = std::move(multiaddr)](Client::Done<Client::CalibrationResponse> done) {
     if (auto dial = client.setAmpPeer(dialKey, multiaddr); !dial) {
       done(Client::Roe<Client::CalibrationResponse>(dial.error()));
       return;
@@ -524,9 +542,8 @@ clock_calibration::Fetch Server::calibrationFetch(Client& client, std::string di
 Client::Roe<clock_calibration::Offset> Server::calibrateBlocking(const clock_calibration::Fetch& fetch) {
   // Shared: a sample still in flight when this gives up must not write into a returned frame.
   auto result = std::make_shared<std::optional<Client::Roe<clock_calibration::Offset>>>();
-  clock_calibration::estimate(fetch, [result](Client::Roe<clock_calibration::Offset> offset) {
-    *result = std::move(offset);
-  });
+  clock_calibration::estimate(fetch,
+                              [result](Client::Roe<clock_calibration::Offset> offset) { *result = std::move(offset); });
   // Each sample is bounded by the RPC timeout; a stuck one is given up on.
   const auto timeout = tuning_.rpcTimeout * static_cast<int64_t>(clock_calibration::kMaxSamples + 1);
   serveTasksUntil([&result]() { return result->has_value(); }, timeout);
@@ -552,11 +569,17 @@ void Server::bindCore(NodeCore& core) {
   handleChainReads();
 }
 
-void Server::handle(uint32_t type, Handler handler) { routes_[type] = Route{std::move(handler), {}}; }
+void Server::handle(uint32_t type, Handler handler) {
+  routes_[type] = Route{std::move(handler), {}};
+}
 
-void Server::handleLater(uint32_t type, LaterHandler handler) { routes_[type] = Route{{}, std::move(handler)}; }
+void Server::handleLater(uint32_t type, LaterHandler handler) {
+  routes_[type] = Route{{}, std::move(handler)};
+}
 
-Service::Roe<void> Server::admit(const Client::Request& /*request*/) const { return {}; }
+Service::Roe<void> Server::admit(const Client::Request& /*request*/) const {
+  return {};
+}
 
 void Server::handleChainReads() {
   handle(Client::T_REQ_BLOCK_GET, [this](const Client::Request& request) -> Roe<std::string> {
@@ -610,6 +633,17 @@ void Server::handleChainReads() {
     auto proof = core().accountProof(accountId.value());
     if (!proof) {
       return Error(E_REQUEST, "Cannot prove the account: " + proof.error().message);
+    }
+    return utl::binaryPack(proof.value());
+  });
+  handle(Client::T_REQ_DOMAIN_GET, [this](const Client::Request& request) -> Roe<std::string> {
+    auto domain = utl::binaryUnpack<std::string>(request.payload);
+    if (!domain) {
+      return Error(E_REQUEST, "Failed to deserialize request: " + domain.error().message);
+    }
+    auto proof = core().domainProof(domain.value());
+    if (!proof) {
+      return Error(E_REQUEST, "Cannot prove the domain: " + proof.error().message);
     }
     return utl::binaryPack(proof.value());
   });
@@ -682,8 +716,13 @@ void Server::serveRequestsFor(std::chrono::milliseconds budget) {
     }
     deadline = std::min(deadline, restartAt_);
   }
+  bool servedOne = false;
   while (!isStopSet()) {
     pollBlockWaits(); // the last item may have moved the tip
+    if (servedOne && RequestQueue::Clock::now() >= deadline) {
+      return; // the budget is spent: the role's duties get their turn even with requests queued
+    }
+    servedOne = true;
     auto item = requests_->popUntil(deadline);
     if (!item) {
       pollBlockWaits(); // holds that ended while idle
@@ -900,8 +939,8 @@ std::string Server::listenMultiaddr() const {
   return ampSupport_ ? ampSupport_->listenMultiaddr() : std::string{};
 }
 
-network::LedgerAmpRuntime* Server::ampRuntime() {
-  return ampSupport_ ? &ampSupport_->runtime() : nullptr;
+network::AmpHost* Server::ampRuntime() {
+  return ampSupport_ && ampSupport_->isRunning() ? &ampSupport_->host() : nullptr;
 }
 
 pp::amp::PeerLinkManager* Server::peerLinks() {
@@ -945,51 +984,79 @@ Service::Roe<std::string> Server::loadOrCreateIdentityKey() {
   return key.value();
 }
 
-Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config) {
+Service::Roe<void> Server::startAmpServer(const uint16_t port, const IdentityKeyFn& identityKey) {
   if (ampSupport_) {
     return Service::Error(-1, "AMP server already started");
   }
   if (requests_->isClosed()) {
-    requests_ = std::make_unique<RequestQueue>(requestCapacity_);  // restart after a stop
+    requests_ = std::make_unique<RequestQueue>(requestCapacity_); // restart after a stop
   }
-  network::LedgerAmpConfig tuned = config;
+  network::AmpLedgerServer::Options ingress;
+  ingress.admit = [this](const std::string& peerId) { return isAllowedPeer(peerId); };
+  ingress.trusted = [this](const std::string& peerId) { return isTrustedPeer(peerId); };
+  ingress.refusal = [this](const network::AmpLedgerServer::Refusal why) { return refusalResponse(why); };
+  auto dispatch = [this](std::string peerId, std::string body, RequestQueue::Reply reply) {
+    enqueueRequest(std::move(body), std::move(reply), std::move(peerId));
+  };
+  ampSupport_ = std::make_unique<network::ServerAmpSupport>();
+  Service::Roe<void> started;
+  if (onHost()) {
+    started = ampSupport_->StartHosted(hostAmp_, tuning_.channelReadTimeout(), dispatch, std::move(ingress));
+  } else {
+    started = startOwnAmp(port, identityKey, dispatch, std::move(ingress));
+  }
+  if (!started) {
+    ampSupport_.reset();
+    return started;
+  }
+  log().info << "AMP ledger listener: " << ampSupport_->listenMultiaddr() << (onHost() ? " (the host's runtime)" : "");
+  writeListenMultiaddrFile();
+  publishHealth(); // HEALTH answers "starting" from now on
+  if (onListening_) {
+    onListening_(true);
+  }
+  return {};
+}
+
+Service::Roe<void> Server::startOwnAmp(const uint16_t port, const IdentityKeyFn& identityKey,
+                                       network::ServerAmpSupport::DispatchFn dispatch,
+                                       network::AmpLedgerServer::Options ingress) {
+  auto key = identityKey();
+  if (!key) {
+    return key.error();
+  }
+  auto config = network::LedgerAmpConfigFromPrivateKey(key.value(), port);
+  if (!config) {
+    return Service::Error(-1, "Failed to build AMP config: " + config.error().message);
+  }
+  network::LedgerAmpConfig tuned = std::move(config.value());
   tuning_.applyTo(tuned.link_config);
   tuned.link_config.max_links = maxLinks_;
   tuned.link_config.max_pending_inbound = handshakeBacklog_;
   tuned.udp_buffer_bytes = udpBufferBytes_;
   tuned.rpc_read_timeout = tuning_.channelReadTimeout();
-  network::AmpLedgerServer::Options ingress;
-  ingress.admit = [this](const std::string& peerId) { return isAllowedPeer(peerId); };
-  ingress.trusted = [this](const std::string& peerId) { return isTrustedPeer(peerId); };
-  ingress.refusal = [this](const network::AmpLedgerServer::Refusal why) { return refusalResponse(why); };
-  ampSupport_ = std::make_unique<network::ServerAmpSupport>();
-  auto started = ampSupport_->Start(
-      tuned,
-      [this](std::string peerId, std::string body, RequestQueue::Reply reply) {
-        enqueueRequest(std::move(body), std::move(reply), std::move(peerId));
-      },
-      std::move(ingress));
-  if (!started) {
-    ampSupport_.reset();
+  if (auto started = ampSupport_->Start(std::move(tuned), std::move(dispatch), std::move(ingress)); !started) {
     return started;
   }
-  log().info << "AMP ledger listener: " << ampSupport_->listenMultiaddr();
-  if (const auto socket = ampSupport_->runtime().socketStats()) {
+  auto* runtime = ampSupport_->ownRuntime();
+  if (const auto socket = runtime->socketStats()) {
     log().info << "UDP socket buffers: receive " << socket->receive_buffer_bytes << " B, send "
                << socket->send_buffer_bytes << " B";
   }
-  if (ampSupport_->runtime().socketBuffersCapped()) {
+  if (runtime->socketBuffersCapped()) {
     log().warning << "UDP socket buffers are smaller than the " << udpBufferBytes_
                   << " B asked for (udpBufferBytes): the OS caps them. Raise the cap, e.g. sysctl -w "
-                     "net.core.rmem_max=" << udpBufferBytes_ << " net.core.wmem_max=" << udpBufferBytes_
+                     "net.core.rmem_max="
+                  << udpBufferBytes_ << " net.core.wmem_max=" << udpBufferBytes_
                   << " — a burst of large requests may otherwise make it drop every peer's datagrams";
   }
-  writeListenMultiaddrFile();
-  publishHealth(); // HEALTH answers "starting" from now on
   return {};
 }
 
 void Server::stopAmpServer() {
+  if (ampSupport_ && onListening_) {
+    onListening_(false); // before the protocols go, so a host withdraws them first
+  }
   closeRequestQueue();
   if (ampSupport_) {
     ampSupport_->Stop();

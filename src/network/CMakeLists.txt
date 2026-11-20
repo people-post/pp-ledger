@@ -4,11 +4,7 @@ project(network VERSION 1.0.0 LANGUAGES CXX)
 
 add_library(pp_network INTERFACE)
 
-target_include_directories(pp_network
-    INTERFACE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${PP_SRC_DIR}
-)
+target_include_directories(pp_network INTERFACE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 
 target_link_libraries(pp_network
     INTERFACE
@@ -16,20 +12,17 @@ target_link_libraries(pp_network
 )
 
 add_library(pp_ledger_amp STATIC
+    AmpHost.cpp
     AmpLedgerServer.cpp
+    HostedAmpRuntime.cpp
     InFlightLimit.cpp
     LedgerAmpRuntime.cpp
     ServerAmpSupport.cpp
-    amp/LedgerPeerId.cpp
     amp/AmpIdentity.cpp
     NetworkTuning.cpp
 )
 
-target_include_directories(pp_ledger_amp PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${PP_SRC_DIR}
-    ${PP_SRC_DIR}/client
-)
+target_include_directories(pp_ledger_amp PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 
 target_link_libraries(pp_ledger_amp PUBLIC
     pp_amp_link

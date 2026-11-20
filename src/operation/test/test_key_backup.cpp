@@ -1,7 +1,7 @@
 // Key backups (docs/contracts/KEY_BACKUP.md): written and read back, refused when anything is off.
-#include "../KeyBackup.h"
+#include "ledger/operation/KeyBackup.h"
 
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <gtest/gtest.h>
 
@@ -10,7 +10,7 @@ using namespace pp::operation;
 
 namespace {
 
-constexpr const char *kPassphrase = "correct horse battery";
+constexpr const char* kPassphrase = "correct horse battery";
 
 BackedUpKey key() {
   auto pair = utl::mlDsaGenerate().value();

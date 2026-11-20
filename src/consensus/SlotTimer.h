@@ -38,8 +38,7 @@ public:
   /**
    * Check if given timestamp falls within a slot
    */
-  bool isTimeInSlot(int64_t timestamp, uint64_t slot,
-                    int64_t genesisTime) const;
+  bool isTimeInSlot(int64_t timestamp, uint64_t slot, int64_t genesisTime) const;
 
   /**
    * Calculate time remaining in current slot (in seconds)

@@ -50,7 +50,7 @@ services:
     cap_add: [NET_ADMIN] # sizes its UDP socket past the host's cap (CONFIGURATION.md § udpBufferBytes)
     environment:
       PP_LEDGER_PORT: "8519"
-      PP_LEDGER_UPSTREAMS: /dns4/beacon/udp/8517/adp/1.0.0/p2p/${BEACON_PEER_ID:?run ./init.sh first}
+      PP_LEDGER_UPSTREAMS: /dns4/beacon/udp/8517/adp/2/p2p/${BEACON_PEER_ID:?run ./init.sh first}
       PP_LEDGER_IDENTITY_KEY_FILE: /run/secrets/relay_identity
     secrets: [relay_identity]
     volumes:
@@ -70,7 +70,7 @@ services:
       PP_LEDGER_PORT: "8518"
       PP_MINER_ID: ${MINER_ID:-1048576}
       PP_MINER_KEYS_FILE: /run/secrets/miner_key
-      PP_LEDGER_UPSTREAMS: /dns4/relay/udp/8519/adp/1.0.0/p2p/${RELAY_PEER_ID:?run ./init.sh first}
+      PP_LEDGER_UPSTREAMS: /dns4/relay/udp/8519/adp/2/p2p/${RELAY_PEER_ID:?run ./init.sh first}
     secrets: [miner_key]
     volumes:
       - miner-data:/data
@@ -87,10 +87,10 @@ services:
     environment:
       PP_HTTP_BIND: 0.0.0.0
       PP_HTTP_PORT: "8080"
-      PP_HTTP_BEACON: /dns4/relay/udp/8519/adp/1.0.0/p2p/${RELAY_PEER_ID:?run ./init.sh first}
-      PP_HTTP_MINER: /dns4/miner/udp/8518/adp/1.0.0/p2p/${MINER_PEER_ID:?run ./init.sh first}
+      PP_HTTP_BEACON: /dns4/relay/udp/8519/adp/2/p2p/${RELAY_PEER_ID:?run ./init.sh first}
+      PP_HTTP_MINER: /dns4/miner/udp/8518/adp/2/p2p/${MINER_PEER_ID:?run ./init.sh first}
       # /metrics covers its beacon (here the relay) and miner; the beacon behind the relay too.
-      PP_HTTP_METRICS_TARGETS: core-beacon=/dns4/beacon/udp/8517/adp/1.0.0/p2p/${BEACON_PEER_ID:?run ./init.sh first}
+      PP_HTTP_METRICS_TARGETS: core-beacon=/dns4/beacon/udp/8517/adp/2/p2p/${BEACON_PEER_ID:?run ./init.sh first}
     ports:
       - "${PP_LEDGER_HTTP_HOST_PORT:-8080}:8080"
     healthcheck: # pp-http has no node RPC of its own: probe its API

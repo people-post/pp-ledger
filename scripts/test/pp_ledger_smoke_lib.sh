@@ -1182,7 +1182,7 @@ run_batch_scenario() {
   json=$(run_pp_client -b --host "$(relay_multiaddr)" producers --from 1 2>/dev/null | tr -d ' \n') ||
     die "L-SMOKE-BATCH: pp-client producers failed"
   total=$(sed -n 's/.*"toBlockId":[0-9]*,"blocks":\([0-9]*\),.*/\1/p' <<<"$json")
-  listed=$(grep -o '"account":[0-9]*,"blocks":[0-9]*' <<<"$json" | sed 's/.*"blocks"://' | awk '{s += $1} END {print s}')
+  listed=$(grep -o '"account":[0-9]*,"blocks":[0-9]*' <<<"$json" | sed 's/.*"blocks"://' | awk '{s += $1} END {print s}' || true)
   [[ -n "$total" && "$total" -gt 0 && "$total" == "$listed" ]] ||
     die "L-SMOKE-BATCH: producers do not add up (total ${total:-?}, listed ${listed:-?}): $json"
   grep -q '"fees":[1-9]' <<<"$json" || die "L-SMOKE-BATCH: no fees counted: $json"
@@ -1260,6 +1260,191 @@ run_token_scenario() {
     --new-key "${key_dir}/issuer-${issuer}-next1.pub" --new-key "${key_dir}/issuer-${issuer}-next2.pub" --new-min-signatures 2 -f 1
   wait_for_account "$issuer" "\"minSignatures\":2" "L-SMOKE-TOKEN: the issuer's keys were not replaced"
   echo -e "${GREEN}✓ Issuer ${issuer} issued 1,000 of its token to ${carol}; its keys are now 2 of 2${NC}"
+}
+
+# Account $1's JSON, spaces removed (empty when unknown).
+account_json() {
+  run_pp_client -b --host "$(relay_multiaddr)" account "$1" 2>/dev/null | tr -d ' \n' || true
+}
+
+# Wait until account $1's JSON (spaces removed) does not match the regex $2; die with $3 after $4 s.
+wait_for_account_without() {
+  local account=$1 pattern=$2 what=$3 max_wait=${4:-90}
+  local deadline=$((SECONDS + max_wait)) json
+  while ((SECONDS < deadline)); do
+    json=$(account_json "$account")
+    if [[ -n "$json" ]] && ! grep -Eq "$pattern" <<<"$json"; then
+      return 0
+    fi
+    sleep 1
+  done
+  die "$what (account $account: ${json:-none})"
+}
+
+# Wait until account $1's native balance is at most $2; die with $3 after $4 s.
+wait_for_balance_below() {
+  local account=$1 most=$2 what=$3 max_wait=${4:-90}
+  local deadline=$((SECONDS + max_wait)) balance
+  while ((SECONDS < deadline)); do
+    balance=$(native_balance "$account")
+    if [[ -n "$balance" ]] && ((balance <= most)); then
+      return 0
+    fi
+    sleep 1
+  done
+  die "$what (account $account: balance ${balance:-unknown}, expected at most $most)"
+}
+
+# Account recovery (projects/account-recovery): the account's key names a recovery set (two guardians,
+# both to sign, half an epoch's delay); its key cannot change it after; the set announces new keys and
+# the account is frozen; the set withdraws it and the account pays again; the set announces again and,
+# at the first epoch start after the delay, the new key is the account's and signs; the old one does not.
+run_account_recovery_scenario() {
+  local key_dir="${TEST_DIR}/keys" account=$(((1 << 30) + 20)) carol=$(((1 << 30) + 7))
+  local half=$((SLOT_DURATION * SLOTS_PER_EPOCH / 2))
+  while grep -q '"mBalances"' <<<"$(account_json "$account")"; do
+    account=$((account + 1)) # a network kept up across runs: a new account each run
+  done
+  echo -e "${CYAN}Account recovery: ${account}'s recovery set freezes it, withdraws, then gives it new keys...${NC}"
+  local r=() name
+  for i in 1 2 3; do r+=("${key_dir}/reserve$i.key"); done
+  for name in owner guardian1 guardian2 next; do
+    rm -f "${key_dir}/recover-${account}-${name}".{key,pub}
+    generate_tx_keypair "recover-${account}-${name}" >/dev/null
+  done
+  local k="${key_dir}/recover-${account}" g=("${key_dir}/recover-${account}-guardian1.key" "${key_dir}/recover-${account}-guardian2.key")
+  operation_flow recover-new "${r[@]}" -- new-account --from "$RESERVE_ACCOUNT_ID" --id "$account" \
+    --account-key "${k}-owner.pub" --amount 5000 -f 1
+  wait_for_account "$account" '"mBalances":\{"0":[1-9]' "L-SMOKE-RECOVERY: the account was not created"
+
+  operation_flow recover-set "${k}-owner.key" -- set-recovery --account "$account" \
+    --recovery-key "${k}-guardian1.pub" --recovery-key "${k}-guardian2.pub" --recovery-min-signatures 2 \
+    --delay-seconds "$half" -f 1
+  wait_for_account "$account" "\"recovery\":\\{[^}]*\"delaySeconds\":$half" "L-SMOKE-RECOVERY: the recovery set was not set"
+
+  # Signed apart from the operation flow, it should never land: the account's key acting as the set.
+  local dir="${TEST_DIR}/operation"
+  try_alone() { # <name> <key> <op args...>: made with one signer, signed, submitted; may be refused
+    local name=$1 key=$2
+    shift 2
+    run_pp_client -b --host "$(relay_multiaddr)" op "$@" -f 1 --signer-key "${key%.key}.pub" --min-signatures 1 \
+      -o "$dir/$name.json" >/dev/null 2>&1 &&
+      run_pp_client op sign "$dir/$name.json" -k "$key" >/dev/null 2>&1 &&
+      run_pp_client -b --host "$(relay_multiaddr)" op submit "$dir/$name.json" >/dev/null 2>&1 || true
+  }
+  try_alone recover-owner-change "${k}-owner.key" set-recovery --account "$account" --none
+  try_alone recover-one "${k}-guardian1.key" recover --account "$account" --new-key "${k}-next.pub"
+  sleep $((SLOT_DURATION * 3))
+  local json
+  json=$(account_json "$account")
+  grep -q '"pending"' <<<"$json" && die "L-SMOKE-RECOVERY: one guardian of two announced a recovery"
+  grep -q '"recovery":{' <<<"$json" || die "L-SMOKE-RECOVERY: the account's key removed its recovery set"
+  echo -e "${GREEN}✓ The account's key named the set and cannot change it; one guardian alone cannot act${NC}"
+
+  operation_flow recover-announce "${g[@]}" -- recover --account "$account" --new-key "${k}-next.pub" -f 1
+  wait_for_account "$account" '"pending":\{' "L-SMOKE-RECOVERY: the announcement is not pending"
+  local before
+  before=$(native_balance "$account")
+  try_alone recover-frozen "${k}-owner.key" transfer --from "$account" --to "$carol" --amount 1000
+  sleep $((SLOT_DURATION * 4))
+  (($(native_balance "$account") > before - 1000)) || die "L-SMOKE-RECOVERY: a frozen account paid"
+  operation_flow recover-withdraw "${g[@]}" -- withdraw-recovery --account "$account" -f 1
+  wait_for_account_without "$account" '"pending"' "L-SMOKE-RECOVERY: the set's withdrawal did not clear it"
+  before=$(native_balance "$account")
+  operation_flow recover-unfrozen "${k}-owner.key" -- transfer --from "$account" --to "$carol" --amount 10 -f 1
+  wait_for_balance_below "$account" $((before - 10)) "L-SMOKE-RECOVERY: the account's key does not sign again"
+  echo -e "${GREEN}✓ Announced: the account was frozen; the set withdrew it and the account's key signs again${NC}"
+
+  operation_flow recover-again "${g[@]}" -- recover --account "$account" --new-key "${k}-next.pub" -f 1
+  wait_for_account "$account" '"pending":\{' "L-SMOKE-RECOVERY: the second announcement is not pending"
+  local next
+  next=$(tr -d ' \n' <"${k}-next.pub" | sed 's/^0x//' | cut -c1-64 | tr 'A-F' 'a-f')
+  # Half an epoch of delay: applied at the first epoch start after it, at most two epochs on.
+  wait_for_account_without "$account" '"pending"' "L-SMOKE-RECOVERY: the recovery did not apply" \
+    $((SLOT_DURATION * SLOTS_PER_EPOCH * 3 + 30))
+  grep -Eqi "\"publicKeys\":\[\"(0x)?${next}" <<<"$(account_json "$account")" ||
+    die "L-SMOKE-RECOVERY: the account's keys are not the announced ones: $(account_json "$account")"
+  before=$(native_balance "$account")
+  operation_flow recover-pays "${k}-next.key" -- transfer --from "$account" --to "$carol" --amount 10 -f 1
+  wait_for_balance_below "$account" $((before - 10)) "L-SMOKE-RECOVERY: the new key's transfer did not land"
+  before=$(native_balance "$account")
+  try_alone recover-old "${k}-owner.key" transfer --from "$account" --to "$carol" --amount 1000
+  sleep $((SLOT_DURATION * 4))
+  (($(native_balance "$account") > before - 1000)) || die "L-SMOKE-RECOVERY: the old key still signs for the account"
+  echo -e "${GREEN}✓ Account ${account} recovered: the announced key signs, the old one no longer does${NC}"
+}
+
+# A 5-letter domain from number $1: D and four letters of it in base 26 (one per account).
+domain_for() {
+  local n=$1 out="" letters=(A B C D E F G H I J K L M N O P Q R S T U V W X Y Z)
+  for _ in 1 2 3 4; do
+    out="${letters[$((n % 26))]}$out"
+    n=$((n / 26))
+  done
+  echo "D$out"
+}
+
+# An issued account id from $1 up that the chain does not hold yet (a network kept up across runs).
+unused_issued_id() {
+  local id=$1
+  while grep -q '"mBalances"' <<<"$(account_json "$id")"; do
+    id=$((id + 1))
+  done
+  echo "$id"
+}
+
+# Domains (projects/domains): the system accounts named in the genesis block; the registrar creates an
+# issued account with a domain, and gives another one its domain later; each proven from block 0's hash.
+# Needs the registrar funded (run_token_scenario).
+run_domain_scenario() {
+  local key_dir="${TEST_DIR}/keys" g=() genesis json
+  for i in 1 2 3; do g+=("${key_dir}/registrar$i.key"); done
+  genesis=$(run_pp_client -b --host "$(relay_multiaddr)" block 0 2>/dev/null | tr -d ' \n' |
+    sed -n 's/^{"hash":"\(0x[0-9a-f]*\)".*/\1/p')
+  [[ -n "$genesis" ]] || die "L-SMOKE-DOMAIN: cannot read block 0's hash"
+  verified_domain() { # <domain>: its proven JSON, spaces removed (the node may hold a block above the signed tip)
+    local attempt out
+    for attempt in 1 2 3; do
+      if out=$(run_pp_client -b --host "$(relay_multiaddr)" verified-domain "$1" --genesis-hash "$genesis" 2>&1); then
+        tr -d ' \n' <<<"$out"
+        return 0
+      fi
+      sleep 2
+    done
+    echo "$out"
+  }
+  echo -e "${CYAN}Domains: the system names, an issuer named at creation and one named later, proven...${NC}"
+  json=$(verified_domain REG)
+  grep -q '"verified":true' <<<"$json" && grep -q '"account":2,' <<<"$json" ||
+    die "L-SMOKE-DOMAIN: REG is not proven the registrar's: $json"
+  json=$(verified_domain ppl)
+  grep -q '"account":0,' <<<"$json" || die "L-SMOKE-DOMAIN: PPL is not proven the genesis account's: $json"
+
+  local named later
+  named=$(unused_issued_id $(((1 << 20) + 300)))
+  local domain
+  domain=$(domain_for "$named")
+  generate_tx_keypair "named-${named}" >/dev/null
+  operation_flow named-account "${g[@]}" -- new-account --from 2 --id "$named" \
+    --account-key "${key_dir}/named-${named}.pub" --amount 2000 --domain "$domain" -f 1
+  wait_for_account "$named" "\"domain\":\"$domain\"" "L-SMOKE-DOMAIN: the issued account was not created with its domain"
+  json=$(verified_domain "$domain")
+  grep -q "\"account\":${named}," <<<"$json" ||
+    die "L-SMOKE-DOMAIN: $domain is not proven account ${named}'s: $json"
+  echo -e "${GREEN}✓ REG and PPL are the system's; ${domain} is account ${named}'s from its creation, proven${NC}"
+
+  later=$(unused_issued_id $((named + 1)))
+  local laterDomain
+  laterDomain=$(domain_for "$later")
+  generate_tx_keypair "named-${later}" >/dev/null
+  operation_flow later-account "${g[@]}" -- new-account --from 2 --id "$later" \
+    --account-key "${key_dir}/named-${later}.pub" --amount 2000 -f 1
+  wait_for_account "$later" '"mBalances":\{"0":[1-9]' "L-SMOKE-DOMAIN: the second issued account was not created"
+  operation_flow later-domain "${g[@]}" -- assign-domain --account "$later" --domain "$laterDomain" -f 1
+  wait_for_account "$later" "\"domain\":\"$laterDomain\"" "L-SMOKE-DOMAIN: the registrar's assignment did not land"
+  json=$(run_pp_client -b --host "$(relay_multiaddr)" domain "$laterDomain" 2>/dev/null | tr -d ' \n')
+  grep -q "\"account\":${later}" <<<"$json" || die "L-SMOKE-DOMAIN: $laterDomain does not point at ${later}: $json"
+  echo -e "${GREEN}✓ The registrar gave account ${later} its domain ${laterDomain} later${NC}"
 }
 
 # Register an account as a miner (T_MINER_REGISTER, signed by the account) and wait until the
@@ -1874,7 +2059,8 @@ run_takeover_scenario() {
   # The next leader commits the certificate in block cutover+1; the new beacon signs it.
   local deadline=$((SECONDS + 120)) committed=""
   while ((SECONDS < deadline)); do
-    committed=$(grep -a -l "commits the beacon certificate held" "${TEST_DIR}"/miner*/miner.log 2>/dev/null | head -1)
+    # No match yet is no error (set -e, pipefail): the loop polls on.
+    committed=$(grep -a -l "commits the beacon certificate held" "${TEST_DIR}"/miner*/miner.log 2>/dev/null | head -1 || true)
     [[ -n "$committed" ]] && grep -a -q "Beacon certificate generation 2 in force from block $((cutover + 1))" \
       "$relay2/beacon.log" && break
     sleep 1
@@ -1904,6 +2090,70 @@ run_takeover_scenario() {
   local stopped
   stopped=$(all_processes_alive) || die "L-SMOKE-TAKEOVER: ${stopped} stopped"
   echo -e "${GREEN}✓ L-SMOKE-TAKEOVER: relay1 and ${NUM_MINERS} miner(s) follow generation 2 (block ${served% *}) through relay3; clocks recalibrated${NC}"
+  TAKEOVER_CUTOVER=$cutover
+}
+
+# ---- A service's feed (docs/contracts/SERVICE_API.md): pp-http /api/chain/ on the service's own relay ----
+
+# pp-http beside a service, reading relay1 (the service's own relay; it verifies the chain).
+start_chain_api() {
+  [[ -x "$BUILD_DIR/app/pp-http" ]] || die "pp-http not built (PP_LEDGER_BUILD_HTTP)"
+  local dir="${TEST_DIR}/chain-api"
+  mkdir -p "$dir"
+  run_bg_cmd "$dir/console.log" "$BUILD_DIR/app/pp-http" --port "$HTTP_PORT" \
+    --beacon "$(relay_multiaddr)" --miner "$(miner_multiaddr 1)"
+  save_pid "chain-api" $!
+  local deadline=$((SECONDS + 60))
+  until chain_get /api/chain/status >/dev/null 2>&1; do
+    ((SECONDS < deadline)) || { cat "$dir/console.log" >&2 || true; die "chain API: /api/chain/status never answered"; }
+    sleep 1
+  done
+  echo -e "${GREEN}✓ pp-http /api/chain/ on ${HTTP_PORT}, reading the relay${NC}"
+}
+
+chain_get() { # path → body; fails on an HTTP error
+  curl -sf "http://127.0.0.1:${HTTP_PORT}$1"
+}
+
+chain_field() { # path, key → the first string field of that name
+  chain_get "$1" 2>/dev/null | tr -d ' \n' | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p"
+}
+
+# Bob's balance through /api/chain/accounts matches the node's; his transfers are in the block feed,
+# amounts as decimal strings.
+check_chain_feed() {
+  local bob=$(((1 << 30) + 1)) deadline=$((SECONDS + 120)) ours="" theirs=""
+  while ((SECONDS < deadline)); do
+    ours=$(chain_get "/api/chain/accounts/${bob}" 2>/dev/null | tr -d ' \n' | sed -n 's/.*"balances":{"0":"\([0-9]*\)".*/\1/p')
+    theirs=$(native_balance "$bob")
+    [[ -n "$ours" && "$ours" -gt 5000 && "$ours" == "$theirs" ]] && break
+    sleep 2
+  done
+  [[ -n "$ours" && "$ours" -gt 5000 && "$ours" == "$theirs" ]] ||
+    die "chain API: bob's balance '${ours}' does not match the node's '${theirs}'"
+  local next feed
+  next=$(chain_field /api/chain/status nextBlockId)
+  feed=$(chain_get "/api/chain/blocks?from=1&limit=100" | tr -d ' \n')
+  [[ "$feed" == *"\"to\":\"${bob}\",\"amount\":\""* ]] || die "chain API: no transfer to bob in blocks 1.. (next ${next})"
+  echo -e "${GREEN}✓ Chain API: bob's balance ${ours} matches the node; his transfers are in the feed${NC}"
+}
+
+# After a takeover: the relay follows generation 2 past the cutover, and the feed links across it.
+check_chain_after_takeover() {
+  local cutover=$1 deadline=$((SECONDS + 120)) generation="" tip=""
+  while ((SECONDS < deadline)); do
+    generation=$(chain_field /api/chain/status generation)
+    tip=$(chain_field /api/chain/status tipHeight)
+    [[ "$generation" == "2" && -n "$tip" && "$tip" -gt "$cutover" ]] && break
+    sleep 2
+  done
+  [[ "$generation" == "2" && "$tip" -gt "$cutover" ]] ||
+    die "chain API: not following generation 2 past ${cutover} (generation '${generation}', tip '${tip}')"
+  local at after
+  at=$(chain_get "/api/chain/blocks?from=${cutover}&limit=1" | tr -d ' \n' | sed -n 's/.*"hash":"\([0-9a-f]*\)".*/\1/p')
+  after=$(chain_get "/api/chain/blocks?from=$((cutover + 1))&limit=1" | tr -d ' \n' | sed -n 's/.*"previousHash":"\([0-9a-f]*\)".*/\1/p')
+  [[ -n "$at" && "$at" == "$after" ]] || die "chain API: block $((cutover + 1)) does not link to the cutover block"
+  echo -e "${GREEN}✓ Chain API: generation 2 at block ${tip}, linked across the cutover ${cutover}${NC}"
 }
 
 # The beacon's multiaddr on its new host: the same peer id (its identity key moves with it), the
@@ -1967,7 +2217,7 @@ run_move_scenario() {
     die "L-SMOKE-MOVE: the moved beacon listens at $(relay_multiaddr beacon-moved), not ${new_ma}"
   # It resumes from the tip it signed on the old host, at least the one the relay served.
   local resumed
-  resumed=$(grep -a -o "Signed tip: block [0-9]*, generation 1" "$new/beacon.log" | head -1 | sed 's/[^0-9]*\([0-9]*\),.*/\1/')
+  resumed=$(grep -a -o "Signed tip: block [0-9]*, generation 1" "$new/beacon.log" | head -1 | sed 's/[^0-9]*\([0-9]*\),.*/\1/' || true)
   [[ -n "$resumed" && "$resumed" -ge "${before% *}" ]] ||
     die "L-SMOKE-MOVE: the moved beacon resumed from tip '${resumed}', below the relay's ${before% *}"
   echo -e "${GREEN}✓ Beacon started on the new address, from its signed tip (block ${resumed})${NC}"

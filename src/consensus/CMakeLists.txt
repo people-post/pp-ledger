@@ -17,23 +17,13 @@ set(CONSENSUS_SOURCES
 
 # Header files
 set(CONSENSUS_HEADERS
-    SlotCommittee.h
-    EpochSeed.h
-    Types.hpp
-    SlotLeaderSelection.h
-    EpochManager.h
-    SlotTimer.h
 )
 
 # Create the library
 add_library(pp_consensus STATIC ${CONSENSUS_SOURCES} ${CONSENSUS_HEADERS})
 
 # Include directories
-target_include_directories(pp_consensus
-    PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${PP_SRC_DIR}
-)
+target_include_directories(pp_consensus PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 
 # Link with lib (for Module, Logger, ResultOrError)
 target_link_libraries(pp_consensus

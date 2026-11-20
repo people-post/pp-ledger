@@ -1,8 +1,8 @@
-#include "TipSigner.h"
-#include "UpstreamSignedTip.h"
-#include "lib/common/BinaryPack.hpp"
-#include "lib/common/Utilities.h"
-#include "TestTempPath.h"
+#include "server/TipSigner.h"
+#include "server/UpstreamSignedTip.h"
+#include "ledger/lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/Utilities.h"
+#include "testing/TestTempPath.h"
 
 #include <gtest/gtest.h>
 
@@ -40,7 +40,7 @@ protected:
   BeaconCertificate cert_;
 };
 
-Client::SignedTip tipAt(uint64_t height, uint64_t generation = 1, const std::string &hash = "") {
+Client::SignedTip tipAt(uint64_t height, uint64_t generation = 1, const std::string& hash = "") {
   Client::SignedTip tip;
   tip.networkId = "test-net";
   tip.generation = generation;

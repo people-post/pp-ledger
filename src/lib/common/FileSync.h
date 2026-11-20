@@ -13,20 +13,20 @@ namespace pp::utl {
  */
 
 /** Put `path`'s written bytes on the device (fsync; F_FULLFSYNC on macOS; FlushFileBuffers on Windows). */
-pp::Roe<void> syncFile(const std::string &path);
+pp::Roe<void> syncFile(const std::string& path);
 
 /**
  * Put directory `path`'s entries (files created, renamed or removed in it) on the device. POSIX
  * only; on Windows a no-op — replaceFile renames with write-through there.
  */
-pp::Roe<void> syncDirectory(const std::string &path);
+pp::Roe<void> syncDirectory(const std::string& path);
 
 /**
  * Replace `path` with `bytes` durably: write `path`.tmp, sync it, rename it over `path`, sync the
  * directory. After a crash or a power loss the file holds the old bytes or the new, never part of
  * either.
  */
-pp::Roe<void> replaceFile(const std::string &path, const std::string &bytes);
+pp::Roe<void> replaceFile(const std::string& path, const std::string& bytes);
 
 } // namespace pp::utl
 

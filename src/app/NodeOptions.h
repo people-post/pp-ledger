@@ -21,7 +21,7 @@ struct NodeOptions {
   bool debug{false};
   std::string logFile;
 
-  void add(CLI::App &app) {
+  void add(CLI::App& app) {
     app.add_option("-d,--work-dir", workDir, "Work directory (required)")->envname("PP_LEDGER_WORK_DIR")->required();
     app.add_option("--log-level", logLevel, "Log level: debug, info, warning or error")
         ->envname("PP_LEDGER_LOG_LEVEL")

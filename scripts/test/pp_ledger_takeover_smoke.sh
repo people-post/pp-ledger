@@ -6,6 +6,9 @@
 # a leader commits the certificate in the block after the cutover, and relay1 and the miners follow
 # generation 2 through relay3.
 #
+# pp-http's /api/chain/ (a service's feed) reads relay1 throughout: an account's balance and its
+# transfers before, generation 2 linked across the cutover after.
+#
 # Usage:
 #   ./scripts/test/pp_ledger_takeover_smoke.sh
 set -euo pipefail
@@ -24,9 +27,12 @@ start_relay
 start_relay relay2 "$RELAY2_PORT"
 start_relay relay3 "$RELAY3_PORT" "$(relay_multiaddr relay2)"
 start_all_miners
+start_chain_api
 inject_transactions_for_block_production
 
 wait_for_beacon_rpc 60
+check_chain_feed
 run_takeover_scenario
+check_chain_after_takeover "$TAKEOVER_CUTOVER"
 stop_network || true
 echo -e "${GREEN}L-SMOKE-TAKEOVER PASSED${NC}"

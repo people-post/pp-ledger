@@ -1,13 +1,13 @@
-#include "UpstreamTipWatch.h"
+#include "server/UpstreamTipWatch.h"
 
 #include <algorithm>
 
 namespace pp {
 
-UpstreamTipWatch::UpstreamTipWatch(Client &client, Hooks hooks)
+UpstreamTipWatch::UpstreamTipWatch(Client& client, Hooks hooks)
     : UpstreamTipWatch(client, std::move(hooks), Options{}) {}
 
-UpstreamTipWatch::UpstreamTipWatch(Client &client, Hooks hooks, Options options)
+UpstreamTipWatch::UpstreamTipWatch(Client& client, Hooks hooks, Options options)
     : client_(client), hooks_(std::move(hooks)), options_(options) {}
 
 void UpstreamTipWatch::maintain() {

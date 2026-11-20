@@ -1,18 +1,17 @@
-#include "AmpLedgerTransport.h"
-#include "Client.h"
+#include "client/AmpLedgerTransport.h"
+#include "ledger/client/Client.h"
 #include <algorithm>
 #include <variant>
 #include <thread>
 #include <random>
 #include "common/Logger.h"
-#include "lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/BinaryPack.hpp"
 #include "common/Serialize.hpp"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <sstream>
 
 namespace pp {
-
 
 std::ostream& operator<<(std::ostream& os, const Client::Request& req) {
   os << "Request{version=" << req.version << ", type=" << req.type << ", payload=" << req.payload.size() << " bytes}";
@@ -24,7 +23,7 @@ std::string Client::SignedTip::signingMessage() const {
          utl::binaryPack(height) + utl::binaryPack(blockHash);
 }
 
-bool Client::SignedTip::verify(const std::string &publicKey) const {
+bool Client::SignedTip::verify(const std::string& publicKey) const {
   return utl::mlDsaVerify(publicKey, signingMessage(), signature);
 }
 
@@ -35,7 +34,7 @@ std::string Client::SignedTip::ltsToString() const {
   return oss.str();
 }
 
-bool Client::SignedTip::ltsFromString(const std::string &str) {
+bool Client::SignedTip::ltsFromString(const std::string& str) {
   std::istringstream iss(str, std::ios::binary);
   InputArchive ar(iss);
   uint32_t version = 0;
@@ -43,7 +42,7 @@ bool Client::SignedTip::ltsFromString(const std::string &str) {
   if (version != VERSION) {
     return false;
   }
-  ar & *this;
+  ar&* this;
   return !ar.failed();
 }
 
@@ -54,7 +53,7 @@ std::string Client::RewindReport::ltsToString() const {
   return oss.str();
 }
 
-bool Client::RewindReport::ltsFromString(const std::string &str) {
+bool Client::RewindReport::ltsFromString(const std::string& str) {
   std::istringstream iss(str, std::ios::binary);
   InputArchive ar(iss);
   uint32_t version = 0;
@@ -62,11 +61,11 @@ bool Client::RewindReport::ltsFromString(const std::string &str) {
   if (version != VERSION) {
     return false;
   }
-  ar & *this;
+  ar&* this;
   return !ar.failed();
 }
 
-std::optional<Client::Equivocation> Client::Equivocation::of(const SignedTip &a, const SignedTip &b) {
+std::optional<Client::Equivocation> Client::Equivocation::of(const SignedTip& a, const SignedTip& b) {
   if (a.networkId != b.networkId || a.generation != b.generation || a.height != b.height ||
       a.blockHash == b.blockHash) {
     return std::nullopt;
@@ -77,7 +76,7 @@ std::optional<Client::Equivocation> Client::Equivocation::of(const SignedTip &a,
   return evidence;
 }
 
-bool Client::Equivocation::verify(const std::string &publicKey) const {
+bool Client::Equivocation::verify(const std::string& publicKey) const {
   auto shaped = of(first, second);
   return shaped && *shaped == *this && first.verify(publicKey) && second.verify(publicKey);
 }
@@ -89,7 +88,7 @@ std::string Client::Equivocation::ltsToString() const {
   return oss.str();
 }
 
-bool Client::Equivocation::ltsFromString(const std::string &str) {
+bool Client::Equivocation::ltsFromString(const std::string& str) {
   std::istringstream iss(str, std::ios::binary);
   InputArchive ar(iss);
   uint32_t version = 0;
@@ -97,13 +96,13 @@ bool Client::Equivocation::ltsFromString(const std::string &str) {
   if (version != VERSION) {
     return false;
   }
-  ar & *this;
+  ar&* this;
   return !ar.failed();
 }
 
-std::string Client::MinerInfo::signingMessage(const std::string &networkId) const {
-  return std::string("pp-ledger/miner-register/v2") + utl::binaryPack(networkId) + utl::binaryPack(id) +
-         utl::binaryPack(issuedAt);
+std::string Client::MinerInfo::signingMessage(const std::string& networkId) const {
+  return std::string("pp-ledger/miner-register/v3") + utl::binaryPack(networkId) + utl::binaryPack(id) +
+         utl::binaryPack(issuedAt) + utl::binaryPack(peerId);
 }
 
 pp::common::Meta Client::MinerInfo::ltsToMeta() const {
@@ -111,14 +110,18 @@ pp::common::Meta Client::MinerInfo::ltsToMeta() const {
   m.setUIntForJson("id", id);
   m.set("tLastMessage", tLastMessage);
   m.set("issuedAt", issuedAt);
+  if (!peerId.empty()) {
+    m.set("peerId", peerId);
+  }
   m.set("signatures", utl::binaryPack(signatures));
   return m;
 }
 
-Client::Roe<bool> Client::MinerInfo::ltsFromMeta(const pp::common::Meta &meta) {
+Client::Roe<bool> Client::MinerInfo::ltsFromMeta(const pp::common::Meta& meta) {
   id = meta.getNonNegInt("id").value_or(0);
   tLastMessage = meta.getOrDefault("tLastMessage", int64_t{0});
   issuedAt = meta.getOrDefault("issuedAt", int64_t{0});
+  peerId = meta.getOrDefault("peerId", std::string{});
   signatures.clear();
   if (auto packed = meta.getOrDefault("signatures", std::string{}); !packed.empty()) {
     auto unpacked = utl::binaryUnpack<std::vector<std::string>>(packed);
@@ -144,7 +147,7 @@ pp::common::Meta Client::MinerStatus::ltsToMeta() const {
   return m;
 }
 
-Client::Roe<bool> Client::MinerStatus::ltsFromMeta(const pp::common::Meta &meta) {
+Client::Roe<bool> Client::MinerStatus::ltsFromMeta(const pp::common::Meta& meta) {
   minerId = meta.getNonNegInt("minerId").value_or(0);
   stake = meta.getNonNegInt("stake").value_or(0);
   nextBlockId = meta.getNonNegInt("nextBlockId").value_or(0);
@@ -165,6 +168,12 @@ pp::common::Meta Client::BeaconState::ltsToMeta() const {
   m.setUIntForJson("currentSlot", currentSlot);
   m.setUIntForJson("currentEpoch", currentEpoch);
   m.setUIntForJson("nStakeholders", nStakeholders);
+  if (finalizedHeight) {
+    m.setUIntForJson("finalizedHeight", *finalizedHeight);
+  }
+  if (finalitySeconds > 0) {
+    m.setUIntForJson("finalitySeconds", finalitySeconds);
+  }
   if (!networkId.empty()) {
     m.set("networkId", networkId);
   }
@@ -192,7 +201,7 @@ pp::common::Meta Client::BeaconState::ltsToMeta() const {
   return m;
 }
 
-Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta) {
+Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta& meta) {
   currentTimestamp = meta.getOrDefault("currentTimestamp", int64_t{0});
   checkpointId = meta.getNonNegInt("checkpointId").value_or(0);
   nextBlockId = meta.getNonNegInt("nextBlockId").value_or(0);
@@ -242,55 +251,60 @@ Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta)
     }
     rewound = report;
   }
+  finalizedHeight.reset();
+  if (auto finalized = meta.getNonNegInt("finalizedHeight")) {
+    finalizedHeight = *finalized;
+  }
+  finalitySeconds = meta.getNonNegInt("finalitySeconds").value_or(0);
   return true;
 }
 
 std::string Client::requestTypeName(uint32_t type) {
   switch (type) {
-  case T_REQ_STATUS:
-    return "status";
-  case T_REQ_REGISTER:
-    return "register";
-  case T_REQ_MINER_LIST:
-    return "miner_list";
-  case T_REQ_CALIBRATION:
-    return "calibration";
-  case T_REQ_HEALTH:
-    return "health";
-  case T_REQ_BLOCK_GET:
-    return "block_get";
-  case T_REQ_BLOCK_ADD:
-    return "block_add";
-  case T_REQ_BLOCK_WAIT:
-    return "block_wait";
-  case T_REQ_AUTHORITY_PROOF:
-    return "authority_proof";
-  case T_REQ_EQUIVOCATION_ADD:
-    return "equivocation_add";
-  case T_REQ_PRODUCER_STATS:
-    return "producer_stats";
-  case T_REQ_ACCOUNT_PROOF:
-    return "account_proof";
-  case T_REQ_ACCOUNT_GET:
-    return "account_get";
-  case T_REQ_CONFIG_GET:
-    return "config_get";
-  case T_REQ_DOMAIN_GET:
-    return "domain_get";
-  case T_REQ_NAME_GET:
-    return "name_get";
-  case T_REQ_NAME_GET_BY_WALLET:
-    return "name_get_by_wallet";
-  case T_REQ_TX_GET_BY_WALLET:
-    return "tx_get_by_wallet";
-  case T_REQ_TX_ADD:
-    return "tx_add";
-  case T_REQ_TX_GET_BY_INDEX:
-    return "tx_get_by_index";
-  case T_REQ_TX_PULL:
-    return "tx_pull";
-  default:
-    return "type_" + std::to_string(type);
+    case T_REQ_STATUS:
+      return "status";
+    case T_REQ_REGISTER:
+      return "register";
+    case T_REQ_MINER_LIST:
+      return "miner_list";
+    case T_REQ_CALIBRATION:
+      return "calibration";
+    case T_REQ_HEALTH:
+      return "health";
+    case T_REQ_BLOCK_GET:
+      return "block_get";
+    case T_REQ_BLOCK_ADD:
+      return "block_add";
+    case T_REQ_BLOCK_WAIT:
+      return "block_wait";
+    case T_REQ_AUTHORITY_PROOF:
+      return "authority_proof";
+    case T_REQ_EQUIVOCATION_ADD:
+      return "equivocation_add";
+    case T_REQ_PRODUCER_STATS:
+      return "producer_stats";
+    case T_REQ_ACCOUNT_PROOF:
+      return "account_proof";
+    case T_REQ_ACCOUNT_GET:
+      return "account_get";
+    case T_REQ_CONFIG_GET:
+      return "config_get";
+    case T_REQ_DOMAIN_GET:
+      return "domain_get";
+    case T_REQ_NAME_GET:
+      return "name_get";
+    case T_REQ_NAME_GET_BY_WALLET:
+      return "name_get_by_wallet";
+    case T_REQ_TX_GET_BY_WALLET:
+      return "tx_get_by_wallet";
+    case T_REQ_TX_ADD:
+      return "tx_add";
+    case T_REQ_TX_GET_BY_INDEX:
+      return "tx_get_by_index";
+    case T_REQ_TX_PULL:
+      return "tx_pull";
+    default:
+      return "type_" + std::to_string(type);
   }
 }
 
@@ -321,7 +335,7 @@ pp::common::Meta Client::NodeHealth::ltsToMeta() const {
   m.set("reportAgeMs", reportAgeMs);
   std::vector<pp::common::Meta::Value> counts;
   counts.reserve(requests.size());
-  for (const auto &count : requests) {
+  for (const auto& count : requests) {
     auto c = std::make_shared<pp::common::Meta>();
     c->setUIntForJson("type", count.type);
     c->setUIntForJson("served", count.served);
@@ -335,7 +349,7 @@ pp::common::Meta Client::NodeHealth::ltsToMeta() const {
   m.setUIntForJson("requestsExpired", requestsExpired);
   m.setUIntForJson("loopTurnsSlow", loopTurnsSlow);
   m.setUIntForJson("loopTurnMaxMs", loopTurnMaxMs);
-  const auto setOptional = [&m](const char *key, const std::optional<uint64_t> &value) {
+  const auto setOptional = [&m](const char* key, const std::optional<uint64_t>& value) {
     if (value) {
       m.setUIntForJson(key, *value);
     }
@@ -366,7 +380,7 @@ pp::common::Meta Client::NodeHealth::ltsToMeta() const {
   return m;
 }
 
-Client::Roe<bool> Client::NodeHealth::ltsFromMeta(const pp::common::Meta &meta) {
+Client::Roe<bool> Client::NodeHealth::ltsFromMeta(const pp::common::Meta& meta) {
   role = meta.getOrDefault("role", std::string{});
   peerId = meta.getOrDefault("peerId", std::string{});
   networkId = meta.getOrDefault("networkId", std::string{});
@@ -386,9 +400,9 @@ Client::Roe<bool> Client::NodeHealth::ltsFromMeta(const pp::common::Meta &meta) 
   requestQueueDepth = meta.getNonNegInt("requestQueueDepth").value_or(0);
   reportAgeMs = meta.getOrDefault("reportAgeMs", int64_t{-1});
   requests.clear();
-  if (const auto *counts = meta.getArray("requests")) {
-    for (const auto &value : counts->elements) {
-      const auto *c = pp::common::asObject(value);
+  if (const auto* counts = meta.getArray("requests")) {
+    for (const auto& value : counts->elements) {
+      const auto* c = pp::common::asObject(value);
       if (!c) {
         continue;
       }
@@ -439,7 +453,7 @@ Client::Roe<bool> Client::NodeHealth::ltsFromMeta(const pp::common::Meta &meta) 
 pp::common::Meta Client::TxGetByWalletResponse::ltsToMeta() const {
   std::vector<pp::common::Meta::Value> txs;
   txs.reserve(transactions.size());
-  for (const auto &tx : transactions) {
+  for (const auto& tx : transactions) {
     txs.push_back(std::make_shared<pp::common::Meta>(tx.ltsToMeta()));
   }
   pp::common::Meta j;
@@ -459,7 +473,7 @@ Client::Client() = default;
 
 Client::~Client() = default;
 
-void Client::attachAmpTransport(network::LedgerAmpRuntime& runtime, std::string default_peer_key) {
+void Client::attachAmpTransport(network::AmpHost& runtime, std::string default_peer_key) {
   amp_default_peer_key_ = std::move(default_peer_key);
   transport_ = std::make_unique<AmpLedgerTransport>(runtime, amp_default_peer_key_);
   if (auto* amp = dynamic_cast<AmpLedgerTransport*>(transport_.get())) {
@@ -485,22 +499,22 @@ void Client::setTransport(std::unique_ptr<ILedgerTransport> transport) {
 
 std::string Client::getErrorMessage(uint16_t errorCode) {
   switch (errorCode) {
-  case E_NOT_CONNECTED:
-    return "Not connected to server";
-  case E_INVALID_RESPONSE:
-    return "Invalid response from server";
-  case E_SERVER_ERROR:
-    return "Server error";
-  case E_PARSE_ERROR:
-    return "Failed to parse response";
-  case E_REQUEST_FAILED:
-    return "Request failed";
-  default:
-    return "Unknown error";
+    case E_NOT_CONNECTED:
+      return "Not connected to server";
+    case E_INVALID_RESPONSE:
+      return "Invalid response from server";
+    case E_SERVER_ERROR:
+      return "Server error";
+    case E_PARSE_ERROR:
+      return "Failed to parse response";
+    case E_REQUEST_FAILED:
+      return "Request failed";
+    default:
+      return "Unknown error";
   }
 }
 
-std::string Client::packRequest(uint32_t type, const std::string &payload, std::chrono::milliseconds timeout) {
+std::string Client::packRequest(uint32_t type, const std::string& payload, std::chrono::milliseconds timeout) {
   Request req;
   req.version = Request::VERSION;
   req.type = type;
@@ -510,19 +524,18 @@ std::string Client::packRequest(uint32_t type, const std::string &payload, std::
   return utl::binaryPack(req);
 }
 
-Client::Roe<std::string> Client::parseResponse(const ILedgerTransport::Roe<std::string> &result) {
+Client::Roe<std::string> Client::parseResponse(const ILedgerTransport::Roe<std::string>& result) {
   if (!result.isOk()) {
     if (isOverloadCode(result.error().code)) { // the way to the peer is full (InFlightLimit): busy, not failed
       return Error(result.error().code, result.error().message);
     }
-    return Error(E_REQUEST_FAILED,
-                 getErrorMessage(E_REQUEST_FAILED) + ": " + result.error().message);
+    return Error(E_REQUEST_FAILED, getErrorMessage(E_REQUEST_FAILED) + ": " + result.error().message);
   }
   auto respResult = utl::binaryUnpack<Response>(result.value());
   if (!respResult) {
     return Error(E_INVALID_RESPONSE, respResult.error().message);
   }
-  const Response &resp = respResult.value();
+  const Response& resp = respResult.value();
   if (resp.isError()) {
     Error error(isOverloadCode(resp.errorCode) ? resp.errorCode : E_SERVER_ERROR, resp.payload);
     error.retryAfterMs = resp.retryAfterMs;
@@ -531,7 +544,7 @@ Client::Roe<std::string> Client::parseResponse(const ILedgerTransport::Roe<std::
   return resp.payload;
 }
 
-Client::Roe<std::string> Client::sendRequest(uint32_t type, const std::string &payload,
+Client::Roe<std::string> Client::sendRequest(uint32_t type, const std::string& payload,
                                              std::chrono::milliseconds timeout) {
   if (!transport_) {
     return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
@@ -539,22 +552,21 @@ Client::Roe<std::string> Client::sendRequest(uint32_t type, const std::string &p
   return parseResponse(transport_->roundTrip(packRequest(type, payload, timeout), timeout));
 }
 
-void Client::sendRequestAsync(uint32_t type, const std::string &payload,
-                              std::chrono::milliseconds timeout, Done<std::string> done) {
+void Client::sendRequestAsync(uint32_t type, const std::string& payload, std::chrono::milliseconds timeout,
+                              Done<std::string> done) {
   if (!transport_) {
     done(Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED)));
     return;
   }
-  transport_->roundTripAsync(packRequest(type, payload, timeout), timeout,
-                             [done = std::move(done)](ILedgerTransport::Roe<std::string> result) {
-                               done(parseResponse(result));
-                             });
+  transport_->roundTripAsync(
+      packRequest(type, payload, timeout), timeout,
+      [done = std::move(done)](ILedgerTransport::Roe<std::string> result) { done(parseResponse(result)); });
 }
 
-void Client::requestAsync(uint32_t type, const std::string &payload, Done<std::string> done,
+void Client::requestAsync(uint32_t type, const std::string& payload, Done<std::string> done,
                           std::chrono::milliseconds timeout) {
-  const bool carriesData = type == T_REQ_TX_ADD || type == T_REQ_BLOCK_ADD || type == T_REQ_BLOCK_GET ||
-                           type == T_REQ_TX_GET_BY_WALLET;
+  const bool carriesData =
+      type == T_REQ_TX_ADD || type == T_REQ_BLOCK_ADD || type == T_REQ_BLOCK_GET || type == T_REQ_TX_GET_BY_WALLET;
   sendRequestAsync(type, payload, orDefault(timeout, carriesData ? dataTimeout() : fastTimeout()), std::move(done));
 }
 
@@ -583,7 +595,7 @@ Client::Roe<Client::AuthorityProof> Client::fetchAuthorityProof(uint64_t upToBlo
   return proof.value();
 }
 
-Client::Roe<Ledger::ChainNode> Client::parseBlock(const std::string &payload) {
+Client::Roe<Ledger::ChainNode> Client::parseBlock(const std::string& payload) {
   Ledger::ChainNode node;
   if (!node.ltsFromString(payload)) {
     return Error(E_INVALID_RESPONSE, "Failed to deserialize block");
@@ -599,7 +611,7 @@ void Client::fetchBlockAsync(uint64_t blockId, Done<Ledger::ChainNode> done) {
                    });
 }
 
-Client::Roe<Client::TipReply> Client::parseTipReply(const std::string &payload) {
+Client::Roe<Client::TipReply> Client::parseTipReply(const std::string& payload) {
   auto reply = utl::binaryUnpack<TipReply>(payload);
   if (!reply) {
     return Error(E_INVALID_RESPONSE, "Invalid tip reply: " + reply.error().message);
@@ -643,11 +655,10 @@ Client::Roe<GenesisAccountMeta> Client::fetchGenesisMeta() {
   return meta;
 }
 
-Client::Roe<Client::BeaconState> Client::parseBeaconState(const std::string &payload) {
+Client::Roe<Client::BeaconState> Client::parseBeaconState(const std::string& payload) {
   auto metaResult = utl::binaryUnpack<pp::common::Meta>(payload);
   if (!metaResult) {
-    return Error(E_INVALID_RESPONSE,
-                 "Failed to unpack beacon state Meta: " + metaResult.error().message);
+    return Error(E_INVALID_RESPONSE, "Failed to unpack beacon state Meta: " + metaResult.error().message);
   }
   BeaconState state;
   auto parseResult = state.ltsFromMeta(metaResult.value());
@@ -673,7 +684,7 @@ Client::Roe<Client::NodeHealth> Client::fetchHealth() {
   return health;
 }
 
-Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo &minerInfo) {
+Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo& minerInfo) {
   log().debug << "Registering miner server: " << minerInfo.id;
 
   std::string payload = utl::binaryPack(minerInfo.ltsToMeta());
@@ -684,7 +695,7 @@ Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo &mi
   return parseBeaconState(result.value());
 }
 
-void Client::registerMinerServerAsync(const MinerInfo &minerInfo, Done<BeaconState> done,
+void Client::registerMinerServerAsync(const MinerInfo& minerInfo, Done<BeaconState> done,
                                       std::chrono::milliseconds timeout) {
   sendRequestAsync(T_REQ_REGISTER, utl::binaryPack(minerInfo.ltsToMeta()), orDefault(timeout, fastTimeout()),
                    [done = std::move(done)](Roe<std::string> result) {
@@ -702,7 +713,7 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   return parseBeaconState(result.value());
 }
 
-std::string Client::withRemainingDeadline(const std::string &body, uint32_t remainingMs) {
+std::string Client::withRemainingDeadline(const std::string& body, uint32_t remainingMs) {
   auto request = utl::binaryUnpack<Request>(body);
   if (!request || request.value().version < 2 || request.value().deadlineMs == 0 ||
       request.value().deadlineMs <= remainingMs || utl::binaryPack(request.value()) != body) {
@@ -740,7 +751,7 @@ Client::Roe<Client::CalibrationResponse> Client::fetchCalibration() {
   return parseCalibration(result.value());
 }
 
-Client::Roe<Client::CalibrationResponse> Client::parseCalibration(const std::string &payload) {
+Client::Roe<Client::CalibrationResponse> Client::parseCalibration(const std::string& payload) {
   auto roe = utl::binaryUnpack<CalibrationResponse>(payload);
   if (!roe) {
     return Error(E_INVALID_RESPONSE, "Failed to unpack calibration response: " + roe.error().message);
@@ -755,15 +766,14 @@ void Client::fetchCalibrationAsync(Done<CalibrationResponse> done) {
   });
 }
 
-Client::Roe<std::vector<Client::MinerInfo>> Client::parseMinerList(const std::string &payload) {
+Client::Roe<std::vector<Client::MinerInfo>> Client::parseMinerList(const std::string& payload) {
   auto listResult = utl::binaryUnpack<std::vector<pp::common::Meta>>(payload);
   if (!listResult) {
-    return Error(E_INVALID_RESPONSE,
-                 "Failed to unpack miner list: " + listResult.error().message);
+    return Error(E_INVALID_RESPONSE, "Failed to unpack miner list: " + listResult.error().message);
   }
   std::vector<MinerInfo> miners;
   miners.reserve(listResult.value().size());
-  for (const auto &meta : listResult.value()) {
+  for (const auto& meta : listResult.value()) {
     MinerInfo info;
     auto parseResult = info.ltsFromMeta(meta);
     if (!parseResult) {
@@ -785,9 +795,23 @@ Client::Roe<std::vector<Client::MinerInfo>> Client::fetchMinerList() {
 }
 
 void Client::fetchMinerListAsync(Done<std::vector<MinerInfo>> done, std::chrono::milliseconds timeout) {
-  sendRequestAsync(T_REQ_MINER_LIST, "", orDefault(timeout, fastTimeout()), [done = std::move(done)](Roe<std::string> result) {
-    done(result ? parseMinerList(result.value()) : Roe<std::vector<MinerInfo>>(result.error()));
-  });
+  sendRequestAsync(T_REQ_MINER_LIST, "", orDefault(timeout, fastTimeout()),
+                   [done = std::move(done)](Roe<std::string> result) {
+                     done(result ? parseMinerList(result.value()) : Roe<std::vector<MinerInfo>>(result.error()));
+                   });
+}
+
+Client::Roe<Client::DomainProof> Client::fetchDomainProof(const std::string& domain) {
+  log().debug << "Requesting the proof of domain " << domain;
+  auto result = sendRequest(T_REQ_DOMAIN_GET, utl::binaryPack(domain), dataTimeout());
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  auto proof = utl::binaryUnpack<DomainProof>(result.value());
+  if (!proof) {
+    return Error(E_INVALID_RESPONSE, "Failed to unpack the domain proof: " + proof.error().message);
+  }
+  return proof.value();
 }
 
 Client::Roe<Client::AccountProof> Client::fetchAccountProof(uint64_t accountId) {
@@ -803,7 +827,7 @@ Client::Roe<Client::AccountProof> Client::fetchAccountProof(uint64_t accountId) 
   return proof.value();
 }
 
-Client::Roe<Client::ProducerStatsResponse> Client::fetchProducerStats(const ProducerStatsRequest &request) {
+Client::Roe<Client::ProducerStatsResponse> Client::fetchProducerStats(const ProducerStatsRequest& request) {
   log().debug << "Requesting producer stats: blocks " << request.fromBlockId << " to " << request.toBlockId;
   auto result = sendRequest(T_REQ_PRODUCER_STATS, utl::binaryPack(request), dataTimeout());
   if (!result) {
@@ -816,7 +840,7 @@ Client::Roe<Client::ProducerStatsResponse> Client::fetchProducerStats(const Prod
   return response.value();
 }
 
-Client::Roe<Client::TxGetByWalletResponse> Client::fetchTransactionsByWallet(const TxGetByWalletRequest &request) {
+Client::Roe<Client::TxGetByWalletResponse> Client::fetchTransactionsByWallet(const TxGetByWalletRequest& request) {
   log().debug << "Requesting transactions by wallet: " << request.walletId << " " << request.beforeBlockId;
 
   std::string payload = utl::binaryPack(request);
@@ -828,13 +852,13 @@ Client::Roe<Client::TxGetByWalletResponse> Client::fetchTransactionsByWallet(con
 
   auto responseResult = utl::binaryUnpack<TxGetByWalletResponse>(result.value());
   if (!responseResult) {
-    return Error(E_INVALID_RESPONSE, "Failed to unpack transactions by wallet response: " + responseResult.error().message);
+    return Error(E_INVALID_RESPONSE,
+                 "Failed to unpack transactions by wallet response: " + responseResult.error().message);
   }
   return responseResult.value();
 }
 
-Client::Roe<Ledger::Record>
-Client::fetchTransactionByIndex(const TxGetByIndexRequest &request) {
+Client::Roe<Ledger::Record> Client::fetchTransactionByIndex(const TxGetByIndexRequest& request) {
   log().debug << "Requesting transaction by index: " << request.txIndex;
 
   std::string payload = utl::binaryPack(request);
@@ -846,7 +870,8 @@ Client::fetchTransactionByIndex(const TxGetByIndexRequest &request) {
 
   auto responseResult = utl::binaryUnpack<Ledger::Record>(result.value());
   if (!responseResult) {
-    return Error(E_INVALID_RESPONSE, "Failed to unpack transaction by index response: " + responseResult.error().message);
+    return Error(E_INVALID_RESPONSE,
+                 "Failed to unpack transaction by index response: " + responseResult.error().message);
   }
   return responseResult.value();
 }
@@ -862,7 +887,7 @@ Client::Roe<Client::TipReply> Client::addBlock(const Ledger::ChainNode& block) {
   return parseTipReply(result.value());
 }
 
-void Client::addBlockAsync(const Ledger::ChainNode &block, Done<TipReply> done, std::chrono::milliseconds timeout) {
+void Client::addBlockAsync(const Ledger::ChainNode& block, Done<TipReply> done, std::chrono::milliseconds timeout) {
   log().debug << "Adding block " << block.block.index;
   sendRequestAsync(T_REQ_BLOCK_ADD, block.ltsToString(), orDefault(timeout, dataTimeout()),
                    [done = std::move(done)](Roe<std::string> result) {
@@ -872,19 +897,19 @@ void Client::addBlockAsync(const Ledger::ChainNode &block, Done<TipReply> done, 
 
 // MinerServer API - Transaction operations
 
-Client::Roe<std::string> Client::submitTransaction(const Ledger::Record &record, std::chrono::milliseconds maxWait) {
+Client::Roe<std::string> Client::submitTransaction(const Ledger::Record& record, std::chrono::milliseconds maxWait) {
   using Clock = std::chrono::steady_clock;
   auto deadline = Clock::now() + maxWait;
   // The transaction's own window bounds it too: past it, no node would take it.
   if (auto typed = record.decode()) {
     std::visit(
-        [&](const auto &tx) {
+        [&](const auto& tx) {
           using T = std::decay_t<decltype(tx)>;
           if constexpr (std::is_base_of_v<Ledger::TxIdempotencyWindow, T>) {
             if (tx.validationTsMax > 0) {
-              const auto left = std::chrono::seconds(tx.validationTsMax) -
-                                std::chrono::duration_cast<std::chrono::seconds>(
-                                    std::chrono::system_clock::now().time_since_epoch());
+              const auto left =
+                  std::chrono::seconds(tx.validationTsMax) -
+                  std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch());
               deadline = std::min(deadline, Clock::now() + std::max(left, std::chrono::seconds(0)));
             }
           }
@@ -901,8 +926,8 @@ Client::Roe<std::string> Client::submitTransaction(const Ledger::Record &record,
     }
     auto wait = result.error().retryAfterMs > 0 ? std::chrono::milliseconds(result.error().retryAfterMs) : backoff;
     backoff = std::min(backoff * 2, std::chrono::milliseconds(10000));
-    wait = std::chrono::milliseconds(
-        static_cast<int64_t>(static_cast<double>(wait.count()) * std::uniform_real_distribution<double>(0.8, 1.2)(rng)));
+    wait = std::chrono::milliseconds(static_cast<int64_t>(static_cast<double>(wait.count()) *
+                                                          std::uniform_real_distribution<double>(0.8, 1.2)(rng)));
     if (Clock::now() + wait >= deadline) {
       return result;
     }
@@ -912,7 +937,7 @@ Client::Roe<std::string> Client::submitTransaction(const Ledger::Record &record,
   }
 }
 
-Client::Roe<void> Client::addTransaction(const Ledger::Record &record) {
+Client::Roe<void> Client::addTransaction(const Ledger::Record& record) {
   log().debug << "Adding transaction";
 
   std::string payload = utl::binaryPack(record);
@@ -926,32 +951,32 @@ Client::Roe<void> Client::addTransaction(const Ledger::Record &record) {
 
 void Client::pullTransactionsAsync(uint64_t slot, Done<std::vector<Ledger::Record>> done,
                                    std::chrono::milliseconds timeout) {
-  sendRequestAsync(T_REQ_TX_PULL, utl::binaryPack(slot), orDefault(timeout, dataTimeout()),
-                   [done = std::move(done)](Roe<std::string> result) {
-    if (!result) {
-      done(Roe<std::vector<Ledger::Record>>(result.error()));
-      return;
-    }
-    auto records = utl::binaryUnpack<std::vector<Ledger::Record>>(result.value());
-    done(records ? Roe<std::vector<Ledger::Record>>(std::move(records.value()))
-                 : Roe<std::vector<Ledger::Record>>(Error(E_INVALID_RESPONSE, "Invalid transaction pull reply")));
-  });
+  sendRequestAsync(
+      T_REQ_TX_PULL, utl::binaryPack(slot), orDefault(timeout, dataTimeout()),
+      [done = std::move(done)](Roe<std::string> result) {
+        if (!result) {
+          done(Roe<std::vector<Ledger::Record>>(result.error()));
+          return;
+        }
+        auto records = utl::binaryUnpack<std::vector<Ledger::Record>>(result.value());
+        done(records ? Roe<std::vector<Ledger::Record>>(std::move(records.value()))
+                     : Roe<std::vector<Ledger::Record>>(Error(E_INVALID_RESPONSE, "Invalid transaction pull reply")));
+      });
 }
 
-Client::Roe<std::string> Client::addEquivocation(const Equivocation &evidence) {
+Client::Roe<std::string> Client::addEquivocation(const Equivocation& evidence) {
   return sendRequest(T_REQ_EQUIVOCATION_ADD, evidence.ltsToString(), dataTimeout());
 }
 
-void Client::addEquivocationAsync(const Equivocation &evidence, Done<std::string> done,
+void Client::addEquivocationAsync(const Equivocation& evidence, Done<std::string> done,
                                   std::chrono::milliseconds timeout) {
   sendRequestAsync(T_REQ_EQUIVOCATION_ADD, evidence.ltsToString(), orDefault(timeout, dataTimeout()), std::move(done));
 }
 
-void Client::addTransactionAsync(const Ledger::Record &record, Done<void> done, std::chrono::milliseconds timeout) {
-  sendRequestAsync(T_REQ_TX_ADD, utl::binaryPack(record), orDefault(timeout, dataTimeout()),
-                   [done = std::move(done)](Roe<std::string> result) {
-                     done(result ? Roe<void>() : Roe<void>(result.error()));
-                   });
+void Client::addTransactionAsync(const Ledger::Record& record, Done<void> done, std::chrono::milliseconds timeout) {
+  sendRequestAsync(
+      T_REQ_TX_ADD, utl::binaryPack(record), orDefault(timeout, dataTimeout()),
+      [done = std::move(done)](Roe<std::string> result) { done(result ? Roe<void>() : Roe<void>(result.error())); });
 }
 
 // MinerServer API - Status
@@ -966,9 +991,7 @@ Client::Roe<Client::MinerStatus> Client::fetchMinerStatus() {
 
   auto metaResult = utl::binaryUnpack<pp::common::Meta>(result.value());
   if (!metaResult) {
-    return Error(E_INVALID_RESPONSE,
-                 "Failed to unpack miner status Meta: " +
-                     metaResult.error().message);
+    return Error(E_INVALID_RESPONSE, "Failed to unpack miner status Meta: " + metaResult.error().message);
   }
   MinerStatus status;
   auto parseResult = status.ltsFromMeta(metaResult.value());

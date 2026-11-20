@@ -17,6 +17,20 @@ target_link_libraries(test_slot_committee PRIVATE
 
 gtest_discover_tests(test_slot_committee)
 
+# Epoch seed v2 and beacon seed hash chain
+add_executable(test_epoch_seed
+    test_epoch_seed.cpp
+)
+
+target_link_libraries(test_epoch_seed PRIVATE
+    pp_ledger_common
+    pp_consensus
+    GTest::gtest_main
+    GTest::gmock
+)
+
+gtest_discover_tests(test_epoch_seed)
+
 # EpochManager demo (not wired into Chain)
 add_executable(test_ouroboros_epoch
     test_ouroboros_epoch.cpp

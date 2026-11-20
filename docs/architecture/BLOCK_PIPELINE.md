@@ -29,7 +29,7 @@ partial header fields; callers should discard it (miner builds a fresh node).
 | Mode | Layers | Tx apply | Used by |
 |------|--------|----------|---------|
 | **Full** | structural + consensus + body | strict | Tip ingest; **all seals**; genesis→tip replay (`startingBlockId == 0`) |
-| **CheckpointReplay** | structural (incl. the committee field) | soft: effects on held accounts | `loadFromLedger` from checkpoint; live ingest while `currentId == lastId` |
+| **CheckpointReplay** | structural (incl. the committee field) | soft: effects on held accounts | Blocks before the rotation, live and in `loadFromLedger` from a checkpoint (`admissionModeFor` per block); live ingest while `currentId == lastId` |
 | **SealedCommitVerify** | structural only | n/a (already applied) | `commitSealedBlock` after `sealBlock` |
 
 Helpers: `admissionRunsConsensusAndBody`, `admissionTxStrict`.
@@ -61,8 +61,9 @@ are kept: `lastId` (where a miner starts) and `currentId`.
 
 1. A miner mounts with `startingBlockId = checkpointId` (its upstream's `lastId`) — a relay always
    mounts from block 0 and validates the whole chain in Full mode.
-2. **Warm-up** (`CheckpointReplay`, while `currentId == lastId`; `loadFromLedger` replays the same
-   way after a restart): the starting block's genesis renewal installs config, consensus,
+2. **Warm-up** (`CheckpointReplay`, while `currentId == lastId`; `loadFromLedger` admits each block
+   in the mode `admissionModeFor` gives it, as live admission did — CheckpointReplay up to the
+   rotation, Full after it — so a restart records the same committee snapshots): the starting block's genesis renewal installs config, consensus,
    authority and the genesis account (`Chain::installCheckpointState`); each epoch's committee
    comes from its first block, so leaders and liveness charges are exact; every effect lands on
    the accounts the node holds (`chain_tx::applyTransferToHeldAccounts` and the handlers' soft
@@ -70,6 +71,26 @@ are kept: `lastId` (where a miner starts) and `currentId`.
 3. Every account renews before the current checkpoint. From it (`index >= currentId` after the
    rotation) blocks are **Full** — `stateRoot` and the stake snapshot (computed from the node's own
    state) must match, which proves the warm-up exact.
+
+   **First Full epoch.** The committee of an epoch is the stake snapshot taken at the first block
+   of the epoch before it ([WIRE_SCHEMA.md § Leader election](../contracts/WIRE_SCHEMA.md#leader-election-live)).
+   The rotation block opens epoch `full` and is admitted in warm-up, so a joiner never takes the
+   snapshot at `full`'s start, which is epoch `full`+1's committee. For that one epoch, the one
+   after the epoch the rotation block opens, it takes the committee from `full`+1's opening block
+   (checked against `stakeSnapshotHash`, trusted as warm-up is); every later epoch uses the
+   node's own snapshots. Reveals the seed needs (`T_BEACON_SEED`) are replayed with the warm-up
+   blocks, unchecked there.
+
+   **Restart in the rotation epoch (accepted gap).** For the same reason a miner cannot *open*
+   epoch `full`+1 itself: it needs `full`'s start snapshot to seal that epoch's first block. A
+   joiner restarted (it replays from `lastId`) while its tip is still in `full`, or one that
+   joined there, elects no leader in `full`+1 (`Chain::refreshStakeholders` installs no
+   provisional committee when `committeeFor` errors) until another producer's block opens it.
+   If every producer is in that state, `full`+1 stays empty and the network recovers one epoch
+   later: with no block since `full` ended, `full`+2's committee is the bank's own candidates,
+   which every node computes. Liveness charges only a block's own epoch, so nobody is
+   deregistered for the empty epoch. Operators: do not restart all producers in the epoch a
+   checkpoint rotation opens (`CommitteeLagTest.AMinerRestartedInItsRotationEpochRecoversAnEpochLater`).
 4. **Produce/seal** (`Chain::sealReadiness`) requires Full, and blocks held back over the longest
    transaction validity window (`maxValidationTimespanSeconds`, config in force): idempotency is
    checked against held blocks, so a transaction committed before the node's first block could
@@ -129,10 +150,10 @@ Live code keeps these as **compile-time** constants (not `BlockChainConfig`):
 | Constant | Value | Location |
 |----------|-------|----------|
 | Committee max pool size | `100` | `SlotCommittee::kMaxLeaderPoolSize` |
-| Epoch-seed tip lookback | `8` | `consensus::kEpochSeedLookback` |
 | Most empty epochs a seed chains through | `1024` | `consensus::kMaxEmptyEpochs` |
+| Default / largest beacon seed chain | `10000` / `100000` epochs | `consensus::kDefaultBeaconSeedChainLength`, `kMaxBeaconSeedChainLength` |
 
-If either is ever exposed as a network knob, it **must** move into genesis
+If any is ever exposed as a network knob, it **must** move into genesis
 `BlockChainConfig` (and bump `GenesisAccountMeta` / wire docs): diverging values
 fork leader election / `epochSeed`. Prefer leaving them hardcoded until then.
 
@@ -142,7 +163,7 @@ fork leader election / `epochSeed`. Prefer leaving them hardcoded until then.
 |------|----------|
 | **Produce** | txs → `linkNextBlock` → UX `shouldAttemptProduction` → `sealBlock` → broadcast → `addBlock` → `commitSealedBlock` |
 | **Peer / beacon ingest** | `addBlock` → Check(`admissionModeFor`) → Apply → Commit |
-| **Replay** | `loadFromLedger` → Check(Full or CheckpointReplay) → Apply (no persist) |
+| **Replay** | `loadFromLedger` → Check(`admissionModeFor` per block: CheckpointReplay before the rotation, Full after) → Apply (no persist) |
 | **Late join** | Mount at the previous checkpoint → CheckpointReplay (warm-up) until the current checkpoint → then Full; no seal until Full; warm-up not re-Full-verified |
 
 Seal cannot run structural Check before Apply (hash needs `stateRoot`). It runs

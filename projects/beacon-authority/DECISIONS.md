@@ -541,7 +541,7 @@ nothing gained); charging the outage and re-registering miners afterwards.
 ## B025 — A node rewinds on its own only seven days deep
 
 **Date:** 2026-10-16
-**Superseded by:** [BEACON_AUTHORITY.md § Rewind](../../docs/contracts/BEACON_AUTHORITY.md#rewind) (normative; this entry keeps the why).
+**Superseded by:** [BEACON_AUTHORITY.md § Rewind](../../docs/contracts/BEACON_AUTHORITY.md#rewind) (normative; this entry keeps the why). The seven days were replaced by the chain's finality bound: a node rewinds on its own only when it drops no final block ([projects/finality FN003](../finality/DECISIONS.md)).
 **Decision:** A node applies a rewind unattended (B023) only when it reaches back at most seven days
 of slot time — from the cutover block, or the first block it holds when the cutover is older, to
 the last block it would drop (`rewind::kMaxAutomaticRewind`). Deeper, or when that cannot be read,

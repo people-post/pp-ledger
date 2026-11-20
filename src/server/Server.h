@@ -1,18 +1,18 @@
 #ifndef PP_LEDGER_SERVER_H
 #define PP_LEDGER_SERVER_H
 
-#include "../client/Client.h"
-#include "lib/common/Service.h"
-#include "../network/ServerAmpSupport.h"
-#include "BlockSync.h"
-#include "BlockWaitList.h"
-#include "NodeCore.h"
-#include "RequestQueue.h"
-#include "ClockCalibration.h"
-#include "UpstreamSet.h"
-#include "../network/NetworkTuning.h"
-#include "EnvConfig.h"
-#include "NodeConfig.h"
+#include "ledger/client/Client.h"
+#include "ledger/lib/common/Service.h"
+#include "network/ServerAmpSupport.h"
+#include "server/BlockSync.h"
+#include "server/BlockWaitList.h"
+#include "server/NodeCore.h"
+#include "server/RequestQueue.h"
+#include "server/ClockCalibration.h"
+#include "server/UpstreamSet.h"
+#include "ledger/network/NetworkTuning.h"
+#include "server/EnvConfig.h"
+#include "server/NodeConfig.h"
 
 #include <atomic>
 #include <chrono>
@@ -46,6 +46,20 @@ public:
   ~Server() override;
 
   virtual Service::Roe<void> run(const std::string& workDir);
+  /**
+   * Before run: serve on a host's Amp runtime — pp-node's mesh — instead of a socket of its own
+   * (platform-integration pi1). The node then has the host's identity and listen address; its
+   * configured port and identity key are not used, and the host keeps the runtime-wide settings.
+   */
+  void runOnHost(network::HostedAmpRuntime::Host host) { hostAmp_ = std::move(host); }
+  bool onHost() const { return hostAmp_.runtime != nullptr; }
+  /**
+   * Before run: told on the node's thread when its ledger protocols are bound (true — opens are
+   * served from now on: when a host advertises AmpLedgerServer::protocolIds()) and when they are
+   * about to be unbound (false, at stop — a host withdraws them first). A host's mesh refuses opens
+   * for protocols nothing serves, so advertising before `true` only earns peers refusals.
+   */
+  void setOnListening(std::function<void(bool listening)> onListening) { onListening_ = std::move(onListening); }
 
   /**
    * True when run() returned to be run again on a fresh server (beacon-authority bp1, B022): a
@@ -54,8 +68,8 @@ public:
   bool restartRequested() const { return restartRequested_; }
 
   /**
-   * Before run: the operator approves the rewind ordered by beacon generation `generation`, deeper
-   * than a node rewinds on its own (`--approve-rewind`; rewind::kMaxAutomaticRewind). 0 = none.
+   * Before run: the operator approves the rewind ordered by beacon generation `generation` when
+   * it drops final blocks (`--approve-rewind`; projects/finality FN003). 0 = none.
    */
   void setApprovedRewindGeneration(uint64_t generation) { approvedRewindGeneration_ = generation; }
 
@@ -69,8 +83,7 @@ public:
 protected:
   virtual bool useSignatureFile() const { return true; }
 
-  static Roe<void> ensureWorkDirectory(const std::string& workDir,
-                                       const std::string& signatureFileName,
+  static Roe<void> ensureWorkDirectory(const std::string& workDir, const std::string& signatureFileName,
                                        int32_t errorCode = -1);
 
   const std::string& getWorkDir() const { return workDir_; }
@@ -80,14 +93,14 @@ protected:
   virtual int32_t getRunErrorCode() const { return E_ROLE; }
 
   std::string listenMultiaddr() const;
-  network::LedgerAmpRuntime* ampRuntime();
+  /** The Amp runtime the node serves and its clients call on (its own or a host's); none before start. */
+  network::AmpHost* ampRuntime();
   pp::amp::PeerLinkManager* peerLinks();
 
   static std::string packResponse(const std::string& payload);
   static std::string packResponse(uint16_t errorCode, const std::string& message);
   /** An overload or deadline answer (Client::E_BUSY …, load-resilience LR007), with when to try again. */
   static std::string packError(uint16_t code, const std::string& message, uint32_t retryAfterMs = 0);
-
 
   /**
    * In the role's constructor: the core this server serves. The base then answers the chain reads
@@ -130,14 +143,16 @@ protected:
    * Wrap a continuation for an async Client call: the result (delivered on the
    * io lane) is handed to `fn` on the server thread.
    */
-  template <typename T, typename Fn> std::function<void(Client::Roe<T>)> completeOnServerThread(Fn fn) {
+  template <typename T, typename Fn>
+  std::function<void(Client::Roe<T>)> completeOnServerThread(Fn fn) {
     return [this, fn = std::move(fn)](Client::Roe<T> result) {
       postToServerThread([fn, result = std::move(result)]() mutable { fn(std::move(result)); });
     };
   }
 
   /** Pack a handler result (Roe<std::string>) into a response and send it. */
-  template <typename R> static void replyWith(const RequestQueue::Reply& reply, const R& result) {
+  template <typename R>
+  static void replyWith(const RequestQueue::Reply& reply, const R& result) {
     reply(result ? packResponse(result.value()) : packResponse(1, result.error().message));
   }
 
@@ -233,8 +248,14 @@ protected:
    * a miner's sync or block. Any thread.
    */
   bool isTrustedPeer(const std::string& peerId) const;
-  /** Server thread: `peerId` registered a miner the beacon accepted; trusted until it lapses. */
-  void noteMinerPeer(const std::string& peerId);
+  /**
+   * Server thread: miner `minerId`'s registration, accepted by the beacon, names `peerId` (signed)
+   * and came from it; that peer is trusted until it lapses. One peer per miner: a newer
+   * registration's peer replaces the one before.
+   */
+  void noteMinerPeer(uint64_t minerId, const std::string& peerId);
+  /** This node's AMP peer id (from its listen address; "" before it listens). */
+  std::string localPeerId() const;
   /** A registered miner's peer stays trusted this long without registering again (miners renew sooner). */
   static constexpr std::chrono::minutes kMinerPeerTtl{10};
 
@@ -279,7 +300,17 @@ protected:
     handshakeBacklog_ = config.handshakeBacklog;
     udpBufferBytes_ = config.udpBufferBytes;
   }
-  Service::Roe<void> startAmpServer(const network::LedgerAmpConfig& config);
+  /** This node's network identity key (a role's own choice: loadOrCreateIdentityKey, a miner's account key). */
+  using IdentityKeyFn = std::function<Service::Roe<std::string>()>;
+  /**
+   * Serve ledger RPC: on the host's runtime (runOnHost), else on a runtime of its own on UDP `port`
+   * with `identityKey` (asked only then).
+   */
+  Service::Roe<void> startAmpServer(uint16_t port, const IdentityKeyFn& identityKey);
+  /** startAmpServer on a runtime of its own: socket, identity, link limits and buffers from the config. */
+  Service::Roe<void> startOwnAmp(uint16_t port, const IdentityKeyFn& identityKey,
+                                 network::ServerAmpSupport::DispatchFn dispatch,
+                                 network::AmpLedgerServer::Options ingress);
   void stopAmpServer();
   bool isAmpServerRunning() const { return ampSupport_ && ampSupport_->isRunning(); }
 
@@ -329,6 +360,8 @@ private:
   };
   std::map<uint32_t, Route> routes_;
   std::unique_ptr<network::ServerAmpSupport> ampSupport_;
+  network::HostedAmpRuntime::Host hostAmp_;
+  std::function<void(bool listening)> onListening_;
   uint32_t maxLinks_{NodeConfig::kDefaultMaxLinks};
   uint32_t handshakeBacklog_{NodeConfig::kDefaultHandshakeBacklog};
   uint32_t udpBufferBytes_{NodeConfig::kDefaultUdpBufferBytes};
@@ -342,6 +375,8 @@ private:
   /** Peers that registered a miner through this node, and until when they are trusted. */
   mutable std::mutex minerPeersMutex_;
   std::map<std::string, std::chrono::steady_clock::time_point> minerPeers_;
+  /** The peer each miner's latest registration named (one trusted peer per miner). */
+  std::map<uint64_t, std::string> minerPeerOf_;
   size_t requestCapacity_{tuning_.requestQueueCapacity};
   /** A request older than this was given up on by its client: reply without doing the work. */
   std::chrono::milliseconds maxRequestWait_{tuning_.serverQueueExpiry()};

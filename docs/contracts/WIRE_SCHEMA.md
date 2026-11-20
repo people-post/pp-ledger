@@ -23,8 +23,9 @@ Genesis `previousHash` is `utl::zeroHash()` (32 zero bytes).
 
 ## Block
 
-`Ledger::Block::CURRENT_VERSION` is the on-disk/header version prefix: **7** (since state roots
-commit to account attachments, account leaf v2). A block of another version is not read.
+`Ledger::Block::CURRENT_VERSION` is the on-disk/header version prefix: **9** (7: state roots commit
+to account attachments, account leaf v2; 8: `finalAt`; 9: `producerSignatures`). A block of another
+version is not read.
 
 ### Header (hashed)
 
@@ -44,9 +45,10 @@ Block hash = `SHA-256(headerToString())` where `headerToString` packs:
 | `stateRoot` | 32 bytes | Post-apply account state |
 | `stakeSnapshotHash` | 32 bytes | Stake set used for leader election |
 | `epochSeed` | 32 bytes | Epoch lottery seed (same for all blocks in an epoch) |
+| `finalAt` | `int64` | Unix seconds from which this block and every block below it are final ([Config updates](#config-updates)) |
 
 Full block LTS for disk also appends the body after the header fields (`Block::ltsToString`,
-version **6**; other versions are refused). Hash does **not** include the body bytes directly.
+version **9**; other versions are refused). Hash does **not** include the body bytes directly.
 
 ### Body
 
@@ -55,6 +57,18 @@ version **6**; other versions are refused). Hash does **not** include the body b
   leaders from, sorted by id — the preimage of `stakeSnapshotHash`; empty in every other block.
   Checked in every admission mode (`chain_block::validateBlockCommittee`): a node warming up from a
   checkpoint, which holds only some accounts, takes each epoch's leaders from it.
+- `producerSignatures`: the slot leader account's signatures (its keys and `minSignatures`, as held
+  before the block) over
+
+  ```
+  "pp-ledger/block-producer/v1" || pack(networkId) || pack(block hash)
+  ```
+
+  Only the account elected for a slot produces its block: the leader is public, so a block anyone
+  sealed from public chain data in its name is refused. Checked in Full admission, on every node
+  (`Chain::checkProducerSigned`); the miner signs right after the seal. Empty only in blocks with no
+  producer (genesis, import blocks). Not hashed, and not counted in `maxBlockBytes` (at most one
+  signature per key of the leader's account).
 
 ### Commitments
 
@@ -66,9 +80,10 @@ version **6**; other versions are refused). Hash does **not** include the body b
 | `epochSeed` | See [Epoch seed](#epoch-seed) |
 
 `Chain::sealBlock` applies records once to the tip `AccountBuffer`, then sets
-`stateRoot` and `hash`. The matching `addBlock` persists without re-applying.
+`stateRoot`, `finalAt` and `hash`. The matching `addBlock` persists without re-applying.
 Validation of received blocks still applies on `addBlock` and checks `stateRoot`
-against the live tree root (O(1)).
+against the live tree root (O(1)) and `finalAt` against the rule (a node holding no block below
+its first checks only that it is not earlier than the block's own term).
 
 Genesis: `index=slot=slotLeader=epoch=txIndex=0`, empty stake snapshot, genesis
 `epochSeed`, then records: `T_GENESIS`, then `T_NEW_USER` for fee, reserve,
@@ -115,13 +130,17 @@ Changing `type` or replaying onto another network invalidates signatures.
 | 4 | `T_USER_UPDATE` | Account self-update |
 | 5 | `T_RENEWAL` | Miner renew |
 | 6 | `T_END_USER` | Miner close |
+| 7 | `T_DOMAIN_ASSIGN` | The registrar gives an issued account its domain ([Domains](#domains)) |
 | 16 | `T_MINER_REGISTER` | Account registers as a miner ([Miner registration and liveness](#miner-registration-and-liveness)) |
 | 17 | `T_MINER_REVOKE` | Account revokes its miner registration |
 | 18 | `T_BEACON_CERT` | Admin set certifies the next beacon generation ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md#later-generations--t_beacon_cert-record-18)) |
 | 19 | `T_RECOVERY` | Recovery set announces a new admin set, applied `delayEpochs` later ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md#recovery--t_recovery-record-19)) |
 | 20 | `T_IMPORT` | Re-genesis: one account of the predecessor network, in an import block; unsigned, fee 0 ([BEACON_AUTHORITY.md § Importing genesis](BEACON_AUTHORITY.md#importing-genesis)) |
+| 21 | `T_ACCOUNT_RECOVERY` | An account's recovery set announces its next keys (the account frozen until they apply), withdraws that, or changes itself ([Account recovery](#account-recovery)) |
+| 22 | `T_BEACON_SEED` | The beacon reveals its seed contribution for the next epoch ([Record 22](#t_beacon_seed-record-22)) |
 
-Ids 7–15 are reserved for name-directory / attachment (`docs/product/NAME_DIRECTORY.md`);
+
+Ids 8–15 are reserved for name-directory / attachment (`docs/product/NAME_DIRECTORY.md`);
 not installed in `RecordHandler`.
 
 ### Config updates
@@ -145,8 +164,20 @@ not installed in `RecordHandler`.
   (`0` = no heartbeats), so an idle chain still gets a block every epoch; `minerDueAfterSlots`
   is `0` (never due) or at least 12 hours of slots (`⌈43200 / slotDuration⌉`), so miners do not
   owe an empty block in nearly every slot they lead. Code: `chain_tx::validateLivenessSettings`.
+- **The finality bound** (beacon `--init` and every `T_CONFIG`; [projects/finality](../../projects/finality/DESIGN.md)):
+  `finalitySeconds` from 3600 (an hour) to 2 592 000 (30 days); 86 400 (a day) by default at
+  `--init`. Each block's header carries **`finalAt`** ([projects/finality](../../projects/finality/DECISIONS.md)
+  FN007): the later of the block below's `finalAt` and the block's slot start plus the bound in force
+  at its epoch (block 0: its slot start plus genesis's bound). A change binds blocks committed under
+  it only, so a raised bound never reopens a final block; the running maximum makes finality
+  prefix-closed, so a lowered one never makes a block final before the ones under it. The producer
+  sets it at seal; every node checks it with `stateRoot` and refuses a block with another value. A
+  node's **finalized height** is the highest block whose `finalAt` has passed by its calibrated clock;
+  a client reads the same from headers a signed tip vouches for. Nodes never undo a final block on
+  their own ([BEACON_AUTHORITY.md § Rewind](BEACON_AUTHORITY.md#rewind)). Code:
+  `chain_tx::validateFinality`, `Chain::expectedFinalAt`, `Chain::checkFinalAt`, `Chain::finalizedHeight`.
 - **A genesis renewal carries the config state.** Genesis meta (`GenesisAccountMeta`, version
-  12) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
+  14) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
   config), `authority` (below), and an import section (`hasImport`, `import` — a re-genesis's
   `T_GENESIS` only; `T_CONFIG` and renewals carrying one are refused). `T_GENESIS` and `T_CONFIG` carry no pending section (a
   `T_CONFIG`'s `config` is the update). A genesis `T_RENEWAL` — what a node starting from its
@@ -175,7 +206,9 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   |-------|------|------------|-------|
   | `[0, 1<<20)` | **System** — Genesis `0`, Reserve `1`, Registrar `2`, Fee `3`, Recycle `4`; rest reserved | Genesis block only | Never terminated (`T_END_USER` refused); renewal fee must be `0` (genesis included: it issues the native token, so a fee would be minted) |
   | `[1<<20, 1<<30)` | **Issued** (token issuers, operator-created accounts) | Registrar | Normal renewal / termination; issues the token whose id is its own (below) |
-  | `[1<<30, …)` | **Users** | Any funded account except genesis | Normal renewal / termination |
+  | `[1<<30, 1<<63)` | **Users** | Any funded account except genesis | Normal renewal / termination |
+
+  Account ids stay below 2⁶³: the state tree's keys from there up are [domains](#domains)'.
 
   **Custom tokens.** An issued account issues one token, the one whose id is its account id: it
   sends it without holding it, and its balance of it goes negative — minus the supply outstanding
@@ -212,9 +245,14 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   after `slotStart(x.slot) - checkpoint.minAgeSeconds` (`calculateMaxBlockIdForRenewal`; the
   block's slot time, never a node's clock). The slot leader signs renewals, so a renewal re-records
   the account **as it is**: its keys, threshold, key type and meta must equal the committed ones
-  (the meta recorded at the account's last write); only the renewal fee leaves its balance.
-  Changing them takes the account's own `T_USER_UPDATE`, signed by the keys in force: it replaces the
-  keys, threshold and meta, and pays its fee from the account's native balance **as the chain has
+  (the meta recorded at the account's last write); only the renewal fee leaves its balance. That fee
+  is **exactly** the account's renewal fee (`calculateMinimumFeeForAccountMeta` on its committed
+  meta), never the leader's choice, and the renewal is valid only when the account's native balance
+  covers it. Only a **due** account is renewed or ended: none before the first cut-off
+  (`maxBlockIdForRenewal` 0), and an account written at or after the cut-off is not due (the
+  checkpoint's genesis renewal excepted). Changing them takes the account's own `T_USER_UPDATE`, signed by the keys in force: it replaces the
+  keys, threshold and meta (and names the account's first recovery set: [Account
+  recovery](#account-recovery); refused while a recovery is announced), and pays its fee from the account's native balance **as the chain has
   it** — balances in its meta are ignored, so renewals or transfers landing between its making and
   its inclusion do not void it (refused when that balance cannot pay the fee). An account that cannot pay its renewal fee is ended
   instead (`T_END_USER`, fee `0`): its `meta` carries the balances it leaves to the recycle account
@@ -243,40 +281,54 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   (`chain_tx::validateBlockLimits`, at `--init` and every `T_CONFIG`).
 - A transfer (`T_DEFAULT`) cannot pay its own account.
 
-`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **12**)
+`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **14**)
 includes slot timing, fees, checkpoint policy, `networkId`, `heartbeatSlots`
 (empty-seal lag; `0` disables), issuance and account fees, the miner settings
-([Miner registration and liveness](#miner-registration-and-liveness)), and `maxBlockBytes`
-([Block size](#block-size); last, version 11).
+([Miner registration and liveness](#miner-registration-and-liveness)), `maxBlockBytes`
+([Block size](#block-size); version 11), and `finalitySeconds` ([Config updates](#config-updates);
+last, version 14).
+
+## `T_BEACON_SEED` (record 22)
+
+`{epoch, reveal}` (`TxBeaconSeed`; `reveal` 32 raw bytes). Signed by the certified beacon key,
+no fee. The certificate in force commits to a hash chain: `seedAnchor` = `H^N(s)`,
+`H(x) = SHA-256("pp-ledger/beacon-seed/v1" || x)`, `N` = `seedChainLength` (1 to 100000),
+valid from `seedAnchorEpoch` ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md#seed-chain)).
+
+- Valid only in a block of epoch `tx.epoch − 1`, with `seedAnchorEpoch < tx.epoch ≤
+  seedAnchorEpoch + N`.
+- `reveal` = `H^(N − (e − seedAnchorEpoch))(s)` for `e = tx.epoch`: `H` applied
+  `e − seedAnchorEpoch` times gives the anchor.
+- At most one per epoch, and at most one per block; allowed in a renewals-only block.
+- A certificate with an empty `seedAnchor` accepts none: every epoch's seed is the absent one.
+- CheckpointReplay records it without checking it (the source is trusted there); Full checks it.
 
 ## Epoch seed
 
 Public 32-byte seed for the SlotCommittee lottery, committed on every block
-header (`epochSeed`). Same value for all blocks in an epoch; derived at the
-epoch boundary so leaders are not predictable from stake alone until the
-previous epoch’s tip material is known.
+header (`epochSeed`). Same value for all blocks in an epoch. It carries no
+block hash and no stake hash, so no block producer can steer it: the only
+input after epoch `E-1` begins is the beacon's reveal, which the beacon
+committed to in advance ([Record 22](#t_beacon_seed-record-22)).
 
 Implemented in `consensus::EpochSeed` + `Chain::ensureEpochSeed` / `sealBlock`:
 
 | Epoch | Derivation |
 |-------|------------|
 | `0` | `SHA-256("pp-ledger/epoch-seed/genesis/v1" \|\| len(networkId) \|\| networkId \|\| genesisConfigDigest \|\| 32×0)` |
-| `E>0` | `SHA-256("pp-ledger/epoch-seed/v1" \|\| E \|\| len(networkId) \|\| networkId \|\| prevEpochSeed \|\| tipMaterial \|\| stakeSnapshotHash)` |
+| `E>0` | `SHA-256("pp-ledger/epoch-seed/v2" \|\| E \|\| len(networkId) \|\| networkId \|\| seed(E-1) \|\| present \|\| reveal)` |
 
-`tipMaterial` = lookback over up to **K=`kEpochSeedLookback` (8)** block hashes
-from epoch `E-1` (oldest→newest):
-`SHA-256("pp-ledger/epoch-seed/lookback/v1" || k || hashes…)`.
-Constant lives in `consensus::kEpochSeedLookback` (not chain config; see
-[BLOCK_PIPELINE.md — Protocol constants](../architecture/BLOCK_PIPELINE.md#protocol-constants-fork-critical-if-changed)).
-If epoch `E-1` produced no blocks:
-`SHA-256("pp-ledger/epoch-seed/empty-prev/v1" \|\| (E-1) \|\| prevEpochSeed)`.
-Seeds chain through any run of empty epochs this way, each from the one before (an empty
-epoch's stake snapshot is the bank after the last block), so a chain survives idle epochs — up
-to **`kMaxEmptyEpochs` (1024)** in a row after the last block's epoch; past that no seed is
-derived and the chain stops.
+`present` is one byte, `1` with the 32-byte `reveal` of epoch `E` following it, `0`
+with nothing after it (the beacon's chain is empty, exhausted, or no reveal was
+recorded). `seed(E-1)` is the seed of the previous epoch whether or not it had
+blocks: seeds chain through any run of empty epochs, each from the one before, up to
+**`kMaxEmptyEpochs` (1024)** in a row after the last block's epoch; past that no seed is
+derived and the chain stops. Once a block of `E` is held, `E`'s seed is read from its
+header, not derived again.
 
 Validators reject blocks whose `epochSeed` ≠ the locally derived/installed seed
-for that epoch.
+for that epoch. The seed of `E` is fixed once the reveal for `E` is on chain (during
+`E-1`); an unrecorded reveal means the "absent" seed.
 
 ## Leader election (live)
 
@@ -302,16 +354,20 @@ classic Ouroboros / stake-weighted VRF on blocks):
 Blocks commit `epoch` + `stakeSnapshotHash` + `epochSeed` so verifiers can check
 the election inputs.
 
-**Snapshot point (fork-critical):** an epoch's stake snapshot and seed are
-taken from the chain as it stands just before that epoch's **first block** —
-after every block of earlier epochs. They never depend on when a node's clock
-crossed the epoch boundary: a node may elect leaders with a provisional
-snapshot/seed ahead of that block, but re-derives both at the first block, and
-a late block from an earlier epoch drops anything recorded for later epochs. Demo VRF / `EpochNonce` under `SlotLeaderSelection` are
+**Committee lag (fork-critical):** the committee of epoch `E` is the state after the last
+block of epochs ≤ `E-2` — the stake snapshot taken at `E-1`'s first block, or the
+current candidates when `E-1` has no blocks (also `E` = 0 or 1). The reveal behind `E`'s
+seed is public during `E-1`, so nothing done after it can reorder `E`'s committee.
+A checkpoint joiner never took `E-1`'s snapshot for its first Full epoch: there it
+trusts the committee carried by the epoch's opening block (checked against
+`stakeSnapshotHash`), for that one epoch only. A producer that cannot form the
+committee refuses to seal. Neither committee nor seed depends on when a node's clock
+crossed the epoch boundary: a node may elect leaders with a provisional committee/seed
+ahead of the first block, but re-derives both at it, and a late block from an earlier
+epoch drops anything recorded for later epochs. Demo VRF / `EpochNonce` under `SlotLeaderSelection` are
 **not** on the live `Chain` path. Ouroboros is a literature reference only.
 
-**Domain:** `slot-committee/v2` (binary domain + seed). Block `CURRENT_VERSION` is **5**
-(carries `epochSeed`).
+**Domain:** `slot-committee/v2` (binary domain + seed). Block `CURRENT_VERSION` is **9**.
 
 ## Slot timing
 
@@ -325,9 +381,13 @@ the beacon within the **delivery window** after the slot's end.
 - **Timestamp** (structural, every node, replay included): a block for slot *s* carries its seal
   time, `slotEnd(s) ≤ timestamp` and `timestamp·1000 < slotEnd(s)·1000 + D` (whole seconds,
   rounded down). A timestamp inside the slot is refused.
-- **Delivery deadline** (beacon only, live admission): `BLOCK_ADD` for slot *s* is refused once the
-  beacon's clock passes `slotEnd(s) + D` ("arrived after its delivery deadline"); the slot is then
-  empty. Never checked on replay, late join or by relays: every node follows the beacon's chain.
+- **Delivery window** (beacon only, live admission): `BLOCK_ADD` for slot *s* is taken only in
+  `[slotEnd(s) − D/2, slotEnd(s) + D)` on the beacon's clock ("arrived outside its delivery
+  window"; `SlotCommittee::isInDeliveryWindow`). After it, the slot is empty. Before it — a block
+  for a slot not ended, which would skip the leaders of the slots before it while they run — it is
+  refused; the `D/2` allows a leader's clock a little ahead, and leaves every earlier leader its
+  whole window (`D ≤ slot / 3`). Never checked on replay, late join or by relays: every node
+  follows the beacon's chain.
   An already-held block is still answered as such (idempotent resend).
 - **Leader** (`MinerServer::handleSlotLeaderRole`): pulls the beacon's pool one pull wait
   (`min(1 s, slot / 3)`) before its slot ends, then seals in `[slotEnd, slotEnd + D)`. Its pending
@@ -367,7 +427,7 @@ time window, and header commitments still apply. Policy helper:
 ## Miner registration and liveness
 
 Only **registered miners** are elected ([Leader election](#leader-election-live)). Registration is
-on-chain account state (`Wallet.miner`, `UserAccount` version **2**): `registered`,
+on-chain account state (`Wallet.miner`, `UserAccount` version **4**): `registered`,
 `lastProducedSlot`, `missedDue`, `autoDeregisteredEpoch`. Account creation and update cannot
 set it (a new account carries the default state; an update or renewal keeps it); only the rules
 below change it, in place — the account's `blockId` (where renewal reads its meta) does not move.
@@ -393,7 +453,9 @@ All five are chain config: a `T_CONFIG` changes them at the next epoch boundary.
   `autoDeregisteredEpoch`.
 - `T_MINER_REVOKE` — the account must be registered; meta-size fee. Clears `registered`.
 
-Either takes effect in the committee at the next epoch's stake snapshot (its first block).
+Either takes effect in the committee two epochs on: it reaches the stake snapshot at the next epoch's
+first block, and the committee of an epoch is that snapshot of the epoch before it
+([Committee lag](#leader-election-live)).
 Genesis miners are registered at block 0. There is no slashing: the cool-down is the penalty.
 
 **Liveness.** A registered miner is **due** at slot `s` when `minerDueAfterSlots > 0` and
@@ -407,7 +469,7 @@ After a block's records apply (fork-critical order, before `stateRoot`), every n
 1. for each slot the block skipped **in its own epoch** (after the previous block's slot), takes
    the slot's elected leader; if it was due at that slot, `missedDue += 1`; at
    `minerMaxMissedSlots` the miner is deregistered (`registered = false`, `missedDue = 0`,
-   `autoDeregisteredEpoch` = the block's epoch) and leaves the committee at the next snapshot;
+   `autoDeregisteredEpoch` = the block's epoch) and leaves the committee as a revoke does;
 2. if the producer is registered, sets its `lastProducedSlot` to the block's slot and
    `missedDue = 0`.
 
@@ -417,13 +479,102 @@ certificate with a cutover — the first block after a beacon outage
 (`isMinerDue`, `applyMinerLiveness`); `pp-client miner-register` / `miner-revoke`; pp-miner
 warns when its account is not a registered miner.
 
+## Account recovery
+
+Any account but genesis — user, issued, and the system accounts reserve, registrar, fee and recycle —
+may name a **recovery set**: keys that stand above the account's own. The set can give the account
+new keys — when its keys are lost, or stolen — and only the set changes itself (design and rationale:
+`projects/account-recovery`). **Genesis has none:** its way back is the genesis recovery set in the
+chain authority ([BEACON_AUTHORITY § Recovery](BEACON_AUTHORITY.md#recovery--t_recovery-record-19)).
+A genesis wallet carrying a recovery is refused on every path that writes it (genesis, `T_CONFIG`,
+the leader-signed renewal), and a due recovery never applies to genesis. A re-genesis carries an account's set over
+(a system account's excepted: it takes new keys and no set); an announcement waiting restarts its delay from
+the new network's start ([BEACON_AUTHORITY § Importing genesis](BEACON_AUTHORITY.md#importing-genesis)). It is account state in the account's leaf,
+so proven like a balance ([Account proofs](#account-proofs)): `Wallet.recovery` (`AccountRecovery`,
+`UserAccount` version **4**):
+
+| Field | Holds |
+|-------|-------|
+| `publicKeys`, `minSignatures` | The recovery set and how many of it sign its actions (none: no recovery) |
+| `delaySeconds` | From an announcement's slot to the earliest its keys take over: at least half an epoch |
+| `pending`, `nextPublicKeys`, `nextMinSignatures`, `applyEpoch`, `announcedAt` | An announcement waiting: the account's next keys, the epoch they take over at, the block that announced them |
+
+**The first set.** Account creation (`T_NEW_USER`) or the account's own update (`T_USER_UPDATE`,
+signed by its keys) may name it while the account has none: `publicKeys` (1–32 distinct ML-DSA-65
+keys), `minSignatures` (1 … their number), `delaySeconds` ≥ half an epoch (`slotDuration ×
+slotsPerEpoch / 2`); never for a system account, never the pending fields
+(`AccountPolicy::validateRecoverySet`). Once it has a set, every update and renewal carries
+`recovery` unchanged: the account's keys neither change nor remove it.
+
+**`T_ACCOUNT_RECOVERY` (21)** — `TxAccountRecovery`: `walletId`, `fee`, `meta`
+(`AccountRecoveryAction`: `kind`, `publicKeys`, `minSignatures`, `delaySeconds`), `idempotentId`,
+`validationTsMin`, `validationTsMax`. **Signed by the account's recovery set** (its threshold), never
+by its keys; refused for an account with no set. Fee ≥ the base fee (billed size 0: keys are not
+custom metadata), from the account's native balance, to the fee account.
+
+| `kind` | Does | Refused when |
+|--------|------|--------------|
+| 1 `ANNOUNCE` | Sets `pending` with the next `publicKeys` and `minSignatures`, `applyEpoch` (below), `announcedAt` = its block | An announcement is pending; the keys are not a valid set; a delay is named |
+| 2 `WITHDRAW` | Clears the pending fields | Nothing is pending; keys or a delay are named |
+| 3 `CHANGE` | Replaces the set: `publicKeys`, `minSignatures`, `delaySeconds` as for the first set, or none (removed) | An announcement is pending (withdraw it first) |
+
+**Frozen while announced.** From the record that announces to the block that applies (or the
+withdrawal), every record the account's own keys sign — `T_DEFAULT` from it, `T_NEW_USER` from it,
+`T_USER_UPDATE`, `T_MINER_REGISTER`, `T_MINER_REVOKE` — is refused, in the pool and in blocks, by the
+state at that point of the block (`RecordHandler::checkNotFrozen`). Transfers to it, its renewals and
+its recovery set's records go on.
+
+**Applying.** `applyEpoch` is the first epoch that starts at least `delaySeconds` after the
+announcing slot starts: `ceil((slot + ceil(delaySeconds / slotDuration)) / slotsPerEpoch)`
+(`chain_tx::recoveryApplyEpoch`) — an announcement late in an epoch never takes over at the next
+epoch's start unless the delay has passed. At the first block of an epoch (or the first a node holds
+of it), **after its records**, every pending announcement with `applyEpoch` ≤ that epoch applies, in
+account-id order: the account's keys and threshold become the announced ones and the pending fields
+clear; the set and delay stay. In place, as miner state: the account's `blockId` does not move
+(`AccountBuffer::applyDueRecoveries`, `Chain::applyDueAccountRecoveries`).
+
+## Domains
+
+A system or issued account may have a **domain**: a symbol of capital letters that is its token's
+ticker and its domain (design: `projects/domains`). It is account state in the account's leaf
+(`Wallet.domain`, `UserAccount` version **4**), and each domain has a leaf of its own, so both
+directions are proven ([Account proofs](#account-proofs)).
+
+| Accounts | Domain | Given by |
+|----------|--------|----------|
+| System | 1–3 letters `A`–`Z` | The genesis block: the genesis record (`genesis.wallet.domain`) and the system accounts' records; init-config `systemNames` (defaults `PPL`, `RSV`, `REG`, `FEE`, `RCY`; provisional) |
+| Issued | 4–7 letters `A`–`Z` | The registrar: in the `T_NEW_USER` that creates it, or later by `T_DOMAIN_ASSIGN` |
+| User | none | — |
+
+Every domain is bound to one account at most, and an account has at most one
+(`chain_tx::validateNewDomain`). Once given, it never changes while the account lives: updates,
+renewals, config updates and genesis renewals carry it as held. **When the account ends, its domain
+is free again**; only the registrar gives it again. Ended account ids are free too (a later
+`T_NEW_USER` makes a new account); a rule for reusing either is open.
+
+**`T_DOMAIN_ASSIGN` (7)** — `TxDomainAssign`: `walletId` (an issued account with no domain), `domain`,
+`fee`, `meta`, `idempotentId`, `validationTsMin`, `validationTsMax`. Signed by the registrar (account
+2), which pays the fee (meta-size) to the fee account. Applied in place, as miner state: the
+account's `blockId` does not move; its next renewal re-records the domain with the rest of it.
+
+**The domain leaf.** At key `2⁶³ + code(domain)`, where `code` reads the letters as base-27 digits
+(`A` = 1 … `Z` = 26, most significant first); the leaf is `SHA-256("pp-ledger/domain-leaf/v1" ‖
+pack(domain, accountId))`. It is there while its account is (`AccountBuffer::setLeaves` derives it
+from the account, for a snapshot or a node joining from a checkpoint).
+
+**`DOMAIN_GET` (request 2101).** Payload `binaryPack(std::string domain)` (capital letters); reply
+`binaryPack(DomainProof)`: `domain`, `blockId`, `stateRoot`, `present`, `accountId`, `siblingMask`,
+`siblings` — the path as `ACCOUNT_PROOF`'s. `verify::checkDomainProof` checks it against a verified
+block; an absent domain is proven absent. `pp-client domain NAME`, `verified-domain NAME
+--genesis-hash H` (the domain, then its account, both proven from block 0's hash).
+
 ## Producer statistics
 
 `PRODUCER_STATS` (request 1006; `pp-client producers --from A --to B`) counts blocks `[from, to)`
 (block 0 excluded) per account: blocks produced (`slotLeader`), the fees of their transactions,
 and the **misses charged** — the slots it led while due and skipped (§ Miner registration and
 liveness, step 1). Not every empty slot: an idle chain seals about one heartbeat block an epoch, so
-a skipped slot is a miss only for a due leader. A reply covers at most 10,000 blocks
+a skipped slot is a miss only for a due leader. A reply covers at most 1,000 blocks
 (`kMaxProducerStatsBlocks`) and stops at the node's tip; `nextBlockId` says where to ask again.
 
 Misses charged are not on the chain: each node records them as it applies blocks (`Chain`, by block,
@@ -460,19 +611,21 @@ Network-level: a miner announces itself to its upstream. It does not make the ac
 on chain ([Miner registration and liveness](#miner-registration-and-liveness)).
 
 `MinerInfo` (Meta, binary-packed in the request): `id`, `issuedAt` (signer's Unix seconds),
-`signatures` (`binaryPack(vector<string>)`), and `tLastMessage` (set by the
-beacon when recorded).
+`peerId` (the AMP peer id the miner sends from), `signatures` (`binaryPack(vector<string>)`), and
+`tLastMessage` (set by the beacon when recorded). `MINER_LIST` leaves `peerId` out.
 
 Each signature is the miner account key's ML-DSA signature over:
 
 ```
-"pp-ledger/miner-register/v2" || pack(networkId) || pack(id) || pack(issuedAt)
+"pp-ledger/miner-register/v3" || pack(networkId) || pack(id) || pack(issuedAt) || pack(peerId)
 ```
 
 `networkId` is the one the upstream advertises in `STATUS`. Accepted only if the
 signatures satisfy the account's `publicKeys` / `minSignatures` (not a system
-account), `|now − issuedAt| ≤ 5 min`, and
-`issuedAt` is newer than the recorded registration.
+account), the account is a **registered miner on chain** (`T_MINER_REGISTER`; the beacon checks),
+`|now − issuedAt| ≤ 5 min`, and `issuedAt` is newer than the recorded registration. The node a
+registration reached directly trusts **the peer it names** (`peerId`), and only when that peer sent
+it — never whichever peer delivered it; one peer per miner, a newer registration's replacing it.
 
 ## ChainNode / storage envelope
 

@@ -1,12 +1,12 @@
 #ifndef PP_LEDGER_BEACON_H
 #define PP_LEDGER_BEACON_H
 
-#include "NodeCore.h"
-#include "../chain/Genesis.h"
-#include "TipSigner.h"
+#include "server/NodeCore.h"
+#include "ledger/chain/Genesis.h"
+#include "server/TipSigner.h"
 
-#include "lib/common/Meta.h"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Meta.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <cstdint>
 #include <functional>
@@ -49,6 +49,8 @@ public:
    */
   struct InitKeyConfig : chain_genesis::SystemKeys {
     std::vector<std::string> genesisSigners; ///< raw ML-DSA-65 private keys
+    /** The system accounts' domains (init-config.json `systemNames`; projects/domains). */
+    chain_genesis::SystemNames names = chain_genesis::defaultSystemNames();
   };
 
   /** A miner account created in the genesis block (chain_genesis::Miner). */
@@ -82,23 +84,24 @@ public:
   ~Beacon() override = default;
 
   // ----------------- accessors -------------------------------------
-  /** Live admission only: a block for `slot` arrives before slotEnd + delivery window. */
-  bool isBeforeDeliveryDeadline(uint64_t slot) const;
+  /** Live admission only: a block for `slot` arrives in its delivery window (SlotCommittee). */
+  bool isInDeliveryWindow(uint64_t slot) const;
   /**
    * A REGISTER is genuine only if the miner account's keys signed it (as for
-   * its transactions): nobody can register a miner id they do not control.
+   * its transactions): nobody can register a miner id they do not control. And
+   * the account is a registered miner on chain.
    */
-  Roe<void> verifyMinerRegistration(const Client::MinerInfo &miner, const std::string &networkId) const;
+  Roe<void> verifyMinerRegistration(const Client::MinerInfo& miner, const std::string& networkId) const;
 
   // ----------------- methods -------------------------------------
-  Roe<void> init(const InitConfig &config);
-  Roe<void> mount(const MountConfig &config);
+  Roe<void> init(const InitConfig& config);
+  Roe<void> mount(const MountConfig& config);
 
   /**
    * Commit `block`; once tip signing is open, sign it (sign after durable commit). A block that
    * commits but cannot be signed still counts: the error is logged and the tip stays where it was.
    */
-  Roe<void> addBlock(const Ledger::ChainNode &block);
+  Roe<void> addBlock(const Ledger::ChainNode& block);
 
   /**
    * Start signing tips with `key` (after mount; beacon-authority ba3). Loads the persisted tip and
@@ -112,7 +115,12 @@ public:
    * this ledger holds every block the key signed): signing its tip could sign a height a second
    * time. Not refused when this start's rewind dropped the tip, or while taking over.
    */
-  Roe<void> openTipSigning(const std::vector<utl::MlDsaKeyPair> &keys, bool acceptLedgerTip = false);
+  Roe<void> openTipSigning(const std::vector<utl::MlDsaKeyPair>& keys, bool acceptLedgerTip = false);
+  /**
+   * `message` signed with the key the certificate in force names (a record the beacon authors).
+   * TipSigner::E_NOT_CERTIFIED before openTipSigning, or when this beacon does not hold that key.
+   */
+  TipSigner::Roe<std::string> signAsCertified(const std::string& message) const;
   /** The latest signed tip (none before openTipSigning, or while this key is not certified). */
   std::optional<Client::SignedTip> getSignedTip() const;
   /**
@@ -131,9 +139,9 @@ public:
    */
   std::optional<uint64_t> takingOver() const;
   /** Whether a beacon holding `keys` would take over (takingOver), before it opens tip signing. */
-  std::optional<uint64_t> takeoverWith(const std::vector<utl::MlDsaKeyPair> &keys) const;
+  std::optional<uint64_t> takeoverWith(const std::vector<utl::MlDsaKeyPair>& keys) const;
   /** The latest signed tip's file under the mount's work directory (beacon only). */
-  static constexpr const char *FILE_SIGNED_TIP = "signed-tip.dat";
+  static constexpr const char* FILE_SIGNED_TIP = "signed-tip.dat";
   /** Block C here is not the one the held certificate vouches for (Chain::cutoverForked). */
   bool cutoverForked() const { return chain_.cutoverForked(); }
   /**
@@ -142,14 +150,14 @@ public:
    */
   std::optional<uint64_t> haltedAbove() const;
   /** Equivocation evidence pushed up (EQUIVOCATION_ADD): kept and persisted when it verifies. */
-  Roe<Chain::EquivocationOffer> offerEquivocation(const Client::Equivocation &evidence);
+  Roe<Chain::EquivocationOffer> offerEquivocation(const Client::Equivocation& evidence);
   /**
    * A beacon certificate from outside the blocks (TX_ADD, beacon-authority ba5c): kept and
    * persisted if it is the highest generation seen. While it is not on chain, the beacon commits
    * no block above its cutover that does not commit a certificate, and stands down if it does
    * not hold its key.
    */
-  Roe<Chain::CertificateOffer> offerCertificate(const Ledger::Record &record);
+  Roe<Chain::CertificateOffer> offerCertificate(const Ledger::Record& record);
 
 protected:
   /** A tip above the kept blocks was signed by the superseded generation: drop it (dropSignedTipAbove). */
@@ -157,19 +165,17 @@ protected:
 
 private:
   /** Block 0 of a re-genesis: T_GENESIS only, naming the predecessor and the system keys (B032). */
-  Roe<Ledger::ChainNode> createImportingGenesisBlock(const Chain::BlockChainConfig &config, const InitKeyConfig &key,
-                                                     const Chain::ChainAuthority &authority,
-                                                     const StateSnapshot &snapshot);
+  Roe<Ledger::ChainNode> createImportingGenesisBlock(const Chain::BlockChainConfig& config, const InitKeyConfig& key,
+                                                     const Chain::ChainAuthority& authority,
+                                                     const StateSnapshot& snapshot);
   /** Blocks 1..k of a re-genesis: the snapshot's accounts, in order, each block within maxBlockBytes. */
-  Roe<void> addImportBlocks(const StateSnapshot &snapshot, int64_t genesisTime, uint64_t maxBlockBytes);
+  Roe<void> addImportBlocks(const StateSnapshot& snapshot, int64_t genesisTime, uint64_t maxBlockBytes);
 
-  Roe<Ledger::ChainNode>
-  createGenesisBlock(const Chain::BlockChainConfig &config,
-                     const InitKeyConfig &key,
-                     const std::vector<GenesisMiner> &miners,
-                     const Chain::ChainAuthority &authority);
+  Roe<Ledger::ChainNode> createGenesisBlock(const Chain::BlockChainConfig& config, const InitKeyConfig& key,
+                                            const std::vector<GenesisMiner>& miners,
+                                            const Chain::ChainAuthority& authority);
   /** Block 0 of the records signed offline (InitConfig::signedGenesis). */
-  Roe<Ledger::ChainNode> createSignedGenesisBlock(const std::vector<Ledger::Record> &records);
+  Roe<Ledger::ChainNode> createSignedGenesisBlock(const std::vector<Ledger::Record>& records);
   /** Seal block 0 of `records` at `genesisTime`. */
   Roe<Ledger::ChainNode> sealGenesisBlock(std::vector<Ledger::Record> records, int64_t genesisTime);
 
@@ -177,23 +183,20 @@ private:
    * The signers must be distinct genesis keys and at least the genesis
    * account's minSignatures; every account needs keys (minSignatures <= count).
    */
-  Roe<void> checkInitKeys(const InitKeyConfig &key) const;
+  Roe<void> checkInitKeys(const InitKeyConfig& key) const;
 
   /** Signs transaction with genesis keys and adds signatures. Returns error on
    * sign failure. */
-  Roe<void>
-  signWithGenesisKeys(Ledger::Record &record,
-                      const std::vector<std::string> &genesisSigners,
-                      const std::string &networkId,
-                      const std::string &errorContext) const;
+  Roe<void> signWithGenesisKeys(Ledger::Record& record, const std::vector<std::string>& genesisSigners,
+                                const std::string& networkId, const std::string& errorContext) const;
 
   /** After a rewind: remove a persisted tip above `height` (signed by a superseded generation). */
   Roe<void> dropSignedTipAbove(uint64_t height);
   /** openTipSigning with no persisted tip: refuse a ledger past genesis it would sign (bp4). */
-  Roe<void> checkUnsignedLedger(const TipSigner &signer, bool acceptLedgerTip) const;
+  Roe<void> checkUnsignedLedger(const TipSigner& signer, bool acceptLedgerTip) const;
   /** Refuse a ledger that ends below the persisted tip or holds another block at its height. */
-  Roe<void> checkLedgerHoldsSignedTip(const Client::SignedTip &tip) const;
-  std::optional<uint64_t> takeoverFor(const std::function<bool(const std::string &publicKey)> &holds) const;
+  Roe<void> checkLedgerHoldsSignedTip(const Client::SignedTip& tip) const;
+  std::optional<uint64_t> takeoverFor(const std::function<bool(const std::string& publicKey)>& holds) const;
   /** Sign the committed tip under the certificate in force. */
   TipSigner::Roe<void> signCommittedTip();
 
@@ -205,8 +208,8 @@ private:
 };
 
 // Ostream operators for easy logging
-std::ostream &operator<<(std::ostream &os, const Beacon::InitConfig &config);
-std::ostream &operator<<(std::ostream &os, const Beacon::MountConfig &config);
+std::ostream& operator<<(std::ostream& os, const Beacon::InitConfig& config);
+std::ostream& operator<<(std::ostream& os, const Beacon::MountConfig& config);
 } // namespace pp
 
 #endif // PP_LEDGER_BEACON_H

@@ -6,6 +6,10 @@ or stolen, and the recovery set cannot act. A new network starts whose accounts 
 a chosen block *H*, and every node checks that they are. Drilled by
 `./scripts/test/pp_ledger_local_test.sh run --suite regenesis` (L-SMOKE-REGENESIS).
 
+The beacon seed chain (certificate version 3, `T_BEACON_SEED`, committee lag) is a new-network-only
+change: certificates, chains and ledgers from before it are not readable, so adopting it is a new
+network, as a re-genesis is.
+
 Not this runbook:
 
 - **The recovery set can act** — it replaces the admin set, then case 2 follows
@@ -23,8 +27,9 @@ new network's accounts are exactly the old network's at block *H*.
 |--------------|----------|
 | Every account at *H*: id, balances (every token), keys, threshold, profile | Transactions after *H* — they must be signed again, for the new network |
 | Miner registration and stake (slot counters restart) | The transaction history: the old chain stays the archive |
+| An account's recovery set, and an announcement waiting (its delay restarts from the new network's start) | |
 | The old config (slot timing, fees, limits…), but for what `init-config.json` sets | The old network id: every signature binds it, so nothing signed for one network is valid on the other |
-| | The system accounts' keys and the admin, recovery and beacon keys: all new |
+| | The system accounts' keys and the admin, recovery and beacon keys: all new. A system account's own recovery set does not carry over either (it would take the new keys back); its new keys name a new one |
 
 ## The maintainer
 

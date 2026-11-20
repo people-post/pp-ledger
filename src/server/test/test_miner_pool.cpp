@@ -1,16 +1,16 @@
-#include "BeaconServer.h"
-#include "Beacon.h"
-#include "Miner.h"
-#include "Rewind.h"
-#include "../../chain/PredecessorCheck.h"
-#include "../../chain/AccountBuffer.h"
-#include "../../chain/StateSnapshot.h"
-#include "AccountAttachment.h"
+#include "server/BeaconServer.h"
+#include "server/Beacon.h"
+#include "server/Miner.h"
+#include "server/Rewind.h"
+#include "chain/PredecessorCheck.h"
+#include "ledger/chain/AccountBuffer.h"
+#include "chain/StateSnapshot.h"
+#include "ledger/client/AccountAttachment.h"
 #include <map>
-#include "../../ledger/Ledger.h"
-#include "lib/common/BinaryPack.hpp"
-#include "lib/common/Utilities.h"
-#include "TestTempPath.h"
+#include "ledger/ledger/Ledger.h"
+#include "ledger/lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/Utilities.h"
+#include "testing/TestTempPath.h"
 
 #include <gtest/gtest.h>
 
@@ -22,6 +22,7 @@
 
 #include <chrono>
 #include <iostream>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -53,9 +54,11 @@ protected:
     // Each system account's holder makes its own key; genesis signs genesis.
     // The genesis (admin) account is 2-of-3; two of its keys sign genesis.
     genesisKeys_ = {utl::mlDsaGenerate().value(), utl::mlDsaGenerate().value(), utl::mlDsaGenerate().value()};
-    const auto &genesisKeys = genesisKeys_;
+    const auto& genesisKeys = genesisKeys_;
     reserveKeys_ = {utl::mlDsaGenerate().value()};
-    auto pub = [](const utl::MlDsaKeyPair &k) { return R"({"publicKeys": [")" + utl::hexEncode(k.publicKey) + R"("]})"; };
+    auto pub = [](const utl::MlDsaKeyPair& k) {
+      return R"({"publicKeys": [")" + utl::hexEncode(k.publicKey) + R"("]})";
+    };
     std::vector<std::string> genesisKeyFiles;
     std::string genesisPubs;
     for (size_t i = 0; i < genesisKeys.size(); ++i) {
@@ -69,8 +72,8 @@ protected:
         << R"({"networkId": "test-net", "systemAccounts": {"genesis": {"publicKeys": [")" << genesisPubs
         << R"("], "minSignatures": 2})"
         << R"(, "fee": )" << pub(utl::mlDsaGenerate().value()) << R"(, "reserve": )" << pub(reserveKeys_[0])
-        << R"(, "registrar": )" << pub(utl::mlDsaGenerate().value())
-        << R"(, "recycle": )" << pub(utl::mlDsaGenerate().value()) << "},"
+        << R"(, "registrar": )" << pub(utl::mlDsaGenerate().value()) << R"(, "recycle": )"
+        << pub(utl::mlDsaGenerate().value()) << "},"
         << R"( "recovery": )" << pub(utl::mlDsaGenerate().value()) << ","
         << R"( "slotDuration": 1, "slotsPerEpoch": 1000, "maxCustomMetaSize": 10000,)"
         << R"( "maxTransactionsPerBlock": )" << maxTransactionsPerBlock_ << R"(, "minFeeCoefficients": [1, 1, 0],)"
@@ -120,7 +123,7 @@ protected:
     Ledger::Record rec;
     rec.type = Ledger::T_DEFAULT;
     rec.data = utl::binaryPack(tx);
-    for (const auto &k : reserveKeys_) {
+    for (const auto& k : reserveKeys_) {
       auto sig = utl::mlDsaSign(k.privateKey, rec.signingMessage("test-net"));
       EXPECT_TRUE(sig.isOk());
       rec.signatures.push_back(sig.value());
@@ -136,7 +139,7 @@ protected:
     tx.value().validationTsMax = tx.value().validationTsMin + seconds;
     rec.data = utl::binaryPack(tx.value());
     rec.signatures.clear();
-    for (const auto &k : reserveKeys_) {
+    for (const auto& k : reserveKeys_) {
       auto sig = utl::mlDsaSign(k.privateKey, rec.signingMessage("test-net"));
       EXPECT_TRUE(sig.isOk());
       rec.signatures.push_back(sig.value());
@@ -145,7 +148,7 @@ protected:
   }
 
   /** Poll produceBlock as the run loop does until it seals (its slot ended); false on timeout. */
-  bool produceWhenSealTime(Ledger::ChainNode &block) {
+  bool produceWhenSealTime(Ledger::ChainNode& block) {
     const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (std::chrono::steady_clock::now() < until) {
       miner_->refresh();
@@ -167,7 +170,7 @@ protected:
     const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(60);
     while (std::chrono::steady_clock::now() < until) {
       miner_->refresh();
-      const uint64_t slot = miner_->getProductionSlot();  // the slot it collects for / seals
+      const uint64_t slot = miner_->getProductionSlot(); // the slot it collects for / seals
       if (static_cast<int64_t>(slot) > after && miner_->isSlotLeader()) {
         return slot;
       }
@@ -197,7 +200,7 @@ protected:
   }
 };
 
-bool isRenewal(const Ledger::Record &record) {
+bool isRenewal(const Ledger::Record& record) {
   return record.type == Ledger::T_RENEWAL || record.type == Ledger::T_END_USER;
 }
 
@@ -223,10 +226,11 @@ TEST_F(LeaderBudgetTest, DueRenewalsBeyondABlockWaitAndTransactionsWaitForThem) 
     after = static_cast<int64_t>(block.block.slot);
     ASSERT_LE(block.block.records.size(), 3u) << "block " << block.block.index;
     const bool renewsAny = std::any_of(block.block.records.begin(), block.block.records.end(), isRenewal);
-    const bool renewalsSeen = std::any_of(blocks.begin(), blocks.end(), [](const Ledger::ChainNode &b) {
+    const bool renewalsSeen = std::any_of(blocks.begin(), blocks.end(), [](const Ledger::ChainNode& b) {
       return std::any_of(b.block.records.begin(), b.block.records.end(), isRenewal);
     });
-    transferAfterRenewals = renewalsSeen && !std::all_of(block.block.records.begin(), block.block.records.end(), isRenewal);
+    transferAfterRenewals =
+        renewalsSeen && !std::all_of(block.block.records.begin(), block.block.records.end(), isRenewal);
     if (renewsAny || transferAfterRenewals) {
       blocks.push_back(block);
     } else {
@@ -239,9 +243,9 @@ TEST_F(LeaderBudgetTest, DueRenewalsBeyondABlockWaitAndTransactionsWaitForThem) 
   ASSERT_GE(blocks.size(), 4u);
   std::set<uint64_t> renewed;
   for (size_t i = 1; i + 1 < blocks.size(); ++i) {
-    const auto &records = blocks[i].block.records;
+    const auto& records = blocks[i].block.records;
     EXPECT_EQ(records.size(), 3u) << "block " << blocks[i].block.index << " is filled to the limit";
-    for (const auto &record : records) {
+    for (const auto& record : records) {
       ASSERT_TRUE(isRenewal(record)) << "block " << blocks[i].block.index << ": renewals only while some wait";
       auto tx = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
       ASSERT_TRUE(tx.isOk());
@@ -249,6 +253,55 @@ TEST_F(LeaderBudgetTest, DueRenewalsBeyondABlockWaitAndTransactionsWaitForThem) 
     }
   }
   EXPECT_GE(renewed.size(), 6u) << "every account written in genesis renewed";
+}
+
+// The beacon's seed reveal must land in its epoch: a leader keeps a place for it ahead of the due
+// renewals, so a block that leaves renewals waiting still carries the pooled reveal (beacon epoch
+// seed). Six genesis accounts fall due in block 3, twice what a block holds.
+TEST_F(LeaderBudgetTest, ABlockOfWaitingRenewalsStillCarriesThePooledSeedReveal) {
+  Ledger::Record reveal;
+  {
+    BeaconServer beacon;
+    auto opened = beacon.openForTest((root_ / "beacon").string(), std::time(nullptr));
+    ASSERT_TRUE(opened.isOk()) << opened.error().message;
+    beacon.submitBeaconSeedIfDue();
+    for (const auto& record : beacon.pooledForTest()) {
+      if (record.type == Ledger::T_BEACON_SEED) {
+        reveal = record;
+      }
+    }
+    ASSERT_EQ(reveal.type, Ledger::T_BEACON_SEED) << "the beacon pooled its reveal for epoch 1";
+  }
+  uint64_t idempotentId = 1;
+  int64_t after = -1;
+  Ledger::ChainNode block;
+  while (block.block.index < 2) { // blocks 1 and 2: the renewals are not due yet
+    auto slot = waitForLeaderSlotAfter(after);
+    ASSERT_TRUE(slot.has_value());
+    ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, idempotentId++)).isOk());
+    ASSERT_TRUE(produceWhenSealTime(block));
+    ASSERT_TRUE(miner_->addBlock(block).isOk()) << "block " << block.block.index;
+    miner_->markBlockProduction(block);
+    after = static_cast<int64_t>(block.block.slot);
+  }
+  auto slot = waitForLeaderSlotAfter(after);
+  ASSERT_TRUE(slot.has_value());
+  auto added = miner_->addTransaction(reveal);
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+  ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, idempotentId++)).isOk());
+  ASSERT_TRUE(produceWhenSealTime(block));
+  ASSERT_EQ(block.block.index, 3u);
+  const auto& records = block.block.records;
+  EXPECT_LE(records.size(), 3u);
+  EXPECT_TRUE(std::any_of(records.begin(), records.end(), isRenewal)) << "the due renewals still go first";
+  EXPECT_TRUE(std::none_of(records.begin(), records.end(), [](const Ledger::Record& r) {
+    return r.type == Ledger::T_DEFAULT;
+  })) << "the transfer waits while renewals do";
+  EXPECT_TRUE(std::any_of(records.begin(), records.end(), [](const Ledger::Record& r) {
+    return r.type == Ledger::T_BEACON_SEED;
+  })) << "the reveal is not left out by the waiting renewals";
+  auto committed = miner_->addBlock(block);
+  ASSERT_TRUE(committed.isOk()) << committed.error().message;
 }
 
 /** Ten records a block; an account comes due for renewal ten blocks after it was written. */
@@ -281,7 +334,7 @@ protected:
     Ledger::Record rec;
     rec.type = Ledger::T_NEW_USER;
     rec.data = utl::binaryPack(tx);
-    for (const auto &k : reserveKeys_) {
+    for (const auto& k : reserveKeys_) {
       rec.signatures.push_back(utl::mlDsaSign(k.privateKey, rec.signingMessage("test-net")).value());
     }
     return rec;
@@ -307,8 +360,8 @@ TEST_F(RenewalEchoTest, ABurstOfAccountsComesDueTogetherAndHoldsTransfersAsLong)
   size_t burstWritten = 0;
   uint64_t burstDoneAt = 0; // the block that wrote the last of the burst
   // On past the echo: the burst's renewals fall due ten blocks after it, over as many blocks as it took.
-  for (int b = 0; b < 45 && (burstDoneAt == 0 || after < 0 ||
-                              miner_->getNextBlockId() <= burstDoneAt + checkpointMinBlocks_ + 8);
+  for (int b = 0;
+       b < 45 && (burstDoneAt == 0 || after < 0 || miner_->getNextBlockId() <= burstDoneAt + checkpointMinBlocks_ + 8);
        ++b) {
     auto slot = waitForLeaderSlotAfter(after);
     ASSERT_TRUE(slot.has_value());
@@ -319,7 +372,7 @@ TEST_F(RenewalEchoTest, ABurstOfAccountsComesDueTogetherAndHoldsTransfersAsLong)
       }
     }
     // Offered again each slot, as a client would (this harness has no beacon pool keeping them).
-    for (const auto &record : burst) {
+    for (const auto& record : burst) {
       if (burstData.count(record.data) > 0) {
         (void)miner_->addTransaction(record);
       }
@@ -341,7 +394,7 @@ TEST_F(RenewalEchoTest, ABurstOfAccountsComesDueTogetherAndHoldsTransfersAsLong)
     }
     size_t renewals = 0;
     bool waitingIn = false;
-    for (const auto &record : block.block.records) {
+    for (const auto& record : block.block.records) {
       renewals += isRenewal(record) ? 1 : 0;
       if (burstData.erase(record.data) > 0) {
         ++burstWritten;
@@ -386,7 +439,8 @@ TEST_F(MinerPoolTest, AdmissionRefusesWhatCouldNeverApply) {
   auto junk = valid;
   junk.signatures.front()[0] = static_cast<char>(junk.signatures.front()[0] ^ 0x5a);
   EXPECT_FALSE(miner_->checkAdmission(junk, from, true)) << "a bad signature";
-  EXPECT_TRUE(miner_->checkAdmission(junk, from, false)) << "signatures are checked only when asked (once, on the way in)";
+  EXPECT_TRUE(miner_->checkAdmission(junk, from, false))
+      << "signatures are checked only when asked (once, on the way in)";
 
   EXPECT_FALSE(miner_->checkAdmission(valid, from + 61, true)) << "its window ended";
 
@@ -407,6 +461,36 @@ TEST_F(MinerPoolTest, AdmissionRefusesWhatCouldNeverApply) {
   garbage.data = "not a transaction";
   EXPECT_FALSE(miner_->checkAdmission(garbage, from, false));
 
+  // What every leader's apply refuses is refused here too, signed or not.
+  auto variant = [&](const std::function<void(Ledger::TxDefault&)>& edit) {
+    auto tx = utl::binaryUnpack<Ledger::TxDefault>(valid.data).value();
+    edit(tx);
+    Ledger::Record out = valid;
+    out.data = utl::binaryPack(tx);
+    return out;
+  };
+  EXPECT_FALSE(miner_->checkAdmission(variant([](Ledger::TxDefault& tx) { tx.fee = 0; }), from, false))
+      << "below the fee floor";
+  EXPECT_FALSE(miner_->checkAdmission(variant([](Ledger::TxDefault& tx) {
+                                        tx.amount = std::numeric_limits<uint64_t>::max();
+                                        tx.fee = 1;
+                                      }),
+                                      from, false))
+      << "an amount past int64 (amount + fee wraps)";
+  EXPECT_FALSE(miner_->checkAdmission(variant([](Ledger::TxDefault& tx) { tx.idempotentId = 0; }), from, false))
+      << "no idempotent id";
+
+  // Records the chain writes itself are never submitted.
+  Ledger::TxImport imported;
+  imported.walletId = AccountIds::ID_FIRST_USER + 100;
+  Ledger::Record import;
+  import.type = Ledger::T_IMPORT;
+  import.data = utl::binaryPack(imported);
+  EXPECT_FALSE(miner_->checkAdmission(import, from, true)) << "an import (unsigned)";
+  Ledger::Record renewal = valid;
+  renewal.type = Ledger::T_RENEWAL;
+  EXPECT_FALSE(miner_->checkAdmission(renewal, from, false)) << "a renewal";
+
   // An issued account (the genesis miner) issues its own token from nothing — the fee it pays in
   // the native token; another issuer's token it must hold.
   auto issue = utl::binaryUnpack<Ledger::TxDefault>(valid.data).value();
@@ -419,6 +503,31 @@ TEST_F(MinerPoolTest, AdmissionRefusesWhatCouldNeverApply) {
   issue.tokenId = kMinerId + 1;
   issuing.data = utl::binaryPack(issue);
   EXPECT_FALSE(miner_->checkAdmission(issuing, from, false)) << "another issuer's token, not held";
+}
+
+// A registration earns a peer the trusted lane only for a miner the chain registered.
+TEST_F(MinerPoolTest, OnlyARegisteredMinersRegistrationIsTaken) {
+  Beacon beacon;
+  Beacon::MountConfig mount;
+  mount.workDir = (root_ / "beacon" / "data").string();
+  ASSERT_TRUE(beacon.mount(mount).isOk());
+  const std::string net = beacon.getNetworkId();
+  auto signedBy = [&](uint64_t id, const std::vector<utl::MlDsaKeyPair>& keys) {
+    Client::MinerInfo info;
+    info.id = id;
+    info.issuedAt =
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    info.peerId = "12D3KooWMinerPeer";
+    for (const auto& key : keys) {
+      info.signatures.push_back(utl::mlDsaSign(key.privateKey, info.signingMessage(net)).value());
+    }
+    return info;
+  };
+  auto miner = beacon.verifyMinerRegistration(signedBy(kMinerId, {minerKey_}), net);
+  EXPECT_TRUE(miner.isOk()) << miner.error().message;
+  auto reserve = beacon.verifyMinerRegistration(signedBy(AccountBuffer::ID_RESERVE, reserveKeys_), net);
+  ASSERT_FALSE(reserve.isOk()) << "an account with keys, not a miner";
+  EXPECT_NE(reserve.error().message.find("not a registered miner"), std::string::npos) << reserve.error().message;
 }
 
 TEST_F(MinerPoolTest, StalePendingTransactionDoesNotStallTheLeader) {
@@ -456,7 +565,7 @@ TEST_F(MinerPoolTest, AbandonedBlockThenRepulledTransactionStillSeals) {
   Ledger::ChainNode block;
   ASSERT_TRUE(produceWhenSealTime(block));
   ASSERT_EQ(block.block.records.size(), 1u);
-  miner_->abandonBlock(block);  // broadcast failed
+  miner_->abandonBlock(block); // broadcast failed
   ASSERT_EQ(miner_->getPendingTransactionCount(), 1u);
 
   auto again = waitForLeaderSlotAfter(static_cast<int64_t>(*slot) - 1);
@@ -490,7 +599,8 @@ TEST_F(MinerPoolTest, AHeldCertificateLeavesTheDiskOnceCommitted) {
     record.signatures.push_back(utl::mlDsaSign(genesisKeys_[i].privateKey, record.signingMessage("test-net")).value());
   }
   const fs::path file = root_ / "miner" / "beacon-cert.dat";
-  ASSERT_EQ(miner_->noteCertificate(record, "a test"), std::optional<Chain::CertificateOffer>(Chain::CertificateOffer::Newer));
+  ASSERT_EQ(miner_->noteCertificate(record, "a test"),
+            std::optional<Chain::CertificateOffer>(Chain::CertificateOffer::Newer));
   ASSERT_TRUE(fs::exists(file));
 
   ASSERT_TRUE(waitForLeaderSlotAfter(-1).has_value());
@@ -603,7 +713,7 @@ TEST_F(MinerPoolTest, ABeaconMovedWithoutItsSignedTipDoesNotSignItsLedgerUnasked
     ASSERT_EQ(signedTip.height, 1u);
   } // a clean stop
 
-  auto moveTo = [&](const std::string &name, bool withTip) {
+  auto moveTo = [&](const std::string& name, bool withTip) {
     const fs::path moved = root_ / name;
     fs::copy(beaconDir, moved, fs::copy_options::recursive);
     if (!withTip) {
@@ -637,10 +747,11 @@ TEST_F(MinerPoolTest, ABeaconMovedWithoutItsSignedTipDoesNotSignItsLedgerUnasked
   }
 }
 
-// beacon-authority bp1: a node rewinds on its own only within kMaxAutomaticRewind of slot time; a
-// deeper cut is held back — the node keeps refusing the old tips past it — until the operator
-// approves that generation (--approve-rewind).
-TEST_F(MinerPoolTest, ARewindDeeperThanTheNodeTakesAloneWaitsForApproval) {
+// projects/finality FN003 (beacon-authority bp1): a node rewinds on its own only when no block it
+// would drop is final; a cut that would undo final blocks is held back — the node keeps refusing
+// the old tips past it — until the operator approves that generation (--approve-rewind), and the
+// order says it crossed finality.
+TEST_F(MinerPoolTest, ARewindPastFinalityWaitsForApproval) {
   auto slot = waitForLeaderSlotAfter(-1);
   ASSERT_TRUE(slot.has_value());
   ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, 13)).isOk());
@@ -669,17 +780,28 @@ TEST_F(MinerPoolTest, ARewindDeeperThanTheNodeTakesAloneWaitsForApproval) {
   ASSERT_EQ(beacon.offerCertificate(record).value(), Chain::CertificateOffer::Newer);
   const fs::path order = fs::path(mount.workDir) / rewind::FILE_ORDER;
 
-  beacon.setMaxAutomaticRewind(std::chrono::seconds(0)); // block 1 is a slot or more past genesis
-  EXPECT_FALSE(beacon.scheduleRewind(0).value()) << "held back";
-  EXPECT_FALSE(fs::exists(order));
-  EXPECT_FALSE(beacon.scheduleRewind(3).value()) << "an approval for another generation does not count";
-  EXPECT_TRUE(beacon.scheduleRewind(2).value()) << "approved";
-  EXPECT_TRUE(fs::exists(order));
+  auto readOrder = [&order] {
+    std::ifstream in(order, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    Client::RewindReport report;
+    EXPECT_TRUE(report.ltsFromString(bytes));
+    return report;
+  };
+
+  EXPECT_EQ(beacon.getFinalizedHeight(), std::nullopt) << "nothing is a day old yet";
+  EXPECT_TRUE(beacon.scheduleRewind(0).value()) << "block 1 is not final: cut on its own";
+  EXPECT_FALSE(readOrder().crossedFinality);
   fs::remove(order);
 
-  beacon.setMaxAutomaticRewind(rewind::kMaxAutomaticRewind);
-  EXPECT_TRUE(beacon.scheduleRewind(0).value()) << "within seven days: on its own";
-  EXPECT_TRUE(fs::exists(order));
+  // Two days on (the bound is a day): blocks 0 and 1 are final.
+  beacon.setClockOverride(static_cast<int64_t>(std::time(nullptr)) + 2 * 86400);
+  EXPECT_EQ(beacon.getFinalizedHeight(), std::optional<uint64_t>(1));
+  EXPECT_FALSE(beacon.scheduleRewind(0).value()) << "held back: it would undo a final block";
+  EXPECT_FALSE(fs::exists(order));
+  EXPECT_FALSE(beacon.scheduleRewind(3).value()) << "an approval for another generation does not count";
+  EXPECT_TRUE(beacon.scheduleRewind(2).value()) << "approved: the emergency";
+  EXPECT_TRUE(readOrder().crossedFinality) << "and reported";
+  beacon.setClockOverride(std::nullopt);
 }
 
 // beacon-authority bp2: a certificate vouching for another block at the cutover than the node holds
@@ -752,7 +874,8 @@ TEST_F(MinerPoolTest, APromotedRelayTakesOverAtTheCutover) {
   EXPECT_FALSE(promoted.supersededBy().has_value()) << "the certificate held names its key";
   EXPECT_EQ(promoted.takingOver(), std::optional<uint64_t>(2));
   EXPECT_FALSE(promoted.getSignedTip().has_value()) << "nothing signed before the cutover block";
-  ASSERT_EQ(miner_->noteCertificate(record, "a test"), std::optional<Chain::CertificateOffer>(Chain::CertificateOffer::Newer));
+  ASSERT_EQ(miner_->noteCertificate(record, "a test"),
+            std::optional<Chain::CertificateOffer>(Chain::CertificateOffer::Newer));
 
   ASSERT_TRUE(waitForLeaderSlotAfter(-1).has_value());
   Ledger::ChainNode block;
@@ -782,8 +905,8 @@ TEST_F(MinerPoolTest, APromotedRelayTakesOverAtTheCutover) {
 namespace {
 
 /** A user account the reserve creates, with a self-published profile, valid from `slot`. */
-Ledger::Record newUserWithProfile(Miner &miner, const utl::MlDsaKeyPair &reserve, uint64_t slot, uint64_t id,
-                                  const utl::MlDsaKeyPair &userKey, uint64_t amount, const std::string &profile) {
+Ledger::Record newUserWithProfile(Miner& miner, const utl::MlDsaKeyPair& reserve, uint64_t slot, uint64_t id,
+                                  const utl::MlDsaKeyPair& userKey, uint64_t amount, const std::string& profile) {
   Client::UserAccount account;
   account.wallet.mBalances[AccountBuffer::ID_GENESIS] = static_cast<int64_t>(amount);
   account.wallet.publicKeys = {userKey.publicKey};
@@ -808,7 +931,7 @@ Ledger::Record newUserWithProfile(Miner &miner, const utl::MlDsaKeyPair &reserve
   return rec;
 }
 
-std::string pubJson(const utl::MlDsaKeyPair &k) {
+std::string pubJson(const utl::MlDsaKeyPair& k) {
   return R"({"publicKeys": [")" + utl::hexEncode(k.publicKey) + R"("]})";
 }
 
@@ -826,8 +949,9 @@ TEST_F(MinerPoolTest, ARegenesisImportsTheOldStateAndTheNetworkGoesOn) {
   ASSERT_TRUE(slot.has_value());
   const uint64_t user = AccountBuffer::ID_FIRST_USER + 7;
   const auto userKey = utl::mlDsaGenerate().value();
-  ASSERT_TRUE(miner_->addTransaction(newUserWithProfile(*miner_, reserveKeys_[0], *slot, user, userKey, 5000,
-                                                        std::string(300, 'p')))
+  ASSERT_TRUE(miner_
+                  ->addTransaction(
+                      newUserWithProfile(*miner_, reserveKeys_[0], *slot, user, userKey, 5000, std::string(300, 'p')))
                   .isOk());
   ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, 12)).isOk());
   Ledger::ChainNode block;
@@ -869,19 +993,19 @@ TEST_F(MinerPoolTest, ARegenesisImportsTheOldStateAndTheNetworkGoesOn) {
       << utl::hexEncode(admins[0].publicKey) << R"(", ")" << utl::hexEncode(admins[1].publicKey) << R"(", ")"
       << utl::hexEncode(admins[2].publicKey) << R"("], "minSignatures": 2})"
       << R"(, "fee": )" << pubJson(utl::mlDsaGenerate().value()) << R"(, "reserve": )" << pubJson(newReserve)
-      << R"(, "registrar": )" << pubJson(utl::mlDsaGenerate().value())
-      << R"(, "recycle": )" << pubJson(utl::mlDsaGenerate().value()) << "},"
+      << R"(, "registrar": )" << pubJson(utl::mlDsaGenerate().value()) << R"(, "recycle": )"
+      << pubJson(utl::mlDsaGenerate().value()) << "},"
       << R"( "recovery": )" << pubJson(utl::mlDsaGenerate().value()) << ","
       << R"( "heartbeatSlots": 500})"; // one override; everything else is the old network's
   // An import the chain refuses, past the server's own check of the file: an account changed (the
   // old state root no longer matches), or two accounts swapped (imports go by ascending id).
-  auto refusedImport = [&](StateSnapshot tampered, const std::string &why) {
+  auto refusedImport = [&](StateSnapshot tampered, const std::string& why) {
     Beacon::InitConfig bad;
     bad.workDir = (root_ / ("refused-" + std::to_string(std::hash<std::string>{}(why)))).string();
     bad.chain = tampered.config;
     bad.chain.networkId = "test-net-3";
     bad.key.genesis = {{admins[0].publicKey, admins[1].publicKey, admins[2].publicKey}, 2};
-    for (auto *keys : {&bad.key.reserve, &bad.key.registrar, &bad.key.fee, &bad.key.recycle}) {
+    for (auto* keys : {&bad.key.reserve, &bad.key.registrar, &bad.key.fee, &bad.key.recycle}) {
       *keys = {{newReserve.publicKey}, 1};
     }
     bad.key.genesisSigners = {admins[0].privateKey, admins[1].privateKey};
@@ -921,7 +1045,7 @@ TEST_F(MinerPoolTest, ARegenesisImportsTheOldStateAndTheNetworkGoesOn) {
   EXPECT_EQ(beacon2.getNetworkId(), "test-net-2");
   const uint64_t lastImport = beacon2.getNextBlockId() - 1;
   ASSERT_GE(lastImport, 1u);
-  for (const auto &[id, old] : before) {
+  for (const auto& [id, old] : before) {
     auto now = beacon2.getAccount(id);
     ASSERT_TRUE(now.isOk()) << "account " << id;
     EXPECT_EQ(now.value().wallet.mBalances, old.wallet.mBalances) << "account " << id;
@@ -931,7 +1055,8 @@ TEST_F(MinerPoolTest, ARegenesisImportsTheOldStateAndTheNetworkGoesOn) {
   }
   EXPECT_EQ(beacon2.getAccount(user).value().meta, before[user].meta) << "the profile, in full";
   EXPECT_EQ(beacon2.getAccount(AccountBuffer::ID_RESERVE).value().wallet.publicKeys,
-            std::vector<std::string>{newReserve.publicKey}) << "system accounts take the new keys";
+            std::vector<std::string>{newReserve.publicKey})
+      << "system accounts take the new keys";
   EXPECT_EQ(beacon2.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys.size(), 3u);
   EXPECT_EQ(beacon2.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys.front(), admins[0].publicKey);
   const auto miner = beacon2.getAccount(kMinerId).value().wallet.miner;
@@ -942,7 +1067,7 @@ TEST_F(MinerPoolTest, ARegenesisImportsTheOldStateAndTheNetworkGoesOn) {
 
   // A node that ran the old network vouches for it from its own ledger (B037).
   EXPECT_TRUE(predecessor_check::check(genesis2.value(), (root_ / "beacon").string()).isOk());
-  auto expectRefused = [](const pp::Roe<void> &checked, const std::string &why) {
+  auto expectRefused = [](const pp::Roe<void>& checked, const std::string& why) {
     ASSERT_FALSE(checked.isOk()) << why;
     EXPECT_NE(checked.error().message.find(why), std::string::npos) << checked.error().message;
   };

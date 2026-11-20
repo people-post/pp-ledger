@@ -82,7 +82,7 @@ On first run, the miner creates a default `miner1/config.json`. Edit it:
 {
   "minerId": 1048576,
   "keys": ["key.txt"],
-  "beacons": ["/ip4/10.0.0.2/udp/8519/adp/1.0.0/p2p/<relay peer id>"]
+  "beacons": ["/ip4/10.0.0.2/udp/8519/adp/2/p2p/<relay peer id>"]
 }
 ```
 
@@ -108,18 +108,20 @@ The miner will:
 The client connects to either the beacon server or miner server to query status and send commands.
 
 Every command that talks to a node takes its ADP multiaddr with `--host`
-(`/ip4/<address>/udp/<port>/adp/1.0.0/p2p/<peer id>`; the peer id is printed at start as
+(`/ip4/<address>/udp/<port>/adp/2/p2p/<peer id>`; the peer id is printed at start as
 `AMP ledger listener:`, or worked out ahead with `pp-client peer-id <identity key>`). `-b` talks to
 a beacon or relay, `-m` to a miner.
 
 ```bash
-R=/ip4/10.0.0.2/udp/8519/adp/1.0.0/p2p/<relay peer id>
+R=/ip4/10.0.0.2/udp/8519/adp/2/p2p/<relay peer id>
 ./app/pp-client --host "$R" -b status            # tip, slot, epoch, signed tip, certificate
 ./app/pp-client --host "$R" -b block 0
 ./app/pp-client --host "$R" -b account 1048576
 ./app/pp-client --host "$R" -b config            # config in force (and pending), admin keys, authority
 ./app/pp-client --host "$R" -b producers --from 1 # blocks, fees, misses charged per producer (to the tip)
 ./app/pp-client --host "$R" -b verified-account 1073741824 --genesis-hash 0x…  # proven, no node believed
+./app/pp-client --host "$R" -b domain ACME        # who a domain (a symbol) is bound to
+./app/pp-client --host "$R" -b verified-domain ACME --genesis-hash 0x…  # the domain and its account, proven
 ./app/pp-client --host "$R" -b add-tx <from> <to> 100 -k <key>   # into the beacon's pool
 ./app/pp-client --host "$M" -m status            # a miner: id, stake, pending transactions
 ```
@@ -154,10 +156,10 @@ The HTTP server exposes the same interfaces as the client over REST-style HTTP, 
 cd build
 cmake -DPP_LEDGER_BUILD_HTTP=ON ..   # Re-run cmake to enable the HTTP server (off by default)
 make pp-http
-# Copy listen multiaddrs from beacon/miner logs (adp/1.0.0/p2p/...)
+# Copy listen multiaddrs from beacon/miner logs (adp/2/p2p/...)
 ./app/pp-http --port 8080 \
-  --beacon '/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon-peer-id>' \
-  --miner  '/ip4/127.0.0.1/udp/8518/adp/1.0.0/p2p/<miner-peer-id>'
+  --beacon '/ip4/127.0.0.1/udp/8517/adp/2/p2p/<beacon-peer-id>' \
+  --miner  '/ip4/127.0.0.1/udp/8518/adp/2/p2p/<miner-peer-id>'
 ```
 
 ### Options
@@ -202,6 +204,26 @@ curl -X POST http://localhost:8080/api/tx/build -H 'Content-Type: application/js
 
 ---
 
+### A service beside the chain (`/api/chain/`)
+
+For a service that credits what the chain says (the bank, the exchange): run **your own relay**, with
+the network's genesis hash pinned (`PP_LEDGER_GENESIS_HASH`), and pp-http beside the service on
+localhost pointed at it ([SERVICE_API.md](../contracts/SERVICE_API.md)). The relay verifies the chain;
+pp-http only translates its answers. The service checks block 0's hash too.
+
+```bash
+./app/pp-http --port 8090 \
+  --beacon '/ip4/127.0.0.1/udp/8519/adp/2/p2p/<your-relay-peer-id>' \
+  --miner  '/ip4/127.0.0.1/udp/8519/adp/2/p2p/<your-relay-peer-id>'
+curl http://127.0.0.1:8090/api/chain/status
+curl 'http://127.0.0.1:8090/api/chain/blocks?from=1&limit=20'
+curl http://127.0.0.1:8090/api/chain/accounts/1073741825
+```
+
+`--miner` is required by pp-http but not used by `/api/chain/` (the relay will do).
+
+---
+
 ## Multi-Node Setup
 
 One beacon (the terminal), relays below it, miners below the relays. Miners
@@ -238,7 +260,7 @@ JSON
 **3. Relay** — upstream is the beacon's multiaddr:
 ```bash
 mkdir -p relay
-echo '{"beacon": "/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon peer id>"}' > relay/config.json
+echo '{"beacon": "/ip4/127.0.0.1/udp/8517/adp/2/p2p/<beacon peer id>"}' > relay/config.json
 ./app/pp-relay -d relay       # prints its own listen multiaddr
 ```
 
@@ -249,7 +271,7 @@ cat > miner1/config.json << 'JSON'
 {
   "minerId": 1048576,
   "keys": ["key.txt"],
-  "beacons": ["/ip4/127.0.0.1/udp/8519/adp/1.0.0/p2p/<relay peer id>"]
+  "beacons": ["/ip4/127.0.0.1/udp/8519/adp/2/p2p/<relay peer id>"]
 }
 JSON
 ./app/pp-miner -d miner1
@@ -297,6 +319,13 @@ each role's `config.json`, and the fixed network timing.
 **Port already in use**
 - Change the port number in `config.json`
 - Or stop the process using that port: `lsof -ti:<port> | xargs kill`
+
+**No blocks for one epoch right after a checkpoint rotation**
+- A miner restarted (or joined) in the epoch a checkpoint rotation opens cannot open the next
+  epoch: it lacks that epoch's start snapshot and elects no leader there (logged as "No committee
+  for epoch N yet"). Another producer's block opens it; if every producer is in that state the
+  epoch stays empty and the network recovers by itself one epoch later. Do not restart all
+  producers in that window ([BLOCK_PIPELINE.md § Checkpoints and late join](../architecture/BLOCK_PIPELINE.md#checkpoints-and-late-join)).
 
 **Blocks not being produced**
 - Ensure the miner has pending transactions: `./app/pp-client -m status`

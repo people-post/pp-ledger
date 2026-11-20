@@ -1,7 +1,8 @@
-#include "AccountBuffer.h"
+#include "ledger/chain/AccountBuffer.h"
+#include "ledger/chain/Domains.h"
 
 #include "common/Serialize.hpp"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <limits>
 #include <sstream>
@@ -12,7 +13,7 @@ namespace pp {
 namespace {
 
 /** Add two int64_t values, returning false (instead of wrapping) on overflow. */
-bool safeAddI64(int64_t a, int64_t b, int64_t &out) {
+bool safeAddI64(int64_t a, int64_t b, int64_t& out) {
   if ((b > 0 && a > std::numeric_limits<int64_t>::max() - b) ||
       (b < 0 && a < std::numeric_limits<int64_t>::min() - b)) {
     return false;
@@ -25,25 +26,84 @@ bool safeAddI64(int64_t a, int64_t b, int64_t &out) {
 
 AccountBuffer::AccountBuffer() = default;
 
-std::string AccountBuffer::attachmentHashOf(const std::string &attachment) {
+std::string AccountBuffer::attachmentHashOf(const std::string& attachment) {
   return utl::sha256Raw(std::string("pp-ledger/attachment/v1") + attachment);
 }
 
-std::string AccountBuffer::accountLeafHash(const Account &account) {
+std::string AccountBuffer::accountLeafHash(const Account& account) {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
   ar & account.id & account.wallet & account.blockId & account.attachmentHash;
   return utl::sha256Raw(std::string("pp-ledger/account-leaf/v2") + oss.str());
 }
 
-void AccountBuffer::touchTree(const Account &account) {
-  stateTree_.setLeaf(account.id, accountLeafHash(account));
+void AccountBuffer::setLeaves(AccountStateTree& tree, const Account& account) {
+  tree.setLeaf(account.id, accountLeafHash(account));
+  if (!account.wallet.domain.empty()) {
+    tree.setLeaf(chain_domain::treeKey(account.wallet.domain),
+                 chain_domain::leafHash(account.wallet.domain, account.id));
+  }
 }
 
-void AccountBuffer::clearTree(uint64_t id) { stateTree_.clearLeaf(id); }
+void AccountBuffer::touchTree(const Account& account) {
+  stateTree_.setLeaf(account.id, accountLeafHash(account));
+  if (!account.wallet.domain.empty()) {
+    bindDomain(account.wallet.domain, DomainEntry{account.id});
+  }
+}
 
-AccountBuffer::Roe<AccountBuffer::Account *>
-AccountBuffer::mutableAccount(uint64_t id) {
+void AccountBuffer::clearTree(const Account& account) {
+  stateTree_.clearLeaf(account.id);
+  if (!account.wallet.domain.empty()) {
+    bindDomain(account.wallet.domain, std::nullopt);
+  }
+}
+
+void AccountBuffer::bindDomain(const std::string& domain, const std::optional<DomainEntry>& entry) {
+  auto it = domains_.find(domain);
+  const std::optional<DomainEntry> held = it == domains_.end() ? std::nullopt : std::optional<DomainEntry>(it->second);
+  if (held == entry) {
+    return;
+  }
+  if (!journals_.empty()) {
+    auto& saved = journals_.back().savedDomains;
+    if (saved.count(domain) == 0) {
+      saved.emplace(domain, held);
+    }
+  }
+  if (entry) {
+    domains_[domain] = *entry;
+    stateTree_.setLeaf(chain_domain::treeKey(domain), chain_domain::leafHash(domain, entry->accountId));
+  } else {
+    domains_.erase(domain);
+    stateTree_.clearLeaf(chain_domain::treeKey(domain));
+  }
+}
+
+std::optional<AccountBuffer::DomainEntry> AccountBuffer::findDomain(const std::string& domain) const {
+  auto it = domains_.find(domain);
+  if (it == domains_.end()) {
+    return std::nullopt;
+  }
+  return it->second;
+}
+
+std::vector<std::string> AccountBuffer::domainSiblings(const std::string& domain) const {
+  return stateTree_.siblings(chain_domain::treeKey(domain));
+}
+
+AccountBuffer::Roe<void> AccountBuffer::setDomain(uint64_t accountId, const std::string& domain) {
+  auto accountRoe = mutableAccount(accountId);
+  if (!accountRoe) {
+    return accountRoe.error();
+  }
+  Account& account = *accountRoe.value();
+  account.wallet.domain = domain;
+  touchTree(account);
+  return {};
+}
+
+AccountBuffer::Roe<AccountBuffer::Account*> AccountBuffer::mutableAccount(uint64_t id) {
   auto it = mAccounts_.find(id);
   if (it == mAccounts_.end()) {
     return Error(E_ACCOUNT, "Account not found: " + std::to_string(id));
@@ -52,35 +112,77 @@ AccountBuffer::mutableAccount(uint64_t id) {
   return &it->second;
 }
 
-AccountBuffer::Roe<void> AccountBuffer::setMinerState(uint64_t accountId, const Client::MinerState &miner) {
+AccountBuffer::Roe<void> AccountBuffer::setMinerState(uint64_t accountId, const Client::MinerState& miner) {
   auto accountRoe = mutableAccount(accountId);
   if (!accountRoe) {
     return accountRoe.error();
   }
-  Account &account = *accountRoe.value();
+  Account& account = *accountRoe.value();
   account.wallet.miner = miner;
   touchTree(account);
   return {};
 }
 
-AccountBuffer::Roe<void> AccountBuffer::setWalletKeys(uint64_t accountId, const std::vector<std::string> &publicKeys,
-                                                     uint8_t minSignatures) {
+AccountBuffer::Roe<void> AccountBuffer::setWalletKeys(uint64_t accountId, const std::vector<std::string>& publicKeys,
+                                                      uint8_t minSignatures) {
   auto accountRoe = mutableAccount(accountId);
   if (!accountRoe) {
     return accountRoe.error();
   }
-  Account &account = *accountRoe.value();
+  Account& account = *accountRoe.value();
   account.wallet.publicKeys = publicKeys;
   account.wallet.minSignatures = minSignatures;
   touchTree(account);
   return {};
 }
 
+AccountBuffer::Roe<void> AccountBuffer::setRecovery(uint64_t accountId, const Client::AccountRecovery& recovery) {
+  auto accountRoe = mutableAccount(accountId);
+  if (!accountRoe) {
+    return accountRoe.error();
+  }
+  Account& account = *accountRoe.value();
+  account.wallet.recovery = recovery;
+  touchTree(account);
+  return {};
+}
+
+std::vector<uint64_t> AccountBuffer::applyDueRecoveries(uint64_t epoch) {
+  std::vector<uint64_t> due;
+  for (const auto& [id, account] : mAccounts_) {
+    // Genesis has no account recovery: its admin set changes only by T_CONFIG and the genesis recovery
+    // set in the chain authority (T_RECOVERY). Never apply one, however it got there.
+    if (id == ID_GENESIS) {
+      continue;
+    }
+    if (account.wallet.recovery.pending && account.wallet.recovery.applyEpoch <= epoch) {
+      due.push_back(id);
+    }
+  }
+  for (uint64_t id : due) {
+    auto accountRoe = mutableAccount(id);
+    if (!accountRoe) {
+      continue;
+    }
+    Account& account = *accountRoe.value();
+    Client::AccountRecovery& recovery = account.wallet.recovery;
+    account.wallet.publicKeys = recovery.nextPublicKeys;
+    account.wallet.minSignatures = recovery.nextMinSignatures;
+    recovery.pending = false;
+    recovery.nextPublicKeys.clear();
+    recovery.nextMinSignatures = 0;
+    recovery.applyEpoch = 0;
+    recovery.announcedAt = 0;
+    touchTree(account);
+  }
+  return due;
+}
+
 void AccountBuffer::recordUndo(uint64_t id) {
   if (journals_.empty()) {
     return;
   }
-  auto &saved = journals_.back().saved;
+  auto& saved = journals_.back().saved;
   if (saved.count(id) != 0) {
     return;
   }
@@ -93,7 +195,7 @@ void AccountBuffer::recordUndo(uint64_t id) {
 }
 
 void AccountBuffer::beginOverlay() {
-  journals_.push_back(Journal{stateTree_.clone(), {}, idempotencyKeys_, draftTags_});
+  journals_.push_back(Journal{stateTree_.clone(), {}, idempotencyKeys_, draftTags_, {}});
 }
 
 void AccountBuffer::commitOverlay() {
@@ -106,9 +208,13 @@ void AccountBuffer::commitOverlay() {
     return;
   }
   // Outer journal keeps its own (older) saved value when both touched an id.
-  auto &outer = journals_.back().saved;
-  for (auto &[id, value] : inner.saved) {
+  auto& outer = journals_.back().saved;
+  for (auto& [id, value] : inner.saved) {
     outer.emplace(id, std::move(value));
+  }
+  auto& outerDomains = journals_.back().savedDomains;
+  for (auto& [domain, value] : inner.savedDomains) {
+    outerDomains.emplace(domain, std::move(value));
   }
 }
 
@@ -118,11 +224,18 @@ void AccountBuffer::rollbackOverlay() {
   }
   Journal journal = std::move(journals_.back());
   journals_.pop_back();
-  for (auto &[id, value] : journal.saved) {
+  for (auto& [id, value] : journal.saved) {
     if (value.has_value()) {
       mAccounts_[id] = std::move(*value);
     } else {
       mAccounts_.erase(id);
+    }
+  }
+  for (auto& [domain, value] : journal.savedDomains) {
+    if (value.has_value()) {
+      domains_[domain] = *value;
+    } else {
+      domains_.erase(domain);
     }
   }
   stateTree_ = std::move(journal.tree);
@@ -134,17 +247,17 @@ bool AccountBuffer::hasAccount(uint64_t id) const {
   return mAccounts_.find(id) != mAccounts_.end();
 }
 
-bool AccountBuffer::isEmpty() const { return mAccounts_.empty(); }
+bool AccountBuffer::isEmpty() const {
+  return mAccounts_.empty();
+}
 
-bool AccountBuffer::isNegativeBalanceAllowed(const Account &account,
-                                             uint64_t tokenId) const {
+bool AccountBuffer::isNegativeBalanceAllowed(const Account& account, uint64_t tokenId) const {
   return issuesToken(account.id, tokenId);
 }
 
-std::vector<uint64_t>
-AccountBuffer::getAccountIdsBeforeBlockId(uint64_t blockId) const {
+std::vector<uint64_t> AccountBuffer::getAccountIdsBeforeBlockId(uint64_t blockId) const {
   std::vector<uint64_t> ids;
-  for (const auto &[id, account] : mAccounts_) {
+  for (const auto& [id, account] : mAccounts_) {
     if (account.blockId < blockId) {
       ids.push_back(id);
     }
@@ -152,8 +265,7 @@ AccountBuffer::getAccountIdsBeforeBlockId(uint64_t blockId) const {
   return ids;
 }
 
-AccountBuffer::Roe<const AccountBuffer::Account &>
-AccountBuffer::getAccount(uint64_t id) const {
+AccountBuffer::Roe<const AccountBuffer::Account&> AccountBuffer::getAccount(uint64_t id) const {
   auto it = mAccounts_.find(id);
   if (it == mAccounts_.end()) {
     return Error(E_ACCOUNT, "Account not found: " + std::to_string(id));
@@ -175,7 +287,7 @@ int64_t AccountBuffer::getBalance(uint64_t accountId, uint64_t tokenId) const {
 
 std::vector<consensus::Stakeholder> AccountBuffer::getStakeholders(uint64_t minMinerStake) const {
   std::vector<consensus::Stakeholder> stakeholders;
-  for (const auto &[id, account] : mAccounts_) {
+  for (const auto& [id, account] : mAccounts_) {
     // System accounts hold protocol funds (reserve supply, fees, write-offs),
     // not stake anyone put at risk: they never lead slots. Only accounts that
     // opted in as miners (T_MINER_REGISTER, genesis miners) are elected.
@@ -193,7 +305,7 @@ std::vector<consensus::Stakeholder> AccountBuffer::getStakeholders(uint64_t minM
   return stakeholders;
 }
 
-AccountBuffer::Roe<void> AccountBuffer::add(const Account &account) {
+AccountBuffer::Roe<void> AccountBuffer::add(const Account& account) {
   if (hasAccount(account.id)) {
     return Error(E_ACCOUNT, "Account already exists");
   }
@@ -204,11 +316,10 @@ AccountBuffer::Roe<void> AccountBuffer::add(const Account &account) {
   return {};
 }
 
-AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer &other) {
-  for (const auto &[id, account] : other.mAccounts_) {
+AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer& other) {
+  for (const auto& [id, account] : other.mAccounts_) {
     if (!hasAccount(id)) {
-      return Error(E_ACCOUNT,
-                   "Account to update not found: " + std::to_string(id));
+      return Error(E_ACCOUNT, "Account to update not found: " + std::to_string(id));
     }
     recordUndo(id);
     mAccounts_[id] = account;
@@ -217,8 +328,7 @@ AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer &other) {
   return {};
 }
 
-AccountBuffer::Roe<void> AccountBuffer::seedFromCommittedIfMissing(
-    const AccountBuffer &committed, uint64_t accountId) {
+AccountBuffer::Roe<void> AccountBuffer::seedFromCommittedIfMissing(const AccountBuffer& committed, uint64_t accountId) {
   if (hasAccount(accountId)) {
     return {};
   }
@@ -228,22 +338,18 @@ AccountBuffer::Roe<void> AccountBuffer::seedFromCommittedIfMissing(
 
   auto accRoe = committed.getAccount(accountId);
   if (!accRoe) {
-    return Error(accRoe.error().code,
-                 "Failed to get account: " + accRoe.error().message);
+    return Error(accRoe.error().code, "Failed to get account: " + accRoe.error().message);
   }
 
   auto addRoe = add(accRoe.value());
   if (!addRoe) {
-    return Error(addRoe.error().code,
-                 "Failed to add account to buffer: " + addRoe.error().message);
+    return Error(addRoe.error().code, "Failed to add account to buffer: " + addRoe.error().message);
   }
 
   return {};
 }
 
-AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
-                                                            uint64_t tokenId,
-                                                            uint64_t amount,
+AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId, uint64_t tokenId, uint64_t amount,
                                                             uint64_t fee) const {
   if (amount > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
     return Error(E_INPUT, "Amount exceeds int64_t range");
@@ -258,7 +364,7 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
   if (!accRoe) {
     return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
   }
-  const Account &account = accRoe.value();
+  const Account& account = accRoe.value();
 
   int64_t tokenBalance = 0;
   auto tokenBalanceIt = account.wallet.mBalances.find(tokenId);
@@ -289,8 +395,7 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
         return Error(E_BALANCE, "Amount and fee overflow");
       }
       if (floor > tokenBalance) {
-        return Error(E_BALANCE,
-                     "Transfer amount and fee would cause balance underflow");
+        return Error(E_BALANCE, "Transfer amount and fee would cause balance underflow");
       }
       return {};
     }
@@ -300,8 +405,7 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
   } else {
     if (allowNegativeTokenBalance) {
       if (amountSigned + INT64_MIN > tokenBalance) {
-        return Error(E_BALANCE,
-                     "Transfer amount would cause balance underflow");
+        return Error(E_BALANCE, "Transfer amount would cause balance underflow");
       }
     } else if (tokenBalance < amountSigned) {
       return Error(E_BALANCE, "Insufficient balance for transfer");
@@ -314,9 +418,8 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
   return {};
 }
 
-AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
-    uint64_t accountId, uint64_t amount, uint64_t fee,
-    const std::map<uint64_t, int64_t> &expectedBalances) const {
+AccountBuffer::Roe<void> AccountBuffer::verifyBalance(uint64_t accountId, uint64_t amount, uint64_t fee,
+                                                      const std::map<uint64_t, int64_t>& expectedBalances) const {
   if (amount > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
     return Error(E_INPUT, "Amount exceeds int64_t range");
   }
@@ -331,11 +434,10 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
     return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
   }
 
-  const auto &account = accRoe.value();
-  const auto &bufferBalances = account.wallet.mBalances;
+  const auto& account = accRoe.value();
+  const auto& bufferBalances = account.wallet.mBalances;
 
-  auto getBalanceOrZero = [](const std::map<uint64_t, int64_t> &balances,
-                             uint64_t tokenId) -> int64_t {
+  auto getBalanceOrZero = [](const std::map<uint64_t, int64_t>& balances, uint64_t tokenId) -> int64_t {
     auto balanceIt = balances.find(tokenId);
     if (balanceIt == balances.end()) {
       return 0;
@@ -343,25 +445,23 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
     return balanceIt->second;
   };
 
-  for (const auto &[tokenId, bufferBalance] : bufferBalances) {
+  for (const auto& [tokenId, bufferBalance] : bufferBalances) {
     if (tokenId == ID_GENESIS) {
       continue;
     }
     int64_t expectedBalance = getBalanceOrZero(expectedBalances, tokenId);
     if (bufferBalance != expectedBalance) {
-      return Error(E_BALANCE,
-                   "Balance mismatch for token " + std::to_string(tokenId));
+      return Error(E_BALANCE, "Balance mismatch for token " + std::to_string(tokenId));
     }
   }
 
-  for (const auto &[tokenId, expectedBalance] : expectedBalances) {
+  for (const auto& [tokenId, expectedBalance] : expectedBalances) {
     if (tokenId == ID_GENESIS) {
       continue;
     }
     int64_t bufferBalance = getBalanceOrZero(bufferBalances, tokenId);
     if (bufferBalance != expectedBalance) {
-      return Error(E_BALANCE,
-                   "Balance mismatch for token " + std::to_string(tokenId));
+      return Error(E_BALANCE, "Balance mismatch for token " + std::to_string(tokenId));
     }
   }
 
@@ -373,25 +473,19 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
   int64_t expectedGenesis = getBalanceOrZero(expectedBalances, ID_GENESIS);
   int64_t expectedBufferGenesis = 0;
   if (!safeAddI64(expectedGenesis, delta, expectedBufferGenesis)) {
-    return Error(E_BALANCE,
-                 "Genesis token balance overflow when adding amount and fee");
+    return Error(E_BALANCE, "Genesis token balance overflow when adding amount and fee");
   }
 
   int64_t bufferGenesis = getBalanceOrZero(bufferBalances, ID_GENESIS);
   if (bufferGenesis != expectedBufferGenesis) {
-    return Error(E_BALANCE,
-                 "Genesis token balance mismatch for account " +
-                     std::to_string(accountId) + ": expected " +
-                     std::to_string(expectedBufferGenesis) + ", got " +
-                     std::to_string(bufferGenesis));
+    return Error(E_BALANCE, "Genesis token balance mismatch for account " + std::to_string(accountId) + ": expected " +
+                                std::to_string(expectedBufferGenesis) + ", got " + std::to_string(bufferGenesis));
   }
 
   return {};
 }
 
-AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId,
-                                                       uint64_t tokenId,
-                                                       int64_t amount) {
+AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId, uint64_t tokenId, int64_t amount) {
   if (amount < 0) {
     return Error(E_INPUT, "Deposit amount must be non-negative");
   }
@@ -400,7 +494,7 @@ AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId,
   if (!accRoe) {
     return Error(accRoe.error().code, accRoe.error().message);
   }
-  Account &account = *accRoe.value();
+  Account& account = *accRoe.value();
 
   int64_t currentBalance = 0;
   auto balanceIt = account.wallet.mBalances.find(tokenId);
@@ -416,9 +510,7 @@ AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId,
   return {};
 }
 
-AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId,
-                                                        uint64_t tokenId,
-                                                        int64_t amount) {
+AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId, uint64_t tokenId, int64_t amount) {
   if (amount < 0) {
     return Error(E_INPUT, "Withdraw amount must be non-negative");
   }
@@ -427,7 +519,7 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId,
   if (!accRoe) {
     return Error(accRoe.error().code, accRoe.error().message);
   }
-  Account &account = *accRoe.value();
+  Account& account = *accRoe.value();
 
   int64_t currentBalance = 0;
   auto balanceIt = account.wallet.mBalances.find(tokenId);
@@ -446,9 +538,8 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId,
   return {};
 }
 
-AccountBuffer::Roe<void>
-AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
-                               uint64_t amount, uint64_t fee) {
+AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
+                                                        uint64_t amount, uint64_t fee) {
   if (fromId == toId) {
     // Both balances are read before either is written: the same account would gain `amount`.
     return Error(E_INPUT, "Payer and payee are the same account: " + std::to_string(fromId));
@@ -461,22 +552,19 @@ AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
   const int64_t feeSigned = static_cast<int64_t>(fee);
 
   if (auto fromRoe = mutableAccount(fromId); !fromRoe) {
-    return Error(E_ACCOUNT,
-                 "Source account not found: " + std::to_string(fromId));
+    return Error(E_ACCOUNT, "Source account not found: " + std::to_string(fromId));
   }
   if (auto toRoe = mutableAccount(toId); !toRoe) {
-    return Error(E_ACCOUNT,
-                 "Destination account not found: " + std::to_string(toId));
+    return Error(E_ACCOUNT, "Destination account not found: " + std::to_string(toId));
   }
   if (fee > 0) {
     if (auto feeRoe = mutableAccount(ID_FEE); !feeRoe) {
-      return Error(E_ACCOUNT,
-                   "Fee account not found: " + std::to_string(ID_FEE));
+      return Error(E_ACCOUNT, "Fee account not found: " + std::to_string(ID_FEE));
     }
   }
 
-  Account &fromAcc = mAccounts_.at(fromId);
-  Account &toAcc = mAccounts_.at(toId);
+  Account& fromAcc = mAccounts_.at(fromId);
+  Account& toAcc = mAccounts_.at(toId);
 
   int64_t fromBalance = 0;
   auto fromBalanceIt = fromAcc.wallet.mBalances.find(tokenId);
@@ -507,13 +595,12 @@ AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
 
   if (fee > 0) {
     if (tokenId == ID_GENESIS) {
-      fromAcc.wallet.mBalances[ID_GENESIS] =
-          fromBalance - amountSigned - feeSigned;
+      fromAcc.wallet.mBalances[ID_GENESIS] = fromBalance - amountSigned - feeSigned;
     } else {
       fromAcc.wallet.mBalances[ID_GENESIS] = genesisBalance - feeSigned;
     }
 
-    Account &feeAcc = mAccounts_.at(ID_FEE);
+    Account& feeAcc = mAccounts_.at(ID_FEE);
     int64_t feeAccountBalance = 0;
     auto feeBalanceIt = feeAcc.wallet.mBalances.find(ID_GENESIS);
     if (feeBalanceIt != feeAcc.wallet.mBalances.end()) {
@@ -537,15 +624,13 @@ AccountBuffer::Roe<void> AccountBuffer::writeOff(uint64_t accountId) {
     return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
   }
   if (auto recycleRoe = mutableAccount(ID_RECYCLE); !recycleRoe) {
-    return Error(E_ACCOUNT,
-                 "Recycle account not found: " + std::to_string(ID_RECYCLE));
+    return Error(E_ACCOUNT, "Recycle account not found: " + std::to_string(ID_RECYCLE));
   }
 
-  const std::map<uint64_t, int64_t> balances =
-      mAccounts_.at(accountId).wallet.mBalances;
-  Account &recycle = mAccounts_.at(ID_RECYCLE);
+  const std::map<uint64_t, int64_t> balances = mAccounts_.at(accountId).wallet.mBalances;
+  Account& recycle = mAccounts_.at(ID_RECYCLE);
 
-  for (const auto &[tokenId, amount] : balances) {
+  for (const auto& [tokenId, amount] : balances) {
     if (amount > 0) {
       recycle.wallet.mBalances[tokenId] += amount;
     }
@@ -561,33 +646,46 @@ void AccountBuffer::remove(uint64_t id) {
     return;
   }
   recordUndo(id);
+  clearTree(mAccounts_.at(id));
   mAccounts_.erase(id);
-  clearTree(id);
 }
 
 void AccountBuffer::clear() {
-  for (const auto &[id, account] : mAccounts_) {
+  for (const auto& [id, account] : mAccounts_) {
     recordUndo(id);
   }
   mAccounts_.clear();
+  if (!journals_.empty()) {
+    auto& saved = journals_.back().savedDomains;
+    for (const auto& [domain, entry] : domains_) {
+      saved.emplace(domain, entry);
+    }
+  }
+  domains_.clear();
   stateTree_ = AccountStateTree{};
   idempotencyKeys_.clear();
   draftTags_.clear();
 }
 
-bool AccountBuffer::hasDraftTag(const std::string &tag) const { return draftTags_.count(tag) != 0; }
+bool AccountBuffer::hasDraftTag(const std::string& tag) const {
+  return draftTags_.count(tag) != 0;
+}
 
-void AccountBuffer::addDraftTag(const std::string &tag) { draftTags_.insert(tag); }
+void AccountBuffer::addDraftTag(const std::string& tag) {
+  draftTags_.insert(tag);
+}
 
-bool AccountBuffer::hasIdempotencyKey(const IdempotencyKey &key) const {
+bool AccountBuffer::hasIdempotencyKey(const IdempotencyKey& key) const {
   return idempotencyKeys_.count(key) != 0;
 }
 
-void AccountBuffer::addIdempotencyKey(const IdempotencyKey &key) {
+void AccountBuffer::addIdempotencyKey(const IdempotencyKey& key) {
   idempotencyKeys_.insert(key);
 }
 
-void AccountBuffer::reset() { clear(); }
+void AccountBuffer::reset() {
+  clear();
+}
 
 std::string AccountBuffer::calculateStateRoot() const {
   return stateTree_.root();

@@ -8,11 +8,20 @@ on:
   workflow_dispatch:
 
 jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: C++ formatting (clang-format 23.1.5)
+        run: |
+          pipx install clang-format==23.1.5
+          ./scripts/check/check_format.sh
+
   build:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-14, windows-2022]
+        os: [ubuntu-24.04, macos-15, windows-2022]
 
     runs-on: ${{ matrix.os }}
 
@@ -22,6 +31,10 @@ jobs:
 
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
+
+      - name: Include layout
+        if: runner.os == 'Linux'
+        run: ./scripts/check/check_includes.sh
 
       - name: Install Linux deps
         if: runner.os == 'Linux'

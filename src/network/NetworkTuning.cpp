@@ -1,9 +1,9 @@
-#include "NetworkTuning.h"
+#include "ledger/network/NetworkTuning.h"
 
 namespace pp {
 namespace network {
 
-void NetworkTuning::applyTo(pp::amp::PeerLinkConfig &config) const {
+void NetworkTuning::applyTo(pp::amp::PeerLinkConfig& config) const {
   config.adp = adp;
   config.mux = mux;
 }

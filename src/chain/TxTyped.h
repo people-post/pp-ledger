@@ -1,9 +1,9 @@
 #ifndef PP_LEDGER_TX_TYPED_H
 #define PP_LEDGER_TX_TYPED_H
 
-#include "ErrorCodes.h"
-#include "TxError.h"
-#include "../ledger/Ledger.h"
+#include "ledger/chain/ErrorCodes.h"
+#include "ledger/chain/TxError.h"
+#include "ledger/ledger/Ledger.h"
 
 #include <string>
 #include <variant>
@@ -15,12 +15,10 @@ namespace pp::chain_tx {
  * success so callers keep the same `*p` usage style as `std::get_if`.
  */
 template <typename T>
-Roe<const T *> expectTx(const Ledger::TypedTx &tx, const char *where,
-                        const char *typeName) {
-  const auto *p = std::get_if<T>(&tx);
+Roe<const T*> expectTx(const Ledger::TypedTx& tx, const char* where, const char* typeName) {
+  const auto* p = std::get_if<T>(&tx);
   if (!p) {
-    return TxError(chain_err::E_INTERNAL,
-                   std::string(where) + ": expected " + typeName);
+    return TxError(chain_err::E_INTERNAL, std::string(where) + ": expected " + typeName);
   }
   return p;
 }

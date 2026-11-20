@@ -27,9 +27,9 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 /** An environment variable, if set and not empty (MSVC deprecates getenv, C4996: as env_config::get). */
-std::optional<std::string> env(const char *name) {
+std::optional<std::string> env(const char* name) {
 #ifdef _WIN32
-  char *buffer = nullptr;
+  char* buffer = nullptr;
   size_t length = 0;
   if (_dupenv_s(&buffer, &length, name) != 0 || buffer == nullptr) {
     return std::nullopt;
@@ -37,21 +37,24 @@ std::optional<std::string> env(const char *name) {
   std::string value(buffer);
   std::free(buffer);
 #else
-  const char *raw = std::getenv(name);
+  const char* raw = std::getenv(name);
   std::string value = raw ? raw : "";
 #endif
   return value.empty() ? std::nullopt : std::optional<std::string>(value);
 }
 
-uint64_t envOr(const char *name, uint64_t fallback) {
+uint64_t envOr(const char* name, uint64_t fallback) {
   const auto value = env(name);
   return value ? std::strtoull(value->c_str(), nullptr, 10) : fallback;
 }
 
-double secondsSince(Clock::time_point t) { return std::chrono::duration<double>(Clock::now() - t).count(); }
+double secondsSince(Clock::time_point t) {
+  return std::chrono::duration<double>(Clock::now() - t).count();
+}
 
 /** `count` items made by `make(i)`, in parallel over the machine's cores (ML-DSA signing dominates). */
-template <typename T, typename Make> std::vector<T> parallelMake(size_t count, Make make) {
+template <typename T, typename Make>
+std::vector<T> parallelMake(size_t count, Make make) {
   std::vector<T> out(count);
   const size_t workers = std::max<size_t>(1, std::thread::hardware_concurrency());
   std::vector<std::future<void>> running;
@@ -62,7 +65,7 @@ template <typename T, typename Make> std::vector<T> parallelMake(size_t count, M
       }
     }));
   }
-  for (auto &r : running) {
+  for (auto& r : running) {
     r.get();
   }
   return out;
@@ -82,7 +85,7 @@ protected:
     accounts_ = envOr("PP_LEDGER_SCALE_ACCOUNTS", 1000);
     blocks_ = envOr("PP_LEDGER_SCALE_BLOCKS", 1000);
     txs_ = envOr("PP_LEDGER_SCALE_TXS", 100);
-    harness_.SetUp([this](Chain::BlockChainConfig &config) {
+    harness_.SetUp([this](Chain::BlockChainConfig& config) {
       config.maxTransactionsPerBlock = txs_;
       config.checkpoint.minBlocks = 1'000'000'000; // no renewals here: their echo is measured apart
       config.maxIssuancePerEpoch = 0;
@@ -91,7 +94,8 @@ protected:
   void TearDown() override { harness_.TearDown(); }
 
   /** A transfer window around the block's time, as clients sign them (60 s back, an hour ahead). */
-  template <typename Tx> void window(Tx &tx, uint64_t slot, uint64_t idempotentId) {
+  template <typename Tx>
+  void window(Tx& tx, uint64_t slot, uint64_t idempotentId) {
     const int64_t at = harness_.producer.getSlotStartTime(slot);
     tx.idempotentId = idempotentId;
     tx.validationTsMin = at - 60;
@@ -99,7 +103,7 @@ protected:
   }
 
   /** Seal and commit a block of `records` at `slot` on the producer; returns the seconds it took. */
-  double produce(uint64_t slot, const std::vector<Ledger::Record> &records) {
+  double produce(uint64_t slot, const std::vector<Ledger::Record>& records) {
     const auto start = Clock::now();
     tip_ = makeNextBlockAtSlot(harness_.producer, tip_, slot, records);
     auto added = harness_.producer.addBlock(tip_);
@@ -115,7 +119,7 @@ protected:
 };
 
 TEST_F(LedgerScaleTest, SyncRestartAndRequestsOnALongChain) {
-  auto &producer = harness_.producer;
+  auto& producer = harness_.producer;
   producer.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock()); // as the beacon: durable at once
   tip_ = harness_.genesis;
   uint64_t slot = tip_.block.slot;
@@ -207,7 +211,7 @@ TEST_F(LedgerScaleTest, SyncRestartAndRequestsOnALongChain) {
   report.set("sealMsMax", sealSeconds.back() * 1000);
 
   // Sync from genesis: the peer validates every block in full, as a follower does.
-  auto &peer = harness_.peer;
+  auto& peer = harness_.peer;
   t0 = Clock::now();
   for (uint64_t id = 1; id < chainBlocks; ++id) {
     auto block = producer.readBlock(id);

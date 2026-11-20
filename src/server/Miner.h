@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_MINER_H
 #define PP_LEDGER_MINER_H
 
-#include "FollowerCore.h"
+#include "server/FollowerCore.h"
 
 #include <cstdint>
 #include <memory>
@@ -66,21 +66,19 @@ public:
   int64_t getSlotStartTime(uint64_t slot) const;
 
   // ----------------- methods -------------------------------------
-  Roe<void> init(const InitConfig &config);
+  Roe<void> init(const InitConfig& config);
 
-  Roe<void>
-  addTransaction(const Ledger::Record &record);
+  Roe<void> addTransaction(const Ledger::Record& record);
   /** FollowerCore::addBlock; the tip moved, so this slot's leader state is rebuilt. */
-  Roe<void> addBlock(const Ledger::ChainNode &block) override;
+  Roe<void> addBlock(const Ledger::ChainNode& block) override;
 
-
-  Roe<bool> produceBlock(Ledger::ChainNode &block);
-  void markBlockProduction(const Ledger::ChainNode &block);
+  Roe<bool> produceBlock(Ledger::ChainNode& block);
+  void markBlockProduction(const Ledger::ChainNode& block);
   /**
    * Drop a produced block that will not be committed (e.g. broadcast failed):
    * roll back the tip seal and return its pool transactions to the pending set.
    */
-  void abandonBlock(const Ledger::ChainNode &block);
+  void abandonBlock(const Ledger::ChainNode& block);
 
 private:
   struct Config {
@@ -97,7 +95,7 @@ private:
     uint64_t bytesLeft{0};
 
     /** Takes `record` if it fits. */
-    bool take(const Ledger::Record &record);
+    bool take(const Ledger::Record& record);
   };
 
   struct SlotCache {
@@ -110,6 +108,8 @@ private:
     BlockBudget budget;
     /** Due renewals did not all fit: the block holds renewals only (and a certificate due). */
     bool renewalsWait{false};
+    /** The budget already holds a place for the pending beacon seed reveal (taken before renewals). */
+    bool seedRevealReserved{false};
   };
   /** The seal found the block larger than maxBlockBytes (the leader's estimate was short). */
   constexpr static const int32_t E_BLOCK_TOO_LARGE = 31;
@@ -127,12 +127,10 @@ private:
    * Admission (seal checkBlockBodyPolicy) still enforces empty-heartbeat rules.
    * On success with empty body, tipSlotOut is the tip slot used for the lag check.
    */
-  Roe<bool> shouldAttemptProduction(uint64_t slot, uint64_t &tipSlotOut) const;
+  Roe<bool> shouldAttemptProduction(uint64_t slot, uint64_t& tipSlotOut) const;
 
   Roe<void> initSlotCache(uint64_t slot);
-  Roe<Ledger::ChainNode> createBlock(
-      uint64_t slot,
-      const std::vector<Ledger::Record> &records);
+  Roe<Ledger::ChainNode> createBlock(uint64_t slot, const std::vector<Ledger::Record>& records);
 
   Config config_;
   AccountBuffer bufferBank_;

@@ -11,7 +11,7 @@ The project uses GitHub Actions for continuous integration and Docker image rele
 | Runner | Status |
 |--------|--------|
 | `ubuntu-24.04` | Required — full build + test |
-| `macos-14` | Required — full build + test |
+| `macos-15` | Required — full build + test |
 | `windows-2022` | Required — full build + test (MSVC + Winsock network stack) |
 
 Release Docker builds remain **Ubuntu 24.04** only.

@@ -1,10 +1,10 @@
 // Operation files (docs/contracts/OPERATION_FILE.md): built, written and read back, signed apart and
 // merged, refused when tampered with, summarized from the record alone.
-#include "../Operation.h"
+#include "ledger/operation/Operation.h"
 
-#include "../../chain/Types.h"
-#include "../../client/AccountIds.h"
-#include "lib/common/Utilities.h"
+#include "ledger/chain/Types.h"
+#include "ledger/client/AccountIds.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <gtest/gtest.h>
 
@@ -24,14 +24,14 @@ struct Keys {
   }
   std::vector<std::string> publicKeys() const {
     std::vector<std::string> out;
-    for (const auto &p : pairs) {
+    for (const auto& p : pairs) {
       out.push_back(p.publicKey);
     }
     return out;
   }
 };
 
-Common common(const Keys &keys, uint32_t minSignatures, std::optional<uint64_t> account) {
+Common common(const Keys& keys, uint32_t minSignatures, std::optional<uint64_t> account) {
   Common c;
   c.networkId = "test-net";
   c.genesisHash = std::string(32, '\x07');
@@ -79,9 +79,9 @@ TEST(OperationTest, CopiesSignedApartMergeIntoACompleteOperation) {
   EXPECT_EQ(merged.value().signatures.size(), 2u) << "a key counted once";
   auto record = signedRecord(merged.value());
   ASSERT_TRUE(record) << record.error().message;
-  for (const auto &signature : record.value().signatures) { // as the chain checks them
+  for (const auto& signature : record.value().signatures) { // as the chain checks them
     bool byASigner = false;
-    for (const auto &key : keys.publicKeys()) {
+    for (const auto& key : keys.publicKeys()) {
       byASigner = byASigner || utl::mlDsaVerify(key, record.value().signingMessage("test-net"), signature);
     }
     EXPECT_TRUE(byASigner);
@@ -136,7 +136,7 @@ TEST(OperationTest, SummariesComeFromTheRecord) {
   ASSERT_TRUE(s) << s.error().message;
   EXPECT_EQ(s.value().title, "Mint new tokens to the reserve");
   bool amount = false;
-  for (const auto &[label, value] : s.value().lines) {
+  for (const auto& [label, value] : s.value().lines) {
     amount = amount || (label == "Amount" && value == "1,234,567");
   }
   EXPECT_TRUE(amount);
@@ -172,6 +172,33 @@ TEST(OperationTest, SummariesComeFromTheRecord) {
   EXPECT_EQ(r.value().lines.back().second.rfind("2 of 3:", 0), 0u);
 }
 
+TEST(OperationTest, ABeaconCertificateShowsItsSeedAnchor) {
+  Keys keys(2);
+  auto show = [&](const std::string& anchor) {
+    BeaconCertificate cert;
+    cert.networkId = "test-net";
+    cert.generation = 2;
+    cert.publicKey = keys.pairs[0].publicKey;
+    cert.cutoverHeight = BeaconCertificate::kNoCutover;
+    cert.seedAnchor = anchor;
+    cert.seedAnchorEpoch = 7;
+    cert.seedChainLength = anchor.empty() ? 0 : 50;
+    Ledger::TxBeaconCert tx;
+    tx.meta = cert.ltsToString();
+    Ledger::Record record;
+    record.type = Ledger::T_BEACON_CERT;
+    record.data = utl::binaryPack(tx);
+    auto op = wrap(common(keys, 2, AccountIds::ID_GENESIS), record);
+    EXPECT_TRUE(op) << op.error().message;
+    auto summary = summarize(op.value());
+    EXPECT_TRUE(summary);
+    return summary.value().lines.back().second;
+  };
+  const std::string anchor(32, '\x5a');
+  EXPECT_EQ(show(anchor), utl::hexEncode(anchor) + ", epoch 7, 50 epochs");
+  EXPECT_EQ(show(""), "none");
+}
+
 TEST(OperationTest, TheSignersAreTheAccountTheChainChecks) {
   Keys keys(2);
   auto op = transfer(common(keys, 1, AccountIds::ID_RESERVE), AccountIds::ID_REGISTRAR, 1, 0);
@@ -194,7 +221,7 @@ TEST(OperationTest, TheSignersAreTheAccountTheChainChecks) {
 }
 
 /** Block 0 by hand (the beacon builds it with chain_genesis::records): genesis meta, two accounts. */
-std::vector<Ledger::Record> genesisRecords(const Keys &admins) {
+std::vector<Ledger::Record> genesisRecords(const Keys& admins) {
   GenesisAccountMeta meta;
   meta.config.networkId = "test-net";
   meta.config.genesisTime = 1'800'000'000;
@@ -245,7 +272,7 @@ TEST(OperationTest, AGenesisIsSignedRecordByRecordAndMerged) {
   auto records = signedRecords(merged.value());
   ASSERT_TRUE(records) << records.error().message;
   ASSERT_EQ(records.value().size(), 3u);
-  for (const auto &record : records.value()) {
+  for (const auto& record : records.value()) {
     EXPECT_EQ(record.signatures.size(), 2u);
   }
 
@@ -267,7 +294,7 @@ TEST(OperationTest, AGenesisIsSignedRecordByRecordAndMerged) {
   ASSERT_TRUE(s) << s.error().message;
   EXPECT_EQ(s.value().title, "Start the chain (genesis)");
   bool reserve = false;
-  for (const auto &[label, value] : s.value().lines) {
+  for (const auto& [label, value] : s.value().lines) {
     reserve = reserve || (label == "Reserve" && value.rfind("1,000,000; keys 1 of 1:", 0) == 0);
   }
   EXPECT_TRUE(reserve);
@@ -313,7 +340,7 @@ TEST(OperationTest, ABatchIsSignedOnceAndSubmittedTransferByTransfer) {
   ASSERT_EQ(op.value().moreRecords.size(), 2u);
   // Each its own transaction: distinct idempotency ids, one window, the same metadata.
   std::set<uint64_t> ids;
-  for (const auto *record : {&op.value().record, &op.value().moreRecords[0], &op.value().moreRecords[1]}) {
+  for (const auto* record : {&op.value().record, &op.value().moreRecords[0], &op.value().moreRecords[1]}) {
     auto tx = utl::binaryUnpack<Ledger::TxDefault>(record->data);
     ASSERT_TRUE(tx);
     EXPECT_EQ(tx.value().fromWalletId, AccountIds::ID_FEE);
@@ -335,7 +362,7 @@ TEST(OperationTest, ABatchIsSignedOnceAndSubmittedTransferByTransfer) {
   auto records = signedRecords(merged.value());
   ASSERT_TRUE(records) << records.error().message;
   ASSERT_EQ(records.value().size(), 3u);
-  for (const auto &record : records.value()) {
+  for (const auto& record : records.value()) {
     EXPECT_EQ(record.signatures.size(), 2u);
   }
 
@@ -344,7 +371,7 @@ TEST(OperationTest, ABatchIsSignedOnceAndSubmittedTransferByTransfer) {
   EXPECT_EQ(summary.value().title, "3 transfers from Fee");
   bool total = false;
   bool fees = false;
-  for (const auto &[label, value] : summary.value().lines) {
+  for (const auto& [label, value] : summary.value().lines) {
     total = total || (label == "Total" && value == "1,000");
     fees = fees || (label == "Fees, all" && value == "6");
   }
@@ -367,7 +394,7 @@ TEST(OperationTest, AnAccountReplacesItsKeysSignedByThoseInForce) {
   current.wallet.mBalances[issuer] = -1000; // its own token, issued
   current.meta = "attachment";
 
-  EXPECT_FALSE(replaceKeys(common(inForce, 2, issuer), current, next.publicKeys(), 4, 10)); // more than the keys
+  EXPECT_FALSE(replaceKeys(common(inForce, 2, issuer), current, next.publicKeys(), 4, 10));  // more than the keys
   EXPECT_FALSE(replaceKeys(common(inForce, 2, issuer), current, next.publicKeys(), 2, 501)); // cannot pay
   auto update = replaceKeys(common(inForce, 2, issuer), current, next.publicKeys(), 2, 10);
   ASSERT_TRUE(update) << update.error().message;
@@ -386,13 +413,89 @@ TEST(OperationTest, AnAccountReplacesItsKeysSignedByThoseInForce) {
 
   auto s = summarize(update.value());
   ASSERT_TRUE(s) << s.error().message;
-  EXPECT_EQ(s.value().title, "Replace an account's keys");
+  EXPECT_EQ(s.value().title, "Update an account: its keys, its recovery");
   auto back = fromJson(toJson(update.value()));
   ASSERT_TRUE(back) << back.error().message;
   EXPECT_EQ(back.value().kind, Kind::AccountUpdate);
   Operation otherSigners = update.value();
   otherSigners.signers.account = AccountIds::ID_RESERVE;
   EXPECT_FALSE(fromJson(toJson(otherSigners))); // the updated account signs, no other
+}
+
+TEST(OperationTest, AnAccountNamesItsFirstRecoverySetThenTheSetActs) {
+  Keys owner(1);
+  Keys guardians(3);
+  Keys next(1);
+  const uint64_t account = AccountIds::ID_FIRST_USER + 4;
+  UserAccount current;
+  current.wallet.publicKeys = owner.publicKeys();
+  current.wallet.minSignatures = 1;
+  current.wallet.mBalances[AccountIds::ID_GENESIS] = 500;
+
+  // The account's keys name the first set: the set, how many act, the delay; its keys and the rest kept.
+  EXPECT_FALSE(setRecovery(common(owner, 1, account), current, guardians.publicKeys(), 4, 3600, 10)); // 4 of 3
+  EXPECT_FALSE(setRecovery(common(owner, 1, account), current, guardians.publicKeys(), 2, 0, 10));    // no delay
+  auto set = setRecovery(common(owner, 1, account), current, guardians.publicKeys(), 2, 86400, 10);
+  ASSERT_TRUE(set) << set.error().message;
+  EXPECT_EQ(set.value().kind, Kind::AccountUpdate);
+  UserAccount carried;
+  ASSERT_TRUE(carried.ltsFromString(utl::binaryUnpack<Ledger::TxUserUpdate>(set.value().record.data).value().meta));
+  EXPECT_EQ(carried.wallet.publicKeys, owner.publicKeys());
+  EXPECT_EQ(carried.wallet.recovery.publicKeys, guardians.publicKeys());
+  EXPECT_EQ(carried.wallet.recovery.minSignatures, 2);
+  EXPECT_EQ(carried.wallet.recovery.delaySeconds, 86400u);
+  EXPECT_EQ(carried.wallet.mBalances.at(AccountIds::ID_GENESIS), 490);
+  // Once it has a set, its keys do not change it.
+  EXPECT_FALSE(setRecovery(common(owner, 1, account), carried, next.publicKeys(), 1, 86400, 10));
+
+  // The set acts for the account: announce, withdraw, change itself — never named by another account.
+  EXPECT_FALSE(announceRecovery(common(guardians, 2, AccountIds::ID_FIRST_USER), account, next.publicKeys(), 1, 10));
+  EXPECT_FALSE(announceRecovery(common(guardians, 2, account), account, next.publicKeys(), 2, 10)); // 2 of 1
+  auto announce = announceRecovery(common(guardians, 2, account), account, next.publicKeys(), 1, 10);
+  ASSERT_TRUE(announce) << announce.error().message;
+  EXPECT_EQ(announce.value().kind, Kind::AccountRecovery);
+  EXPECT_EQ(signerAccountOf(announce.value().record), account);
+  auto s = summarize(announce.value());
+  ASSERT_TRUE(s) << s.error().message;
+  EXPECT_EQ(s.value().title, "Recover an account: new keys, the account frozen until then");
+  auto back = fromJson(toJson(announce.value()));
+  ASSERT_TRUE(back) << back.error().message;
+  EXPECT_EQ(back.value().kind, Kind::AccountRecovery);
+
+  auto withdraw = withdrawRecovery(common(guardians, 2, account), account, 10);
+  ASSERT_TRUE(withdraw) << withdraw.error().message;
+  EXPECT_EQ(summarize(withdraw.value()).value().title, "Withdraw an account's recovery");
+  auto change = changeRecovery(common(guardians, 2, account), account, next.publicKeys(), 1, 3600, 10);
+  ASSERT_TRUE(change) << change.error().message;
+  EXPECT_EQ(summarize(change.value()).value().title, "Change an account's recovery set");
+  EXPECT_TRUE(changeRecovery(common(guardians, 2, account), account, {}, 0, 0, 10)); // removed
+  EXPECT_FALSE(changeRecovery(common(guardians, 2, account), account, next.publicKeys(), 1, 0, 10));
+
+  // Announced (as the chain holds it): the account is frozen — its keys make no update.
+  carried.wallet.recovery.pending = true;
+  carried.wallet.recovery.nextPublicKeys = next.publicKeys();
+  carried.wallet.recovery.nextMinSignatures = 1;
+  carried.wallet.recovery.applyEpoch = 9;
+  EXPECT_FALSE(replaceKeys(common(owner, 1, account), carried, next.publicKeys(), 1, 10));
+}
+
+TEST(OperationTest, TheRegistrarGivesAnIssuedAccountItsDomain) {
+  Keys registrar(2);
+  const uint64_t issuer = AccountIds::ID_FIRST_ISSUED + 12;
+  EXPECT_FALSE(assignDomain(common(registrar, 2, AccountIds::ID_RESERVE), issuer, "ACME", 10)) << "the registrar signs";
+  EXPECT_FALSE(assignDomain(common(registrar, 2, AccountIds::ID_REGISTRAR), AccountIds::ID_FIRST_USER, "ACME", 10));
+  EXPECT_FALSE(assignDomain(common(registrar, 2, AccountIds::ID_REGISTRAR), issuer, "ABC", 10));
+  EXPECT_FALSE(assignDomain(common(registrar, 2, AccountIds::ID_REGISTRAR), issuer, "acme", 10));
+  auto op = assignDomain(common(registrar, 2, AccountIds::ID_REGISTRAR), issuer, "ACME", 10);
+  ASSERT_TRUE(op) << op.error().message;
+  EXPECT_EQ(op.value().kind, Kind::DomainAssign);
+  EXPECT_EQ(signerAccountOf(op.value().record), AccountIds::ID_REGISTRAR);
+  auto s = summarize(op.value());
+  ASSERT_TRUE(s) << s.error().message;
+  EXPECT_EQ(s.value().title, "Give an account its domain");
+  auto back = fromJson(toJson(op.value()));
+  ASSERT_TRUE(back) << back.error().message;
+  EXPECT_EQ(back.value().kind, Kind::DomainAssign);
 }
 
 TEST(OperationTest, AmountsAreGroupedByThousands) {

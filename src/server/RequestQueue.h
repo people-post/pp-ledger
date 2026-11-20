@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_REQUEST_QUEUE_H
 #define PP_LEDGER_REQUEST_QUEUE_H
 
-#include "../network/AmpLedgerServer.h"
+#include "ledger/network/AmpLedgerServer.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -98,7 +98,7 @@ private:
   size_t bytes_{0};
   size_t trustedBytes_{0};
   /** Under mu_: an item leaves the queue. */
-  void taken(const Item &item);
+  void taken(const Item& item);
   bool closed_{false};
 };
 
