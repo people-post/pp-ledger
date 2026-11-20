@@ -78,7 +78,7 @@ mesh directory (`ledger_gateway`) comes later ([PI005](DECISIONS.md#pi005--upstr
 ## Work in the mesh library / pp-node
 
 The mesh code moved out of pp-browser to pp-cpp-mesh; pp-node stayed in pp-browser, an app on it
-(decided while moving; [pp-browser MESH.md § Extraction](https://github.com/people-post/pp-browser/blob/develop/docs/architecture/MESH.md#extraction-to-pp-cpp-mesh)).
+(decided while moving; [pp-browser MESH.md § Extraction](https://github.com/people-post/pp-browser/blob/main/docs/architecture/MESH.md#extraction-to-pp-cpp-mesh)).
 
 - **MeshHost:** `SetAppProtocols` advertises protocols beside its own (it rebuilds the advertised
   list). The mesh refuses unhandled opens, so the host advertises the ledger's protocols only while
