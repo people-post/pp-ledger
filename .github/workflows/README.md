@@ -8,7 +8,7 @@ This directory contains automated workflows for building, testing, and releasing
 
 **Main build and test workflow**
 
-- **Triggers:** Push to `main` / `develop`, pull requests, manual dispatch
+- **Triggers:** Push to `main`, pull requests to `main`, manual dispatch
 - **Runners:** Same OS matrix as [pp-browser](https://github.com/people-post/pp-browser) `build.yml`:
   - `ubuntu-24.04` — full build + test (required)
   - `macos-15` — full build + test (required)
@@ -59,6 +59,8 @@ See **[deploy/README.md](../../deploy/README.md)** for running the published ima
 2. **Run workflow** → pick branch
 
 ### Publishing a release image
+
+Release tags are cut on `main` (pp-browser pins them):
 
 ```bash
 git tag release/v1.0.0
