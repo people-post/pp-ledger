@@ -53,7 +53,7 @@ pp-cpp-amp comes in via CMake (`cmake/PpCppAmp.cmake`), pinned to a release tag 
 `../pp-cpp-amp` checkout or `PP_CPP_AMP_SOURCE_DIR` overrides the pin. Inbound protocol handlers
 receive a `LinkHandle`; reach the link via `PeerLinkManager::WithLiveLink`.
 
-**Ownership:** Amp supplies L1–L3 transport only (`LedgerRpcChannelPolicy` lives in this repo). Chain tip/range sync, checkpoints, and RPC codecs stay in pp-ledger — do not push ledger sync or BitTorrent-style piece swarm into Amp. See [pp-cpp-amp OWNERSHIP](https://github.com/people-post/pp-cpp-amp/blob/develop/docs/OWNERSHIP.md).
+**Ownership:** Amp supplies L1–L3 transport only (`LedgerRpcChannelPolicy` lives in this repo). Chain tip/range sync, checkpoints, and RPC codecs stay in pp-ledger — do not push ledger sync or BitTorrent-style piece swarm into Amp. See [pp-cpp-amp OWNERSHIP](https://github.com/people-post/pp-cpp-amp/blob/main/docs/OWNERSHIP.md).
 
 ## Modules (pp-ledger)
 
