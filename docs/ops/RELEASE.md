@@ -29,7 +29,8 @@ A release branch takes fixes only; fixes land on main first and are backported
 
 Release tags are pushed by the release owner (repo variable `RELEASE_OWNER`,
 [RL008](../../projects/release/DECISIONS.md#rl008--hongwei-is-the-release-owner)) and are immutable: never move or
-re-push one; a fix is a new candidate.
+re-push one; a fix is a new candidate. A ruleset lets only a repository admin create, move or delete a `v*` tag; another
+makes `release/**` take changes only by PR, with one approval and the build and format checks, as main.
 [`release.yml`](../../.github/workflows/release.yml) refuses any other tag form, and any tag whose commit is not on
 its release branch (same X.Y).
 
