@@ -11,7 +11,7 @@ Order of work only; status in [CURRENT_STATE.md](CURRENT_STATE.md).
 - [x] Rulesets: `release/**` as main (a PR with one approval, the build and format checks, no force-push or deletion);
       `v*` tags created, moved or deleted only by a repository admin
 - [ ] The GHCR package's visibility (public, if anyone outside pulls it)
-- [ ] pp-browser: the release-compatibility docs say pp-ledger has release branches (RC023)
+- [x] pp-browser: the release-compatibility docs say pp-ledger has release branches (RC023, people-post/pp-browser#773)
 
 ## R2 — Compatibility tests
 
