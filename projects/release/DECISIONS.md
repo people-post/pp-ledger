@@ -53,7 +53,7 @@ the consumers' pins would seem to go backwards. 2.0.0 is past all of them.
 ## RL005 — Consumers pin candidates on main, releases on release branches
 
 **Date:** 2026-11-24
-**Status:** Default (Hongwei may change it).
+**Status:** Accepted (Hongwei, 2026-11-24).
 **Decision:** pp-browser's and pp-ledger-apps' `main` may pin a pp-ledger candidate or release; their release
 branches pin releases only. A pp-node release branch that needs a ledger fix takes a pp-ledger patch release from the
 branch it pins.
@@ -87,3 +87,12 @@ init, publishing the network id and genesis block hash (the pin consumers trust)
 Where the nodes run is infrastructure's (Leo's); its hosts, accounts and deploys stay out of this public repository.
 **Rationale:** A launch happens once and is about keys and trust, a release happens often and is about bytes; mixing
 them would make every release look like a launch, or hide the launch's steps in a release checklist.
+
+## RL008 — Hongwei is the release owner
+
+**Date:** 2026-11-24
+**Status:** Accepted (Hongwei, 2026-11-24).
+**Decision:** Hongwei (`@yhw1630`, the repo variable `RELEASE_OWNER`) owns pp-ledger's releases: cuts `release/X.Y`,
+pushes the candidate and release tags, reviews backport PRs and records the go / no-go in the release issue. As in
+pp-browser, where he is the release owner too.
+**Rationale:** One person answers for what a network runs; the backport bot asks the release owner to review.
