@@ -38,7 +38,10 @@ activation they do not know, replay by each block's rules, and the smokes. Befor
 
 ## R5 — 2.0.0
 
-- [ ] `release/2.0` cut once R2's build identity and frozen-chain tests and R3 are on main
+- [ ] Miner producer keys decided and built: a miner host holds a producer key its account certifies, not the
+      account's keys ([SLOT_COMMITTEE_OPEN_ITEMS § Miner producer keys](../../docs/architecture/SLOT_COMMITTEE_OPEN_ITEMS.md#miner-producer-keys));
+      a consensus change, so before the freeze
+- [ ] `release/2.0` cut once R2's build identity and frozen-chain tests, R3 and the producer keys are on main
 - [ ] Candidates until the release issue says go; `v2.0.0`
 - [ ] The network launched on it (R4); pins in pp-browser and pp-ledger-apps moved to `v2.0.0`
 - [ ] WIRE_SCHEMA's "no backward compatibility" replaced by RELEASE.md § What a release may change

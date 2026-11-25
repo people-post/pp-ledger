@@ -37,7 +37,32 @@ nothing a producer does after the reveal is public can reorder it
 Miners register with a fee and a minimum stake, and lose registration after missing due slots
 ([Miner registration and liveness](../contracts/WIRE_SCHEMA.md#miner-registration-and-liveness)).
 There are no bonds and no slashing. Open: whether misbehavior should cost stake, and how it would
-be proven on chain.
+be proven on chain. With [producer keys](#miner-producer-keys), conflicting blocks signed by a stolen
+producer key are the case it would have to cover.
+
+## Miner producer keys
+
+A miner signs with its **account's own keys**: each block it leads (`producerSignatures`,
+[Block](../contracts/WIRE_SCHEMA.md#block)) and its sign-in to its upstream
+([Miner sign-in](../contracts/WIRE_SCHEMA.md#miner-sign-in-register-request)). So the host that runs
+`pp-miner` holds the keys that also move the account's stake and balance and sign its
+registration: a compromised miner host loses the account.
+
+Proposed, as the beacon's key works ([BEACON_AUTHORITY.md](../contracts/BEACON_AUTHORITY.md)): the
+miner account, its keys offline (M-of-N), certifies a **producer key** on chain, a record signed
+by the account naming the key's public key and a sequence. Blocks and sign-ins are checked against
+the producer key in force for the slot; the producer key signs nothing else, so it cannot move
+funds, change the account or register it. A lost or stolen producer key is replaced by a new
+certificate from the account, without touching the account's keys. What a thief can still do is
+sign conflicting blocks in the slots the account leads: the misbehaviour
+[Miner bonds and slashing](#miner-bonds-and-slashing) would make cost stake.
+
+Open: the record (its own type or a field of `T_MINER_REGISTER`), whether a certificate expires,
+when a new producer key takes effect (the next epoch, as the committee is fixed ahead), and
+whether an account without one keeps signing with its own keys. Whatever the answer, it changes
+what every node verifies, so it is decided and built before the first release freezes the chain
+format ([projects/release PHASES § R5](../../projects/release/PHASES.md#r5--200)); after that it
+needs rule activation ([§ R3](../../projects/release/PHASES.md#r3--rule-activation)).
 
 ## Private leader selection
 
