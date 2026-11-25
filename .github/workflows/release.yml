@@ -1,0 +1,344 @@
+name: release
+
+# pp-ledger releases (docs/ops/RELEASE.md, projects/release DESIGN):
+#
+# - vX.Y.Z-rc.<n> on release/X.Y: a release candidate. Built once, with its final version X.Y.Z: the image
+#   ghcr.io/<owner>/pp-ledger:X.Y.Z-rc.<n>, the image smoke (L-SMOKE-IMAGE) on it, and a GitHub prerelease with the
+#   linux-x64 tarball.
+# - vX.Y.Z on the same commit as a candidate: the release. Nothing is rebuilt: the candidate's image gets the X.Y.Z
+#   (and, for the newest release, latest) tags and the GitHub release gets its tarball.
+# - Run workflow (by hand) on a commit on main: a dev image, 0.0.0-dev.<sha>. Not a release, no tag, no latest.
+# The guard refuses every other tag (the old release/vX.Y.Z form included), tags whose commit is not on release/X.Y,
+# and dev builds off main.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to build: a branch, tag or SHA on main (a dev image, 0.0.0-dev.<sha>)'
+        required: true
+        default: 'main'
+
+permissions:
+  contents: read
+
+env:
+  PP_LEDGER_IMAGE: ghcr.io/${{ github.repository_owner }}/pp-ledger
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    outputs:
+      kind: ${{ steps.check.outputs.kind }}
+      commit: ${{ steps.check.outputs.commit }}
+      version: ${{ steps.check.outputs.version }}
+      image_version: ${{ steps.check.outputs.image_version }}
+      candidate: ${{ steps.check.outputs.candidate }}
+      latest: ${{ steps.check.outputs.latest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
+
+      - name: Release tags only from release/X.Y; dev builds only from main (RL002, RL003)
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_REF: ${{ inputs.ref }}  # as env, never pasted into the script text
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          candidate=""
+          latest=false
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+            if ! git merge-base --is-ancestor "$commit" origin/main; then
+              echo "::error::${INPUT_REF} (${commit}) is not on main. Dev images are built from main only; a release is a vX.Y.Z-rc.<n> tag on release/X.Y."
+              exit 1
+            fi
+            kind="dev"
+            version="0.0.0-dev.$(git rev-parse --short=8 HEAD)"
+            image_version="${version}"
+            echo "Dev image of ${INPUT_REF} (${commit})"
+          else
+            tag="${GITHUB_REF_NAME}"
+            num='(0|[1-9][0-9]*)'
+            if [[ ! "$tag" =~ ^v(${num}\.${num}\.${num})(-rc\.([1-9][0-9]*))?$ ]]; then
+              echo "::error::${tag} is not a release tag. This workflow takes vX.Y.Z (a release) and vX.Y.Z-rc.<n> (a release candidate) only; a dev image is Run workflow on main."
+              exit 1
+            fi
+            version="${BASH_REMATCH[1]}"
+            major="${BASH_REMATCH[2]}"
+            minor="${BASH_REMATCH[3]}"
+            patch="${BASH_REMATCH[4]}"
+            rc="${BASH_REMATCH[6]}"
+            branch="release/${major}.${minor}"
+            if ! git fetch --no-tags origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"; then
+              echo "::error::${tag}: there is no branch ${branch}. Release tags go on their release branch; cut it from main first (docs/ops/RELEASE.md)."
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$commit" "origin/${branch}"; then
+              echo "::error::${tag} points at ${commit}, which is not on ${branch}. Release tags are taken only from their release branch (v${major}.${minor}.* from ${branch})."
+              exit 1
+            fi
+            echo "OK: ${commit} is on ${branch}"
+            if [[ -n "$rc" ]]; then
+              if git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
+                echo "::error::v${version} is already released; a fix to it is v${major}.${minor}.$(( patch + 1 ))-rc.1."
+                exit 1
+              fi
+              kind="candidate"
+              image_version="${version}-rc.${rc}"
+            else
+              re="^v${version//./\\.}-rc\\.([1-9][0-9]*)$"
+              best=0
+              while read -r t; do
+                if [[ "$t" =~ $re ]] && (( BASH_REMATCH[1] > best )); then
+                  best="${BASH_REMATCH[1]}"
+                  candidate="$t"
+                fi
+              done < <(git tag --points-at "$commit")
+              if [[ -z "$candidate" ]]; then
+                echo "::error::${tag}: no release candidate v${version}-rc.<n> points at ${commit}. A release is never built: tag a candidate, let it build and pass, then tag ${tag} on the same commit."
+                exit 1
+              fi
+              if ! gh release view "$candidate" --repo "$GITHUB_REPOSITORY" --json tagName >/dev/null; then
+                echo "::error::${tag}: candidate ${candidate} has no GitHub release, so its build did not finish. Fix it and tag a new candidate."
+                exit 1
+              fi
+              kind="release"
+              image_version="${version}"
+              # latest only for the newest release, not for a fix to an older line.
+              newest="$( { git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; echo "v${version}"; } | sort -V | tail -1)"
+              if [[ "$newest" == "v${version}" ]]; then
+                latest=true
+              fi
+            fi
+            echo "${tag}: ${kind} of ${version} from ${branch}${candidate:+ (promotes ${candidate})}"
+          fi
+          {
+            echo "kind=${kind}"
+            echo "commit=${commit}"
+            echo "version=${version}"
+            echo "image_version=${image_version}"
+            echo "candidate=${candidate}"
+            echo "latest=${latest}"
+          } >> "$GITHUB_OUTPUT"
+
+  # A candidate or a dev image: build it once, push it, and run the image smoke on what was pushed.
+  build:
+    needs: [guard]
+    if: needs.guard.outputs.kind != 'release'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write      # build provenance
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.guard.outputs.commit }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          # Named by the tag (X.Y.Z-rc.<n>, or 0.0.0-dev.<sha>); a release adds X.Y.Z / latest without a rebuild.
+          tags: ${{ env.PP_LEDGER_IMAGE }}:${{ needs.guard.outputs.image_version }}
+          labels: |
+            org.opencontainers.image.title=pp-ledger
+            org.opencontainers.image.description=pp-ledger nodes (pp-beacon, pp-relay, pp-miner), pp-client and pp-http
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.guard.outputs.commit }}
+            org.opencontainers.image.version=${{ needs.guard.outputs.version }}
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image smoke (L-SMOKE-IMAGE)
+        env:
+          PP_LEDGER_IMAGE: ${{ env.PP_LEDGER_IMAGE }}:${{ needs.guard.outputs.image_version }}
+        run: |
+          set -euo pipefail
+          docker pull "$PP_LEDGER_IMAGE"
+          ./scripts/test/pp_ledger_local_test.sh run --suite image
+
+      - name: Package the linux-x64 tarball from the image
+        if: needs.guard.outputs.kind == 'candidate'
+        env:
+          IMAGE: ${{ env.PP_LEDGER_IMAGE }}:${{ needs.guard.outputs.image_version }}
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          set -euo pipefail
+          stage="$(mktemp -d)"
+          cid="$(docker create "$IMAGE")"
+          docker cp "$cid:/usr/local/bin/." "$stage/"
+          docker rm "$cid"
+          mkdir -p dist
+          tar -czf "dist/pp-ledger-${VERSION}-linux-x64.tar.gz" -C "$stage" \
+            pp-beacon pp-relay pp-miner pp-client pp-http
+          ls -lh dist
+
+      - name: Build provenance (image)
+        if: needs.guard.outputs.kind == 'candidate'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.PP_LEDGER_IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Build provenance (tarball)
+        if: needs.guard.outputs.kind == 'candidate'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*.tar.gz
+
+      - name: Upload the tarball
+        if: needs.guard.outputs.kind == 'candidate'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pp-ledger-tarball
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+      - name: Summary
+        env:
+          IMAGE: ${{ env.PP_LEDGER_IMAGE }}:${{ needs.guard.outputs.image_version }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "Pushed \`${IMAGE}\` (\`${DIGEST}\`); the image smoke passed." >> "$GITHUB_STEP_SUMMARY"
+
+  # A candidate's GitHub prerelease, only once its image passed the smoke: a release promotes only a candidate that
+  # has one.
+  prerelease:
+    needs: [guard, build]
+    if: needs.guard.outputs.kind == 'candidate'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download the tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: pp-ledger-tarball
+          path: dist
+
+      - name: Create the GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.guard.outputs.version }}
+          IMAGE_VERSION: ${{ needs.guard.outputs.image_version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Release candidate"
+            echo ""
+            echo "Release candidate of pp-ledger **${VERSION}**. Tagging \`v${VERSION}\` on this commit releases this same image and tarball without a rebuild."
+            echo ""
+            echo '```text'
+            echo "${PP_LEDGER_IMAGE}:${IMAGE_VERSION}"
+            echo '```'
+            echo ""
+            echo "The image smoke (L-SMOKE-IMAGE) ran in CI. Check the image's provenance with \`gh attestation verify oci://${PP_LEDGER_IMAGE}:${IMAGE_VERSION} --repo ${GITHUB_REPOSITORY}\`."
+          } > notes.md
+          gh release create "$TAG" dist/*.tar.gz --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
+            --title "pp-ledger ${IMAGE_VERSION}" --notes-file notes.md --generate-notes --latest=false
+
+  # vX.Y.Z: no build. The candidate's image gets the release's tags and its tarball goes on the release.
+  promote:
+    needs: [guard]
+    if: needs.guard.outputs.kind == 'release'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag the candidate's image
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.guard.outputs.candidate }}
+          VERSION: ${{ needs.guard.outputs.version }}
+          LATEST: ${{ needs.guard.outputs.latest }}
+        run: |
+          set -euo pipefail
+          source="${PP_LEDGER_IMAGE}:${CANDIDATE#v}"
+          tags=(-t "${PP_LEDGER_IMAGE}:${VERSION}")
+          if [[ "${LATEST}" == "true" ]]; then
+            tags+=(-t "${PP_LEDGER_IMAGE}:latest")
+          fi
+          # Copies the manifest under new names: the same image digest, not a rebuild.
+          docker buildx imagetools create "${tags[@]}" "${source}"
+          docker buildx imagetools inspect "${PP_LEDGER_IMAGE}:${VERSION}"
+
+      - name: Release the candidate's tarball
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.guard.outputs.version }}
+          COMMIT: ${{ needs.guard.outputs.commit }}
+          CANDIDATE: ${{ needs.guard.outputs.candidate }}
+          LATEST: ${{ needs.guard.outputs.latest }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$CANDIDATE" --repo "$GITHUB_REPOSITORY" --dir dist --pattern '*.tar.gz'
+          shopt -s nullglob
+          files=(dist/*.tar.gz)
+          if (( ${#files[@]} == 0 )); then
+            echo "::error::candidate ${CANDIDATE}'s GitHub release has no tarball"
+            exit 1
+          fi
+          digest="$(docker buildx imagetools inspect "${PP_LEDGER_IMAGE}:${VERSION}" --format '{{json .Manifest}}' | jq -r .digest)"
+          {
+            echo "## pp-ledger ${VERSION}"
+            echo ""
+            echo "Promoted from release candidate **${CANDIDATE}** (commit \`${COMMIT}\`): the candidate's image and tarball, not a rebuild."
+            echo ""
+            echo '```text'
+            echo "${PP_LEDGER_IMAGE}:${VERSION}"
+            echo "${PP_LEDGER_IMAGE}@${digest}"
+            echo '```'
+            echo ""
+            echo "| File | SHA-256 |"
+            echo "|------|---------|"
+            for f in "${files[@]}"; do
+              echo "| $(basename "$f") | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"
+            done
+            echo ""
+            echo "Provenance: \`gh attestation verify oci://${PP_LEDGER_IMAGE}:${VERSION} --repo ${GITHUB_REPOSITORY}\` (and \`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\` for the tarball)."
+            echo "Which chain formats and protocols this release speaks: [RELEASE.md § Version table](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/main/docs/ops/RELEASE.md#version-table)."
+          } > notes.md
+          gh release create "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "pp-ledger ${VERSION}" --notes-file notes.md --generate-notes --latest="${LATEST}"
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"

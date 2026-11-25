@@ -1,10 +1,11 @@
 name: Build pp-ledger
 
+# main, and every release branch (release/X.Y) and the PRs to it: a backport runs the checks its branch ships with.
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
   pull_request:
-    branches: [main]
+    branches: [main, 'release/**']
   workflow_dispatch:
 
 jobs:

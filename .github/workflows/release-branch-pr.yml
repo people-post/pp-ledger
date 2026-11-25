@@ -1,0 +1,78 @@
+name: release-branch-pr
+
+# What a PR to a release branch may be (projects/release DESIGN § Release branches; pp-browser's check):
+# - a backport of fixes already on main: every commit carries `(cherry picked from commit <sha>)` naming a commit on
+#   main, or a `branch-specific backport: …` line (an adaptation, saying what differs); or
+# - the exception: label `release-branch-only`, and the body says why main needs no equivalent change, on a line
+#   `Why not on main: …` (or under a `## Why not on main` heading).
+# docs/ops/RELEASE.md § Release branches and backports. The backport bot's own PRs start no pull_request run (they
+# are opened with the workflow token), so this check runs on them only after a human push or reopen; do not make it
+# a required check without that in mind.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled, ready_for_review]
+    branches: ['release/**']
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  provenance:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Backport trailers, or the release-branch-only reason
+        run: |
+          set -euo pipefail
+          ev="$GITHUB_EVENT_PATH"
+          pr=$(jq -r '.pull_request.number' "$ev")
+          base=$(jq -r '.pull_request.base.ref' "$ev")
+
+          if jq -e '.pull_request.labels | any(.name == "release-branch-only")' "$ev" >/dev/null; then
+            # The body as the event has it (an edit re-runs this), HTML comments removed.
+            if jq -r '.pull_request.body // ""' "$ev" | python3 -c '
+          import re, sys
+          body = re.sub(r"<!--.*?-->", "", sys.stdin.read(), flags=re.S)
+          m = re.search(r"^[ \t]*(?:#+[ \t]*)?why not on main[ \t]*:?(.*?)(?=^[ \t]*#|\Z)", body, re.I | re.M | re.S)
+          sys.exit(0 if m and len(m.group(1).strip()) >= 10 else 1)'; then
+              echo "OK: release-branch-only, with the reason main needs no equivalent change."
+              exit 0
+            fi
+            echo "::error::A release-branch-only PR says why main needs no equivalent change: a line 'Why not on main: …' (or a '## Why not on main' section) in the PR body."
+            exit 1
+          fi
+
+          fail=0
+          while IFS=$'\t' read -r sha parents message; do
+            [ "$parents" -gt 1 ] && continue # merges carry no change of their own here
+            msg=$(base64 -d <<<"$message")
+            if grep -qi '^branch-specific backport' <<<"$msg"; then
+              echo "OK $sha: branch-specific backport"
+              continue
+            fi
+            src=$(sed -n 's/^(cherry picked from commit \([0-9a-f]\{7,40\}\))$/\1/p' <<<"$msg" | tail -n 1)
+            if [ -z "$src" ]; then
+              echo "::error::$sha has no '(cherry picked from commit …)' trailer and no 'branch-specific backport' line."
+              fail=1
+              continue
+            fi
+            # The source must be on main: main is ahead of it, or is it.
+            status=$(gh api "repos/$GH_REPO/compare/$src...main" --jq '.status' 2>/dev/null || echo missing)
+            case "$status" in
+              ahead|identical) echo "OK $sha: picked from $src (on main)" ;;
+              *) echo "::error::$sha was picked from $src, which is not on main ($status)."; fail=1 ;;
+            esac
+          done < <(gh api --paginate "repos/$GH_REPO/pulls/$pr/commits" --jq '.[] | [.sha, (.parents | length), (.commit.message | @base64)] | @tsv')
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::A PR to $base is a backport of a fix already on main (merge it on main, then label that PR 'backport $base'), or carries the label 'release-branch-only' and a 'Why not on main: …' line. docs/ops/RELEASE.md § Release branches and backports."
+            exit 1
+          fi
