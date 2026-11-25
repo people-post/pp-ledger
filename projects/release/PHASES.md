@@ -7,8 +7,8 @@ Order of work only; status in [CURRENT_STATE.md](CURRENT_STATE.md).
 - [x] `release.yml`: guard, candidate (image built once, image smoke, provenance, prerelease), promote, dev images
 - [x] Build CI on `release/**` and PRs to it; backport bot, release-branch PR check, release issue and its template
 - [x] [docs/ops/RELEASE.md](../../docs/ops/RELEASE.md) with the version table
-- [ ] Repository settings (an admin): branch protection on `release/**` as on main; the `RELEASE_OWNER` variable; the
-      GHCR package public
+- [x] The `RELEASE_OWNER` variable (Hongwei, RL008)
+- [ ] Repository settings (an admin): branch protection on `release/**` as on main; the GHCR package public
 - [ ] pp-browser: the release-compatibility docs say pp-ledger has release branches (RC023)
 
 ## R2 — Compatibility tests

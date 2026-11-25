@@ -28,7 +28,8 @@ pp-browser's pp-node train, unchanged where it fits ([RL001](DECISIONS.md#rl001-
   [RL003](DECISIONS.md#rl003--built-once-a-release-promotes-its-candidate)). `vX.Y.Z-rc.<n>` builds the image,
   smokes it, attests its provenance and publishes a prerelease; `vX.Y.Z` on the same commit re-tags that image (same
   digest) and releases that tarball. `latest` only for the newest release.
-- **A release issue per branch** with the checklist and the go / no-go.
+- **A release issue per branch** with the checklist and the go / no-go, kept by the release owner
+  ([RL008](DECISIONS.md#rl008--hongwei-is-the-release-owner)), who also pushes the release tags.
 - **The first release is 2.0.0** ([RL004](DECISIONS.md#rl004--the-first-release-is-200)).
 
 What pp-ledger adds:
@@ -74,7 +75,6 @@ infrastructure's (Leo's), and the hosts, accounts and deploys stay out of this p
 
 ## Open
 
-- Who is pp-ledger's release owner (the `RELEASE_OWNER` variable), and who may push release tags.
 - How long an older `release/X.Y` stays open once no network runs it (today: closed then).
 - Multi-arch images (`linux/arm64`), macOS / Windows binaries on the release: not now; CI builds them, nobody runs
   them as nodes yet.

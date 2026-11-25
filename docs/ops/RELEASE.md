@@ -27,7 +27,9 @@ A release branch takes fixes only; fixes land on main first and are backported
 
 ## Tags
 
-Release tags are immutable: never move or re-push one; a fix is a new candidate.
+Release tags are pushed by the release owner (repo variable `RELEASE_OWNER`,
+[RL008](../../projects/release/DECISIONS.md#rl008--hongwei-is-the-release-owner)) and are immutable: never move or
+re-push one; a fix is a new candidate.
 [`release.yml`](../../.github/workflows/release.yml) refuses any other tag form, and any tag whose commit is not on
 its release branch (same X.Y).
 
