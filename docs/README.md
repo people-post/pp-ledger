@@ -69,6 +69,7 @@ Work in progress (design, decisions, phases): [`projects/`](../projects/README.m
 | [ops/CONFIGURATION.md](ops/CONFIGURATION.md) | Every config field: `init-config.json`, each role's `config.json`, fixed network timing |
 | [ops/MOVING_THE_BEACON.md](ops/MOVING_THE_BEACON.md) | Runbook: move the beacon to another host (same key and generation) |
 | [ops/RE_GENESIS.md](ops/RE_GENESIS.md) | Runbook: a new network from the old one's state (every key lost) |
+| [ops/RELEASE.md](ops/RELEASE.md) | Release branches, candidates and releases; what a release may change; the version table |
 | [ops/TEST_STRATEGY.md](ops/TEST_STRATEGY.md) | Purpose IDs (`L-*`), smoke driver, CI ladder |
 | [ops/GITHUB_ACTIONS.md](ops/GITHUB_ACTIONS.md) | CI / Actions setup |
 

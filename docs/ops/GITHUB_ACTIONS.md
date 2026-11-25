@@ -27,12 +27,17 @@ The main workflow handles, on each matrix runner:
 3. Building the project
 4. Running tests (`ctest`) when invoked with `--test`
 
-### Release Workflow (`release-docker.yml`)
+### Release Workflow (`release.yml`)
 
-On `release/v*` tags (and manual dispatch), the workflow:
-1. Builds the multi-stage `Dockerfile` (`ubuntu:24.04`)
-2. Pushes `ghcr.io/<owner>/pp-ledger:<version>` (and `:latest` for tags)
-3. Attaches a linux-x64 binary tarball to a GitHub Release
+On a candidate tag `vX.Y.Z-rc.<n>` (on `release/X.Y`), the workflow builds the multi-stage `Dockerfile`
+(`ubuntu:24.04`) once, pushes `ghcr.io/<owner>/pp-ledger:X.Y.Z-rc.<n>`, runs the image smoke on it, attests its
+provenance and publishes a prerelease with a linux-x64 tarball. A release tag `vX.Y.Z` on the candidate's commit
+re-tags that image (`X.Y.Z`, and `latest` for the newest release) and releases its tarball, without a rebuild.
+Run by hand on main, it pushes a dev image `0.0.0-dev.<sha>`. The process: [RELEASE.md](RELEASE.md).
+
+Release branches also run the build workflow, and have the backport bot (`backport.yml`), the release-branch PR check
+(`release-branch-pr.yml`) and the release issue (`release-issue.yml`): [RELEASE.md § Release branches and
+backports](RELEASE.md#release-branches-and-backports).
 
 See `.github/workflows/README.md` and `deploy/README.md` for details.
 

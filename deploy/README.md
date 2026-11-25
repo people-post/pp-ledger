@@ -2,7 +2,8 @@
 
 One image (`ubuntu:24.04`, as CI) with `pp-beacon`, `pp-relay`, `pp-miner`, `pp-client` and
 `pp-http`; the container command selects the role. Published as
-`ghcr.io/people-post/pp-ledger:<version>` (also `:latest` on tagged releases).
+`ghcr.io/people-post/pp-ledger:<version>` (`:latest` is the newest release; candidates are `:<version>-rc.<n>`,
+[RELEASE.md](../docs/ops/RELEASE.md)).
 
 Nodes are configured from the environment ([CONFIGURATION.md § Environment](../docs/ops/CONFIGURATION.md#environment)):
 no config file, and keys come from secret files (`PP_*_FILE`). The image runs as a non-root user
