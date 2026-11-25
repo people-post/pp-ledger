@@ -34,7 +34,7 @@ std::string AccountBuffer::accountLeafHash(const Account& account) {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
   ar & account.id & account.wallet & account.blockId & account.attachmentHash;
-  return utl::sha256Raw(std::string("pp-ledger/account-leaf/v2") + oss.str());
+  return utl::sha256Raw(std::string("pp-ledger/account-leaf/v3") + oss.str());
 }
 
 void AccountBuffer::setLeaves(AccountStateTree& tree, const Account& account) {
@@ -168,6 +168,8 @@ std::vector<uint64_t> AccountBuffer::applyDueRecoveries(uint64_t epoch) {
     Client::AccountRecovery& recovery = account.wallet.recovery;
     account.wallet.publicKeys = recovery.nextPublicKeys;
     account.wallet.minSignatures = recovery.nextMinSignatures;
+    // Whoever held the old keys may have certified a producer key of their own: the new keys name the next.
+    account.wallet.miner.producerKey.clear();
     recovery.pending = false;
     recovery.nextPublicKeys.clear();
     recovery.nextMinSignatures = 0;

@@ -2,6 +2,7 @@
 #include "common/Logger.h"
 #include "ledger/lib/common/BinaryPack.hpp"
 #include "ledger/lib/common/Utilities.h"
+#include "ledger/network/amp/AmpIdentity.h"
 #include <algorithm>
 #include <limits>
 #include <chrono>
@@ -75,6 +76,27 @@ int64_t Miner::getSlotStartTime(uint64_t slot) const {
   return chain_.getSlotStartTime(slot);
 }
 
+Miner::Roe<std::vector<std::string>> Miner::selectSigningKeys(const std::vector<std::string>& privateKeys,
+                                                              const std::vector<std::string>& publicKeys,
+                                                              const Client::MinerState* state, uint64_t minerId) {
+  if (state == nullptr || !state->hasProducerKey()) {
+    return privateKeys; // the account's own keys (or its state not known yet)
+  }
+  for (size_t i = 0; i < publicKeys.size() && i < privateKeys.size(); ++i) {
+    if (publicKeys[i] == state->producerKey) {
+      return std::vector<std::string>{privateKeys[i]};
+    }
+  }
+  return Error(12, "Miner " + std::to_string(minerId) +
+                       " does not hold the private key of the producer key its account has in force");
+}
+
+Miner::Roe<std::vector<std::string>> Miner::signingKeys() const {
+  auto account = chain_.getAccount(config_.minerId);
+  return selectSigningKeys(config_.privateKeys, config_.publicKeys, account ? &account.value().wallet.miner : nullptr,
+                           config_.minerId);
+}
+
 Miner::Roe<void> Miner::init(const InitConfig& config) {
   if (config.privateKeys.empty()) {
     return Error(1, "At least one private key is required");
@@ -82,6 +104,14 @@ Miner::Roe<void> Miner::init(const InitConfig& config) {
   config_.minerId = config.minerId;
   config_.startingBlockId = config.startingBlockId;
   config_.privateKeys = config.privateKeys;
+  config_.publicKeys.clear();
+  for (const auto& privateKey : config_.privateKeys) {
+    auto publicKey = network::PublicKeyFromPrivateKey(privateKey);
+    if (!publicKey) {
+      return Error(1, "Not an ML-DSA-65 private key: " + publicKey.error().message);
+    }
+    config_.publicKeys.push_back(publicKey.value());
+  }
 
   log().info << "Initializing Miner";
   log().info << "  Miner ID: " << config_.minerId;
@@ -138,9 +168,15 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
       slotCache_.seedRevealReserved = slotCache_.budget.take(*it);
     }
     const std::string networkId = chain_.getNetworkId();
+    // Signed as the block will be: by the keys in force before it (the renewals go first).
+    auto keys = signingKeys();
+    if (!keys) {
+      slotCache_ = {};
+      return keys.error();
+    }
     for (auto& rec : renewals) {
       const std::string message = rec.signingMessage(networkId);
-      for (const auto& privateKey : config_.privateKeys) {
+      for (const auto& privateKey : keys.value()) {
         auto result = utl::mlDsaSign(privateKey, message);
         if (!result) {
           slotCache_ = {};
@@ -375,6 +411,12 @@ Miner::BlockTxSet Miner::getBlockTransactionSet() const {
 
 Miner::Roe<Ledger::ChainNode> Miner::createBlock(uint64_t slot, const std::vector<Ledger::Record>& records) {
   auto timestamp = chain_.getConsensusTimestamp();
+  // Before the seal: it applies the block to the tip, and a producer key this block certifies signs
+  // from the next one.
+  auto keys = signingKeys();
+  if (!keys) {
+    return keys.error();
+  }
 
   auto latestBlockResult = chain_.readLastBlock();
   if (!latestBlockResult) {
@@ -392,9 +434,9 @@ Miner::Roe<Ledger::ChainNode> Miner::createBlock(uint64_t slot, const std::vecto
     return Error(12, "Failed to seal block: " + sealResult.error().message);
   }
 
-  // Only the slot leader's account makes its block: it signs the sealed hash (BLOCK_ADD checks it).
+  // Only the slot leader makes its block: it signs the sealed hash (BLOCK_ADD checks it).
   const std::string message = Ledger::Block::producerSigningMessage(chain_.getNetworkId(), block.hash);
-  for (const auto& privateKey : config_.privateKeys) {
+  for (const auto& privateKey : keys.value()) {
     auto signature = utl::mlDsaSign(privateKey, message);
     if (!signature) {
       chain_.abandonSeal();

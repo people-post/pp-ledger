@@ -38,7 +38,8 @@ bool Beacon::isInDeliveryWindow(uint64_t slot) const {
 }
 
 Beacon::Roe<void> Beacon::verifyMinerRegistration(const Client::MinerInfo& miner, const std::string& networkId) const {
-  auto signed_ = verifyAccountSignatures(miner.id, miner.signingMessage(networkId), miner.signatures);
+  // Signed as the miner's blocks are: by its producer key when it certified one.
+  auto signed_ = verifyProducerSignatures(miner.id, miner.signingMessage(networkId), miner.signatures);
   if (!signed_) {
     return Error(signed_.error().code,
                  "Registration not signed by miner " + std::to_string(miner.id) + ": " + signed_.error().message);

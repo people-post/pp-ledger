@@ -498,6 +498,30 @@ TEST(OperationTest, TheRegistrarGivesAnIssuedAccountItsDomain) {
   EXPECT_EQ(back.value().kind, Kind::DomainAssign);
 }
 
+// A miner account's keys certify its producer key (or clear it), as any record of its own.
+TEST(OperationTest, AMinersKeysCertifyItsProducerKey) {
+  Keys owners(3);
+  const uint64_t miner = AccountIds::ID_FIRST_ISSUED + 7;
+  const std::string producerKey = utl::mlDsaGenerate().value().publicKey;
+  EXPECT_FALSE(minerProducerKey(common(owners, 2, AccountIds::ID_RESERVE), producerKey, 10)) << "not a system account";
+  EXPECT_FALSE(minerProducerKey(common(owners, 2, miner), "not a key", 10));
+  auto op = minerProducerKey(common(owners, 2, miner), producerKey, 10);
+  ASSERT_TRUE(op) << op.error().message;
+  EXPECT_EQ(op.value().kind, Kind::MinerProducerKey);
+  EXPECT_EQ(op.value().record.type, Ledger::T_MINER_PRODUCER_KEY);
+  EXPECT_EQ(signerAccountOf(op.value().record), miner);
+  auto s = summarize(op.value());
+  ASSERT_TRUE(s) << s.error().message;
+  EXPECT_EQ(s.value().title, "Certify a miner's producer key");
+  auto back = fromJson(toJson(op.value()));
+  ASSERT_TRUE(back) << back.error().message;
+  EXPECT_EQ(back.value().kind, Kind::MinerProducerKey);
+
+  auto cleared = minerProducerKey(common(owners, 2, miner), "", 10);
+  ASSERT_TRUE(cleared) << cleared.error().message;
+  EXPECT_EQ(summarize(cleared.value()).value().title, "Clear a miner's producer key");
+}
+
 TEST(OperationTest, AmountsAreGroupedByThousands) {
   EXPECT_EQ(groupDigits(0), "0");
   EXPECT_EQ(groupDigits(999), "999");

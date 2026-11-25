@@ -25,6 +25,13 @@ Roe<void> verifySignaturesAgainstAccount(const std::string& message, const std::
                                          const AccountBuffer::Account& account, const Crypto& crypto,
                                          logging::Logger& logger);
 
+/**
+ * Who signs for `account` as a miner (WIRE_SCHEMA § Miner producer keys): its blocks, its sign-in and
+ * the records it signs as slot leader. Its producer key alone (one signature) when it certified one,
+ * else the account's own keys.
+ */
+AccountBuffer::Account producerSigner(const AccountBuffer::Account& account);
+
 } // namespace pp::chain_tx
 
 #endif

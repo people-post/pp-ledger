@@ -228,12 +228,18 @@ Service::Roe<void> MinerServer::onStart() {
   config_.minerId = runFileConfig.minerId;
   std::filesystem::path configDir = std::filesystem::path(getWorkDir());
   config_.privateKeys.clear();
+  config_.publicKeys.clear();
   for (const auto& keyFile : runFileConfig.keys) {
     auto keyResult = utl::readPrivateKey(keyFile, configDir.string());
     if (!keyResult) {
       return Service::Error(E_CONFIG, "Failed to load key '" + keyFile + "': " + keyResult.error().message);
     }
     config_.privateKeys.push_back(keyResult.value());
+    auto publicKey = network::PublicKeyFromPrivateKey(keyResult.value());
+    if (!publicKey) {
+      return Service::Error(E_CONFIG, "Not an ML-DSA-65 private key: " + publicKey.error().message);
+    }
+    config_.publicKeys.push_back(publicKey.value());
   }
 
   log().info << "Configuration loaded";
@@ -316,6 +322,10 @@ void MinerServer::warnIfNotRegisteredMiner() {
     return;
   }
   const Client::MinerState& state = account.value().wallet.miner;
+  if (auto keys = miner_.signingKeys(); !keys) {
+    log().warning << keys.error().message << ": it cannot sign its blocks. Give it that key (config keys / "
+                  << "PP_MINER_KEYS), or certify the key it holds: pp-client miner-producer-key";
+  }
   if (state.registered) {
     return;
   }
@@ -536,14 +546,32 @@ void MinerServer::commitProducedBlock(const Ledger::ChainNode& block) {
   log().info << "  Hash: " << block.hash;
 }
 
-MinerServer::Roe<Client::MinerInfo> MinerServer::signedRegistration(const std::string& networkId) const {
+MinerServer::Roe<Client::MinerInfo> MinerServer::signedRegistration(const std::string& networkId) {
   Client::MinerInfo minerInfo;
   minerInfo.id = config_.minerId;
   minerInfo.issuedAt =
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
   minerInfo.peerId = localPeerId(); // the peer it sends from: the only one a node trusts for it
   const std::string message = minerInfo.signingMessage(networkId);
-  for (const auto& privateKey : config_.privateKeys) {
+  // Signed as its blocks are: by its producer key when its account has one in force. Before the
+  // chain is mounted (the first sign-in), as the upstream holds the account.
+  std::vector<std::string> keys;
+  if (miner_.isInitialized()) {
+    auto held = miner_.signingKeys();
+    if (!held) {
+      return Error(E_CONFIG, "Failed to sign registration: " + held.error().message);
+    }
+    keys = held.value();
+  } else {
+    auto account = client_.fetchUserAccount(config_.minerId);
+    auto selected = Miner::selectSigningKeys(config_.privateKeys, config_.publicKeys,
+                                             account ? &account.value().wallet.miner : nullptr, config_.minerId);
+    if (!selected) {
+      return Error(E_CONFIG, "Failed to sign registration: " + selected.error().message);
+    }
+    keys = selected.value();
+  }
+  for (const auto& privateKey : keys) {
     auto signature = utl::mlDsaSign(privateKey, message);
     if (!signature) {
       return Error(E_CONFIG, "Failed to sign registration: " + signature.error().message);

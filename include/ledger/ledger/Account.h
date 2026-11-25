@@ -14,10 +14,10 @@
 namespace pp {
 
 /**
- * Miner registration and liveness (docs/contracts/WIRE_SCHEMA.md).
- * Chain-owned: only T_MINER_REGISTER / T_MINER_REVOKE and block apply change it; account
- * creation starts it empty (genesis miners registered) and user updates / renewals must
- * carry it unchanged.
+ * Miner registration, liveness and producer key (docs/contracts/WIRE_SCHEMA.md).
+ * Chain-owned: only T_MINER_REGISTER / T_MINER_REVOKE / T_MINER_PRODUCER_KEY and block apply
+ * change it; account creation starts it empty (genesis miners registered, with the producer key
+ * their genesis entry names) and user updates / renewals must carry it unchanged.
  */
 struct MinerState {
   constexpr static uint64_t kNever = UINT64_MAX;
@@ -29,12 +29,19 @@ struct MinerState {
   uint32_t missedDue{0};
   /** Epoch it was deregistered by the liveness rule (cool-down); kNever if never. */
   uint64_t autoDeregisteredEpoch{kNever};
+  /**
+   * The producer key the account certified (T_MINER_PRODUCER_KEY): one public key, of the account's
+   * key type, that signs the account's blocks, sign-ins and the records a slot leader signs in its
+   * place, so the miner host need not hold the account's keys. Empty: the account's keys sign.
+   */
+  std::string producerKey;
 
+  bool hasProducerKey() const { return !producerKey.empty(); }
   bool operator==(const MinerState& other) const = default;
 
   template <typename Archive>
   void serialize(Archive& ar) {
-    ar & registered & lastProducedSlot & missedDue & autoDeregisteredEpoch;
+    ar & registered & lastProducedSlot & missedDue & autoDeregisteredEpoch & producerKey;
   }
 };
 
@@ -121,7 +128,7 @@ struct Wallet {
 };
 
 struct UserAccount {
-  constexpr static const uint32_t VERSION = 4;
+  constexpr static const uint32_t VERSION = 5;
 
   Wallet wallet;
   std::string meta;

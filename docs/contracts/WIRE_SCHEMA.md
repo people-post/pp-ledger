@@ -23,9 +23,9 @@ Genesis `previousHash` is `utl::zeroHash()` (32 zero bytes).
 
 ## Block
 
-`Ledger::Block::CURRENT_VERSION` is the on-disk/header version prefix: **9** (7: state roots commit
-to account attachments, account leaf v2; 8: `finalAt`; 9: `producerSignatures`). A block of another
-version is not read.
+`Ledger::Block::CURRENT_VERSION` is the on-disk/header version prefix: **10** (7: state roots commit
+to account attachments, account leaf v2; 8: `finalAt`; 9: `producerSignatures`; 10: miner producer
+keys, account leaf v3). A block of another version is not read.
 
 ### Header (hashed)
 
@@ -57,8 +57,9 @@ version **9**; other versions are refused). Hash does **not** include the body b
   leaders from, sorted by id — the preimage of `stakeSnapshotHash`; empty in every other block.
   Checked in every admission mode (`chain_block::validateBlockCommittee`): a node warming up from a
   checkpoint, which holds only some accounts, takes each epoch's leaders from it.
-- `producerSignatures`: the slot leader account's signatures (its keys and `minSignatures`, as held
-  before the block) over
+- `producerSignatures`: the slot leader's signatures, as it held its signing keys before the block —
+  its producer key alone (one signature) when it has one, else its keys and `minSignatures`
+  ([Miner producer keys](#miner-producer-keys)) — over
 
   ```
   "pp-ledger/block-producer/v1" || pack(networkId) || pack(block hash)
@@ -68,14 +69,15 @@ version **9**; other versions are refused). Hash does **not** include the body b
   sealed from public chain data in its name is refused. Checked in Full admission, on every node
   (`Chain::checkProducerSigned`); the miner signs right after the seal. Empty only in blocks with no
   producer (genesis, import blocks). Not hashed, and not counted in `maxBlockBytes` (at most one
-  signature per key of the leader's account).
+  signature per key that signs for the leader). A producer key a block certifies signs from the next
+  block.
 
 ### Commitments
 
 | Root | Domain / rule |
 |------|----------------|
 | `txRoot` | `SHA-256("pp-ledger/txroot/v1" \|\| pack(each binaryPack(record)))` |
-| `stateRoot` | O(1) root of the **account sparse Merkle tree** (depth 64 over `accountId`). Leaves are `SHA-256("pp-ledger/account-leaf/v2" \|\| pack(id, wallet, blockId, attachmentHash))`, where `attachmentHash` = `SHA-256("pp-ledger/attachment/v1" \|\| meta)` over the account's attachment (`UserAccount.meta`, canonical bytes) as its last write recorded it — so the root covers the whole account, profiles included (beacon-authority B031). The attachment itself stays in that record, in the block log; a renewal must carry it unchanged (checked against the hash). Updates are path-copied O(depth) per touched account — never a full-account scan, including at checkpoints. |
+| `stateRoot` | O(1) root of the **account sparse Merkle tree** (depth 64 over `accountId`). Leaves are `SHA-256("pp-ledger/account-leaf/v3" \|\| pack(id, wallet, blockId, attachmentHash))`, where `attachmentHash` = `SHA-256("pp-ledger/attachment/v1" \|\| meta)` over the account's attachment (`UserAccount.meta`, canonical bytes) as its last write recorded it — so the root covers the whole account, profiles included (beacon-authority B031). The attachment itself stays in that record, in the block log; a renewal must carry it unchanged (checked against the hash). Updates are path-copied O(depth) per touched account — never a full-account scan, including at checkpoints. |
 | `stakeSnapshotHash` | `SHA-256("pp-ledger/stake/v1" \|\| pack(id, stake)…)` stakeholders sorted by id |
 | `epochSeed` | See [Epoch seed](#epoch-seed) |
 
@@ -89,7 +91,8 @@ Genesis: `index=slot=slotLeader=epoch=txIndex=0`, empty stake snapshot, genesis
 `epochSeed`, then records: `T_GENESIS`, then `T_NEW_USER` for fee, reserve,
 registrar and recycle (in that order: fee first, since the others pay their fees
 into it; only reserve is funded), and any **genesis miners** — `T_NEW_USER` from
-genesis into the issued range with a positive stake and the exact fee. Reserve
+genesis into the issued range with a positive stake and the exact fee (and the producer key
+its entry names, if any: [Miner producer keys](#miner-producer-keys)). Reserve
 amount + all stakes + all fees equal the initial supply. Genesis miners are the stake at start: system accounts never count.
 
 An **importing genesis** (a re-genesis, [BEACON_AUTHORITY.md § Importing genesis](BEACON_AUTHORITY.md#importing-genesis))
@@ -138,6 +141,7 @@ Changing `type` or replaying onto another network invalidates signatures.
 | 20 | `T_IMPORT` | Re-genesis: one account of the predecessor network, in an import block; unsigned, fee 0 ([BEACON_AUTHORITY.md § Importing genesis](BEACON_AUTHORITY.md#importing-genesis)) |
 | 21 | `T_ACCOUNT_RECOVERY` | An account's recovery set announces its next keys (the account frozen until they apply), withdraws that, or changes itself ([Account recovery](#account-recovery)) |
 | 22 | `T_BEACON_SEED` | The beacon reveals its seed contribution for the next epoch ([Record 22](#t_beacon_seed-record-22)) |
+| 23 | `T_MINER_PRODUCER_KEY` | Account certifies (or clears) its miner producer key ([Miner producer keys](#miner-producer-keys)) |
 
 
 Ids 8–15 are reserved for name-directory / attachment (`docs/product/NAME_DIRECTORY.md`);
@@ -185,7 +189,8 @@ not installed in `RecordHandler`.
   (its epoch has not come) that update in the pending section, the authority in force, and the
   admin set in force (the genesis account's keys, threshold and key type) — all as the block's
   epoch holds them, so a renewal in a recovery's apply epoch carries the new admin set. The slot
-  leader signs renewals: it re-records the admin set, it never chooses it. Validators refuse
+  leader signs renewals (as it signs its blocks: [Miner producer keys](#miner-producer-keys)): it
+  re-records the admin set, it never chooses it. Validators refuse
   anything else.
 - **A config update cannot change the authority:** a `T_CONFIG`'s `authority` must equal the one
   in force.
@@ -243,7 +248,8 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   when due: an account last written before block `maxBlockIdForRenewal(x)` is due in block *x*,
   where the cut-off is the newer limit of `x - checkpoint.minBlocks + 1` and the first block at or
   after `slotStart(x.slot) - checkpoint.minAgeSeconds` (`calculateMaxBlockIdForRenewal`; the
-  block's slot time, never a node's clock). The slot leader signs renewals, so a renewal re-records
+  block's slot time, never a node's clock). The slot leader signs renewals (with its producer key when it
+  has one), so a renewal re-records
   the account **as it is**: its keys, threshold, key type and meta must equal the committed ones
   (the meta recorded at the account's last write); only the renewal fee leaves its balance. That fee
   is **exactly** the account's renewal fee (`calculateMinimumFeeForAccountMeta` on its committed
@@ -281,7 +287,7 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   (`chain_tx::validateBlockLimits`, at `--init` and every `T_CONFIG`).
 - A transfer (`T_DEFAULT`) cannot pay its own account.
 
-`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **14**)
+`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **15**)
 includes slot timing, fees, checkpoint policy, `networkId`, `heartbeatSlots`
 (empty-seal lag; `0` disables), issuance and account fees, the miner settings
 ([Miner registration and liveness](#miner-registration-and-liveness)), `maxBlockBytes`
@@ -427,8 +433,9 @@ time window, and header commitments still apply. Policy helper:
 ## Miner registration and liveness
 
 Only **registered miners** are elected ([Leader election](#leader-election-live)). Registration is
-on-chain account state (`Wallet.miner`, `UserAccount` version **4**): `registered`,
-`lastProducedSlot`, `missedDue`, `autoDeregisteredEpoch`. Account creation and update cannot
+on-chain account state (`Wallet.miner`, `UserAccount` version **5**): `registered`,
+`lastProducedSlot`, `missedDue`, `autoDeregisteredEpoch`, and `producerKey`
+([Miner producer keys](#miner-producer-keys)). Account creation and update cannot
 set it (a new account carries the default state; an update or renewal keeps it); only the rules
 below change it, in place — the account's `blockId` (where renewal reads its meta) does not move.
 
@@ -479,6 +486,46 @@ certificate with a cutover — the first block after a beacon outage
 (`isMinerDue`, `applyMinerLiveness`); `pp-client miner-register` / `miner-revoke`; pp-miner
 warns when its account is not a registered miner.
 
+### Miner producer keys
+
+A miner's account may certify a **producer key**: one public key, of the account's key type, that signs
+for the account as a miner — the blocks it leads (`producerSignatures`), its sign-in
+([Miner sign-in](#miner-sign-in-register-request)) and the records a slot leader signs in its place
+(`T_RENEWAL`, `T_END_USER`). It signs nothing else: it cannot move the account's balances, change its
+keys or registration, or certify another producer key. So the miner host holds only it, and the
+account's keys stay off the host (offline, M-of-N if they like). An account without one signs with its
+own keys, as before (`chain_tx::producerSigner`).
+
+**`T_MINER_PRODUCER_KEY` (23)** — `TxMinerProducerKey`: the `TxMiner` fields (`walletId`, `fee`, `meta`,
+`idempotentId` (non-zero), `validationTsMin`, `validationTsMax`) and `producerKey` (raw public key, or
+empty). **Signed by the account's own keys**, never by a producer key; a frozen account's is refused, as
+its other records are. Fee ≥ the meta-size fee (the key is not billed), to the fee account. Sets
+`Wallet.miner.producerKey`, registered or not (a miner may certify one before it registers, and keeps it
+after a revoke); an empty `producerKey` clears it. Refused for a system account, a key that is not an
+ML-DSA-65 public key, one of the account's own keys, the key already in force, or clearing none.
+
+**From the next block.** Every signature is checked against the signing keys as held when it applies:
+a block's `producerSignatures` against those before the block, so the block that certifies a key is
+signed by the keys before it and the next block by the new key. A slot leader's renewals in its block
+are checked as held when they apply; pp-miner puts its renewals before any other record of its block,
+so they are signed as the block is (`Miner::signingKeys`, before the seal).
+
+**Genesis miners** may name theirs: `producerKey` (hex) in their `init-config.json` entry, none of their
+`publicKeys`; the genesis block's `T_NEW_USER` carries it in the miner state (the only new account that
+may).
+
+**Recovery clears it.** When an account's recovery applies ([Account recovery](#account-recovery)), its
+producer key is cleared with the old keys: whoever held them may have certified one. The new keys
+certify the next. While the account is frozen its producer key still signs its blocks; a re-genesis
+carries it over with the account.
+
+pp-miner signs with the held key whose public key is the producer key in force, else with every held key
+(the account's own); one that holds neither cannot sign and says so. Its config's `keys` therefore hold
+the producer key alone once one is certified. Code: `MinerTxHandler` (`Kind::ProducerKey`),
+`Chain::checkProducerSigned`, `Chain::verifyProducerSignatures`, `Miner::selectSigningKeys`;
+`pp-client miner-producer-key`, `pp-client op miner-producer-key` (a multi-signature account,
+[OPERATION_FILE.md](OPERATION_FILE.md)).
+
 ## Account recovery
 
 Any account but genesis — user, issued, and the system accounts reserve, registrar, fee and recycle —
@@ -491,7 +538,7 @@ the leader-signed renewal), and a due recovery never applies to genesis. A re-ge
 (a system account's excepted: it takes new keys and no set); an announcement waiting restarts its delay from
 the new network's start ([BEACON_AUTHORITY § Importing genesis](BEACON_AUTHORITY.md#importing-genesis)). It is account state in the account's leaf,
 so proven like a balance ([Account proofs](#account-proofs)): `Wallet.recovery` (`AccountRecovery`,
-`UserAccount` version **4**):
+`UserAccount` version **5**):
 
 | Field | Holds |
 |-------|-------|
@@ -520,7 +567,7 @@ custom metadata), from the account's native balance, to the fee account.
 
 **Frozen while announced.** From the record that announces to the block that applies (or the
 withdrawal), every record the account's own keys sign — `T_DEFAULT` from it, `T_NEW_USER` from it,
-`T_USER_UPDATE`, `T_MINER_REGISTER`, `T_MINER_REVOKE` — is refused, in the pool and in blocks, by the
+`T_USER_UPDATE`, `T_MINER_REGISTER`, `T_MINER_REVOKE`, `T_MINER_PRODUCER_KEY` — is refused, in the pool and in blocks, by the
 state at that point of the block (`RecordHandler::checkNotFrozen`). Transfers to it, its renewals and
 its recovery set's records go on.
 
@@ -529,15 +576,15 @@ announcing slot starts: `ceil((slot + ceil(delaySeconds / slotDuration)) / slots
 (`chain_tx::recoveryApplyEpoch`) — an announcement late in an epoch never takes over at the next
 epoch's start unless the delay has passed. At the first block of an epoch (or the first a node holds
 of it), **after its records**, every pending announcement with `applyEpoch` ≤ that epoch applies, in
-account-id order: the account's keys and threshold become the announced ones and the pending fields
-clear; the set and delay stay. In place, as miner state: the account's `blockId` does not move
+account-id order: the account's keys and threshold become the announced ones, its miner producer key
+clears, and the pending fields clear; the set and delay stay. In place, as miner state: the account's `blockId` does not move
 (`AccountBuffer::applyDueRecoveries`, `Chain::applyDueAccountRecoveries`).
 
 ## Domains
 
 A system or issued account may have a **domain**: a symbol of capital letters that is its token's
 ticker and its domain (design: `projects/domains`). It is account state in the account's leaf
-(`Wallet.domain`, `UserAccount` version **4**), and each domain has a leaf of its own, so both
+(`Wallet.domain`, `UserAccount` version **5**), and each domain has a leaf of its own, so both
 directions are proven ([Account proofs](#account-proofs)).
 
 | Accounts | Domain | Given by |
@@ -614,15 +661,16 @@ on chain ([Miner registration and liveness](#miner-registration-and-liveness)).
 `peerId` (the AMP peer id the miner sends from), `signatures` (`binaryPack(vector<string>)`), and
 `tLastMessage` (set by the beacon when recorded). `MINER_LIST` leaves `peerId` out.
 
-Each signature is the miner account key's ML-DSA signature over:
+Each signature is an ML-DSA signature by what signs for the miner — its producer key when it has one,
+else its account's keys ([Miner producer keys](#miner-producer-keys)) — over:
 
 ```
 "pp-ledger/miner-register/v3" || pack(networkId) || pack(id) || pack(issuedAt) || pack(peerId)
 ```
 
 `networkId` is the one the upstream advertises in `STATUS`. Accepted only if the
-signatures satisfy the account's `publicKeys` / `minSignatures` (not a system
-account), the account is a **registered miner on chain** (`T_MINER_REGISTER`; the beacon checks),
+signatures satisfy the producer key in force (one signature), else the account's `publicKeys` /
+`minSignatures` (not a system account), the account is a **registered miner on chain** (`T_MINER_REGISTER`; the beacon checks),
 `|now − issuedAt| ≤ 5 min`, and `issuedAt` is newer than the recorded registration. The node a
 registration reached directly trusts **the peer it names** (`peerId`), and only when that peer sent
 it — never whichever peer delivered it; one peer per miner, a newer registration's replacing it.

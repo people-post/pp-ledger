@@ -74,11 +74,18 @@ pp::Roe<std::pair<std::vector<Ledger::Record>, int64_t>> minerRecords(const Bloc
     if (miner.stake == 0 || miner.stake > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
       return pp::Error("Genesis miner " + std::to_string(miner.id) + " needs a positive stake");
     }
+    if (!miner.producerKey.empty() &&
+        (miner.producerKey.size() != utl::kMlDsaPublicKeyBytes ||
+         std::find(miner.publicKeys.begin(), miner.publicKeys.end(), miner.producerKey) != miner.publicKeys.end())) {
+      return pp::Error("Genesis miner " + std::to_string(miner.id) +
+                       "'s producer key must be an ML-DSA-65 public key, none of its own keys");
+    }
     UserAccount account;
     account.wallet.mBalances[AccountBuffer::ID_GENESIS] = static_cast<int64_t>(miner.stake);
     account.wallet.publicKeys = miner.publicKeys;
     account.wallet.minSignatures = miner.minSignatures;
     account.wallet.miner.registered = true; // a new chain's committee: registered from block 0
+    account.wallet.miner.producerKey = miner.producerKey;
     account.wallet.keyType = Crypto::TK_ML_DSA_65;
     account.meta = AccountAttachment::emptySerialized();
 

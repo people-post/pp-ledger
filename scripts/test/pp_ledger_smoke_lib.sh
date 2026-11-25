@@ -1474,6 +1474,52 @@ register_miner_account() {
   return 1
 }
 
+# Miner producer keys (WIRE_SCHEMA § Miner producer keys): miner1's account certifies a producer key
+# with its own key; miner1 restarts holding only the producer key, signs in and produces with it.
+run_producer_key_scenario() {
+  local max_wait=${1:-120}
+  local key_dir="${TEST_DIR}/keys"
+  local miner_dir="${TEST_DIR}/miner1"
+  local account
+  account=$(miner_account_id 1)
+  echo -e "${CYAN}Miner producer key: miner1 (account ${account}) certifies one, then runs with it alone...${NC}"
+  generate_tx_keypair "producer1" >/dev/null
+  # Once per network (a reused network has it in force already).
+  if ! account_json "$account" | grep -q '"producerKey":"'; then
+    run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" miner-producer-key "$account" \
+      --producer-key "${key_dir}/producer1.pub" -f 1 -k "$(generate_miner_key 1)" >/dev/null ||
+      die "L-SMOKE-PRODUCER-KEY: miner-producer-key was not submitted"
+  fi
+  wait_for_account "$account" "\"producerKey\":\"" "L-SMOKE-PRODUCER-KEY: the producer key did not land" "$max_wait"
+  echo -e "${GREEN}✓ Account ${account} certified its producer key${NC}"
+
+  # The miner host from now on: the producer key only, none of the account's keys.
+  stop_miner_by_id 1
+  create_miner_config 1 "$miner_dir" "$((MINER_BASE_PORT))"
+  cp "${key_dir}/producer1.key" "${miner_dir}/producer.txt"
+  rm -f "${miner_dir}/key.txt"
+  sed -i 's/"key.txt"/"producer.txt"/' "${miner_dir}/config.json"
+  run_bg_cmd "${miner_dir}/console.log" "$BUILD_DIR/app/pp-miner" -d "$miner_dir" ${DEBUG_FLAG}
+  save_pid "miner1" $!
+  await_miner 1 || die "L-SMOKE-PRODUCER-KEY: miner1 did not restart with its producer key"
+
+  local deadline=$((SECONDS + max_wait))
+  while ((SECONDS < deadline)); do
+    if grep -q "Successfully produced block" "${miner_dir}/console.log"; then
+      break
+    fi
+    inject_transactions_for_block_production >/dev/null 2>&1 || true
+    sleep 2
+  done
+  grep -q "Successfully produced block" "${miner_dir}/console.log" ||
+    die "L-SMOKE-PRODUCER-KEY: miner1 produced no block with its producer key within ${max_wait}s"
+  if grep -Eq "Registration refused|Registration renewal failed|cannot sign its blocks" "${miner_dir}/console.log"; then
+    grep -E "Registration refused|Registration renewal failed|cannot sign its blocks" "${miner_dir}/console.log" >&2
+    die "L-SMOKE-PRODUCER-KEY: miner1's sign-in with its producer key was refused"
+  fi
+  echo -e "${GREEN}✓ Miner1 signs in and produces with its producer key alone${NC}"
+}
+
 # Stop node $1 (its name in the PID file) and forget its PID.
 stop_node() {
   local name=$1

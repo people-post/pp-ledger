@@ -19,8 +19,9 @@ namespace pp {
  * against (bp9).
  */
 struct StateSnapshot {
-  constexpr static const uint32_t VERSION =
-      3; // 2: the predecessor carries block `height`'s header (B037); 3: config.finalitySeconds
+  // 2: the predecessor carries block `height`'s header (B037); 3: config.finalitySeconds; 4: the miner
+  // state carries the producer key
+  constexpr static const uint32_t VERSION = 4;
 
   /** Where the state comes from: the old network and its block at `height`. */
   using Predecessor = ChainPredecessor;

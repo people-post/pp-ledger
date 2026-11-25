@@ -34,8 +34,9 @@ RecordHandler::RecordHandler() {
   install(Ledger::T_DEFAULT, std::make_unique<DefaultTxHandler>());
   install(Ledger::T_RENEWAL, std::make_unique<RenewalTxHandler>());
   install(Ledger::T_END_USER, std::make_unique<EndUserTxHandler>());
-  install(Ledger::T_MINER_REGISTER, std::make_unique<MinerTxHandler>(/*registering=*/true));
-  install(Ledger::T_MINER_REVOKE, std::make_unique<MinerTxHandler>(/*registering=*/false));
+  install(Ledger::T_MINER_REGISTER, std::make_unique<MinerTxHandler>(MinerTxHandler::Kind::Register));
+  install(Ledger::T_MINER_REVOKE, std::make_unique<MinerTxHandler>(MinerTxHandler::Kind::Revoke));
+  install(Ledger::T_MINER_PRODUCER_KEY, std::make_unique<MinerTxHandler>(MinerTxHandler::Kind::ProducerKey));
   install(Ledger::T_BEACON_CERT, std::make_unique<BeaconCertTxHandler>());
   install(Ledger::T_RECOVERY, std::make_unique<RecoveryTxHandler>());
   install(Ledger::T_IMPORT, std::make_unique<ImportTxHandler>());
@@ -126,6 +127,7 @@ chain_tx::Roe<void> RecordHandler::checkNotFrozen(const Ledger::Record& rec, con
     case Ledger::T_USER_UPDATE:
     case Ledger::T_MINER_REGISTER:
     case Ledger::T_MINER_REVOKE:
+    case Ledger::T_MINER_PRODUCER_KEY:
       break;
     default: // signed by a leader, a recovery set, the admin set, or not at all
       return {};

@@ -291,6 +291,23 @@ static std::string readPublicKeyArg(const std::string& arg) {
   return key.size() == pp::utl::kMlDsaPublicKeyBytes ? key : std::string{};
 }
 
+/** T_MINER_PRODUCER_KEY, signed by the account itself (one key; a multi-signature account: op miner-producer-key). */
+static int runMinerProducerKey(pp::Client& client, uint64_t walletId, const std::string& producerKeyArg, bool clear,
+                               uint64_t fee, const std::string& key) {
+  pp::Ledger::TxMinerProducerKey tx;
+  tx.walletId = walletId;
+  tx.fee = fee;
+  if (!clear) {
+    tx.producerKey = readPublicKeyArg(producerKeyArg);
+    if (tx.producerKey.empty()) {
+      std::cerr << "Error: --producer-key: not an ML-DSA-65 public key (hex or a .pub file); or give --clear\n";
+      return 1;
+    }
+  }
+  setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
+  return signAndSubmit(client, pp::Ledger::T_MINER_PRODUCER_KEY, pp::utl::binaryPack(tx), key);
+}
+
 /**
  * mk-recovery (beacon-authority ba7): an unsigned T_RECOVERY announcing a new admin set. The
  * recovery key holders add their signatures with sign-tx (--network-id) and submit with submit-tx;
@@ -941,11 +958,23 @@ int main(int argc, char* argv[]) {
   uint64_t minerWalletId = 0;
   uint64_t minerFee = 0;
   std::string minerKey;
-  for (auto* cmd : {miner_register_cmd, miner_revoke_cmd}) {
+  // miner-producer-key: the one key the miner host signs blocks and sign-ins with (WIRE_SCHEMA § Miner producer keys)
+  auto* miner_producer_key_cmd = app.add_subcommand(
+      "miner-producer-key",
+      "Certify a miner's producer key, the key its host signs with, or --clear it (relay or beacon, -b; a "
+      "multi-signature account: op miner-producer-key)");
+  std::string minerProducerKey;
+  bool minerProducerKeyClear = false;
+  for (auto* cmd : {miner_register_cmd, miner_revoke_cmd, miner_producer_key_cmd}) {
     cmd->add_option("account", minerWalletId, "Miner account ID")->required();
     cmd->add_option("-f,--fee", minerFee, "Transaction fee")->required();
     cmd->add_option("-k,--key", minerKey, "The account's private key (hex or file)")->required();
   }
+  auto* producerKeyOpt = miner_producer_key_cmd->add_option("--producer-key", minerProducerKey,
+                                                            "The producer key's public key (hex or .pub)");
+  auto* producerClearOpt =
+      miner_producer_key_cmd->add_flag("--clear", minerProducerKeyClear, "Clear it: the account's own keys sign again");
+  producerKeyOpt->excludes(producerClearOpt);
 
   // mk-tx: create unsigned SignedData and save to file
   auto* mk_tx_cmd = app.add_subcommand("mk-tx", "Create unsigned transaction file");
@@ -1679,6 +1708,19 @@ int main(int argc, char* argv[]) {
       exitCode =
           runMinerTx(client, miner_register_cmd->parsed() ? pp::Ledger::T_MINER_REGISTER : pp::Ledger::T_MINER_REVOKE,
                      minerWalletId, minerFee, minerKey);
+    }
+  }
+  // Handle miner-producer-key (relay / beacon)
+  else if (miner_producer_key_cmd->parsed()) {
+    if (!connectToBeacon) {
+      std::cerr << "Error: miner-producer-key submits to a relay or the beacon: use -b/--beacon.\n";
+      exitCode = 1;
+    } else if (!minerProducerKeyClear && minerProducerKey.empty()) {
+      std::cerr << "Error: miner-producer-key: give --producer-key or --clear.\n";
+      exitCode = 1;
+    } else {
+      exitCode =
+          runMinerProducerKey(client, minerWalletId, minerProducerKey, minerProducerKeyClear, minerFee, minerKey);
     }
   }
   // Handle add-account command (relay / beacon)

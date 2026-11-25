@@ -110,6 +110,7 @@ TEST(ChainTest, RenewalChangedWalletField_NamesEveryFieldButBalances) {
       {"keys", [](auto& w) { w.minSignatures = 1; }},
       {"keys", [](auto& w) { w.keyType = 0; }},
       {"miner state", [](auto& w) { w.miner.registered = true; }},
+      {"miner state", [](auto& w) { w.miner.producerKey = makeKeyPair().publicKey; }},
       {"recovery", [](auto& w) { w.recovery.pending = true; }},
       {"recovery", [](auto& w) { w.recovery = {}; }},
       {"domain", [](auto& w) { w.domain = "WXYZ"; }},
@@ -1282,6 +1283,85 @@ TEST(ChainTest, Renewal_ZeroIdempotentIdAccepted) {
   }
   EXPECT_GT(userRenewals, 0u);
 
+  std::filesystem::remove_all(tempDir, ec);
+}
+
+// The records a slot leader signs in its place (renewals) are signed as its blocks are: by its producer
+// key once it has one, and no longer by its account's keys.
+TEST(ChainTest, ALeaderWithAProducerKeySignsItsRenewalsWithIt) {
+  Chain producer;
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair(); // the genesis miner's account key too (the fixture's default)
+  auto recycleKey = makeKeyPair();
+  const auto hot = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(0);
+  chainConfig.checkpoint.minBlocks = 2;
+  chainConfig.checkpoint.minAgeSeconds = 0;
+
+  consensus::SlotCommittee::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffsetMs = 0;
+  consensusConfig.slotDuration = 5;
+  consensusConfig.slotsPerEpoch = 10;
+  producer.initConsensus(consensusConfig);
+
+  const auto tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-producer-renewal");
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.startingBlockId = 0;
+  ledgerConfig.workDir = tempDir.string();
+  ASSERT_TRUE(producer.initLedger(ledgerConfig).isOk());
+
+  Ledger::ChainNode genesis = makeGenesisBlock(producer, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  ASSERT_TRUE(producer.addBlock(genesis).isOk());
+
+  Ledger::TxMinerProducerKey pk;
+  pk.walletId = kTestMinerId;
+  pk.producerKey = hot.publicKey;
+  pk.fee = 1;
+  pk.idempotentId = 1;
+  pk.validationTsMin = chainConfig.genesisTime;
+  pk.validationTsMax = chainConfig.genesisTime + 3600;
+  producer.refreshStakeholders();
+  Ledger::ChainNode block1 = makeNextBlock(
+      producer, genesis, {makeRecord(Ledger::T_MINER_PRODUCER_KEY, pk, reserveKey, producer.getNetworkId())});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+  ASSERT_EQ(producer.getAccount(kTestMinerId).value().wallet.miner.producerKey, hot.publicKey);
+
+  const uint64_t slot2 = block1.block.slot + 1;
+  auto renewals = producer.collectRenewals(slot2);
+  ASSERT_TRUE(renewals.isOk()) << renewals.error().message;
+  ASSERT_TRUE(producer.ensureEpochSeed(producer.getEpochFromSlot(slot2)).isOk());
+  auto leader = producer.getSlotLeader(slot2);
+  ASSERT_TRUE(leader.isOk());
+  ASSERT_EQ(leader.value(), kTestMinerId);
+
+  size_t checked = 0;
+  for (const auto& due : renewals.value()) {
+    if (due.type != Ledger::T_RENEWAL) {
+      continue;
+    }
+    auto renewal = utl::binaryUnpack<Ledger::TxRenewal>(due.data);
+    ASSERT_TRUE(renewal.isOk());
+    if (renewal.value().walletId == AccountBuffer::ID_GENESIS || renewal.value().walletId == AccountBuffer::ID_FEE) {
+      continue; // own handler paths (see Renewal_ZeroIdempotentIdAccepted)
+    }
+    for (const utl::MlDsaKeyPair* key : {static_cast<const utl::MlDsaKeyPair*>(&reserveKey), &hot}) {
+      Ledger::Record r = due;
+      r.signatures = {utl::mlDsaSign(key->privateKey, r.signingMessage(producer.getNetworkId())).value()};
+      AccountBuffer scratch;
+      auto added = producer.addBufferTransaction(scratch, r, leader.value());
+      if (key == &hot) {
+        EXPECT_TRUE(added.isOk()) << "the producer key signs: " << added.error().message;
+      } else {
+        EXPECT_FALSE(added.isOk()) << "the account's key no longer signs for the leader";
+      }
+    }
+    ++checked;
+  }
+  EXPECT_GT(checked, 0u);
   std::filesystem::remove_all(tempDir, ec);
 }
 
@@ -3696,6 +3776,19 @@ Ledger::Record minerTx(ComposeHarness& h, const FundedUser& user, uint16_t type,
   return rec;
 }
 
+/** T_MINER_PRODUCER_KEY for account `id`, certifying `producerKey` (empty: clearing it), signed by `signer`. */
+Ledger::Record producerKeyTx(ComposeHarness& h, uint64_t id, const utl::MlDsaKeyPair& signer,
+                             const std::string& producerKey, uint64_t fee, uint64_t idem) {
+  Ledger::TxMinerProducerKey tx;
+  tx.walletId = id;
+  tx.producerKey = producerKey;
+  tx.fee = fee;
+  tx.idempotentId = idem;
+  tx.validationTsMin = h.chainConfig.genesisTime;
+  tx.validationTsMax = h.chainConfig.genesisTime + 3600;
+  return makeRecord(Ledger::T_MINER_PRODUCER_KEY, tx, signer, h.producer.getNetworkId());
+}
+
 } // namespace
 
 // Registration: the account opts in itself, pays the meta fee + minerRegistrationFee (7), keeps
@@ -3740,6 +3833,82 @@ TEST_F(ChainComposeTest, MinerRegisterAndRevoke) {
       makeNextBlockAtSlot(producer, registered, 4, {minerTx(harness_, rich, Ledger::T_MINER_REVOKE, 1, 22)});
   ASSERT_TRUE(producer.addBlock(revoked).isOk());
   EXPECT_FALSE(producer.getAccount(rich.id).value().wallet.miner.registered);
+}
+
+// Miner producer keys (WIRE_SCHEMA § Miner producer keys): the account certifies one public key, of its
+// key type and none of its own keys, for a meta-size fee; certifying the key in force again, or
+// clearing none, is refused; a system account has none. A miner's sign-in is checked against it, the
+// account's own transactions still against the account's keys.
+TEST_F(ChainComposeTest, MinerProducerKey_CertifiedCheckedAndCleared) {
+  auto& producer = harness_.producer;
+  FundedUser user = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER + 1, 1000);
+  producer.setClockOverride(producer.getSlotStartTime(2));
+  auto tryAdd = [&](const Ledger::Record& rec) {
+    AccountBuffer scratch;
+    return producer.addBufferTransaction(scratch, rec, producer.getSlotLeader(2).value());
+  };
+  auto refusedWith = [&](const Ledger::Record& rec, const std::string& why) {
+    auto added = tryAdd(rec);
+    ASSERT_FALSE(added.isOk()) << why;
+    EXPECT_NE(added.error().message.find(why), std::string::npos) << added.error().message;
+  };
+  const auto hot = makeKeyPair();
+  refusedWith(producerKeyTx(harness_, user.id, user.key, hot.publicKey, 0, 10), "fee below minimum 1");
+  refusedWith(producerKeyTx(harness_, user.id, user.key, user.key.publicKey, 1, 11), "one of the account's own keys");
+  refusedWith(producerKeyTx(harness_, user.id, user.key, "not a key", 1, 12), "ML-DSA-65 public key");
+  refusedWith(producerKeyTx(harness_, user.id, user.key, "", 1, 13), "no producer key to clear");
+  refusedWith(producerKeyTx(harness_, AccountBuffer::ID_RESERVE, harness_.reserveKey, hot.publicKey, 1, 14),
+              "System accounts");
+  EXPECT_FALSE(tryAdd(producerKeyTx(harness_, user.id, hot, hot.publicKey, 1, 15)).isOk())
+      << "the producer key does not certify itself: the account's keys sign";
+
+  Ledger::ChainNode certified =
+      makeNextBlockAtSlot(producer, user.block, 2, {producerKeyTx(harness_, user.id, user.key, hot.publicKey, 1, 20)});
+  ASSERT_TRUE(producer.addBlock(certified).isOk());
+  auto account = producer.getAccount(user.id).value();
+  EXPECT_EQ(account.wallet.miner.producerKey, hot.publicKey);
+  EXPECT_FALSE(account.wallet.miner.registered) << "a key may be certified before the account registers";
+  EXPECT_EQ(account.wallet.mBalances.at(AccountBuffer::ID_GENESIS), 1000 - 1);
+  producer.setClockOverride(producer.getSlotStartTime(3));
+  refusedWith(producerKeyTx(harness_, user.id, user.key, hot.publicKey, 1, 21), "already in force");
+
+  // A sign-in is the producer key's; the account's transactions stay its own keys'.
+  const std::string message = "a miner's sign-in";
+  EXPECT_TRUE(producer.verifyProducerSignatures(user.id, message, {signMessage(hot, message)}).isOk());
+  EXPECT_FALSE(producer.verifyProducerSignatures(user.id, message, {signMessage(user.key, message)}).isOk());
+  EXPECT_TRUE(producer.verifyAccountSignatures(user.id, message, {signMessage(user.key, message)}).isOk());
+  EXPECT_FALSE(producer.verifyAccountSignatures(user.id, message, {signMessage(hot, message)}).isOk());
+
+  Ledger::ChainNode cleared =
+      makeNextBlockAtSlot(producer, certified, 3, {producerKeyTx(harness_, user.id, user.key, "", 1, 22)});
+  ASSERT_TRUE(producer.addBlock(cleared).isOk());
+  EXPECT_FALSE(producer.getAccount(user.id).value().wallet.miner.hasProducerKey());
+  EXPECT_TRUE(producer.verifyProducerSignatures(user.id, message, {signMessage(user.key, message)}).isOk())
+      << "cleared: the account's keys sign again";
+}
+
+// A block is signed by its leader's signing keys as held before it: the block certifying a producer
+// key by the account's keys, every later block by the producer key alone.
+TEST_F(ChainComposeTest, MinerProducerKey_SignsBlocksFromTheNextBlock) {
+  auto& producer = harness_.producer;
+  auto& peer = harness_.peer;
+  const utl::MlDsaKeyPair accountKey = testLeaderKeys().at(kTestMinerId);
+  const auto hot = makeKeyPair();
+  Ledger::ChainNode certified = makeNextBlockAtSlot(
+      producer, harness_.genesis, 1, {producerKeyTx(harness_, kTestMinerId, accountKey, hot.publicKey, 1, 30)});
+  ASSERT_TRUE(producer.addBlock(certified).isOk());
+  auto taken = peer.addBlock(certified);
+  ASSERT_TRUE(taken.isOk()) << "signed by the account's keys, in force before it: " << taken.error().message;
+
+  Ledger::ChainNode next = makeNextBlockAtSlot(producer, certified, 2, {makeReserveTransfer(harness_, 10, 31)});
+  auto refused = peer.addBlock(next); // signed by the account's key, as the fixture's leader keys are
+  ASSERT_FALSE(refused.isOk()) << "the account's keys no longer sign its blocks";
+  EXPECT_NE(refused.error().message.find("not signed by its slot leader"), std::string::npos)
+      << refused.error().message;
+  next.block.producerSignatures = {
+      signMessage(hot, Ledger::Block::producerSigningMessage(peer.getNetworkId(), next.hash))};
+  auto added = peer.addBlock(next);
+  EXPECT_TRUE(added.isOk()) << added.error().message;
 }
 
 // Only registered miners are elected; a registration joins the committee of the epoch after the
@@ -4185,11 +4354,17 @@ TEST_F(MinerLivenessTest, AnAccountsRecoverySetStandsAboveItsKeys) {
   EXPECT_TRUE(refused(act(user.key, 27, withdraw))) << "the account's key does not withdraw it";
   block = commit(block, 9, {act(guardian2, 28, withdraw)});
   EXPECT_FALSE(recovery().pending);
-  block = commit(upTo(block, 11), 11, {pay(user.key, 31)});
+  // A producer key the account certifies (whoever holds its keys may): the recovery clears it below.
+  const auto hot = makeKeyPair();
+  block = commit(upTo(block, 11), 11,
+                 {pay(user.key, 31), producerKeyTx(harness_, user.id, user.key, hot.publicKey, 1, 34)});
+  ASSERT_EQ(peer.getAccount(user.id).value().wallet.miner.producerKey, hot.publicKey);
 
   // Announced again at slot 12 (earliest slot 17): the first block of epoch 2 applies it, on both nodes.
   block = commit(block, 12, {act(guardian2, 29, announce)});
   EXPECT_EQ(recovery().applyEpoch, 2u);
+  EXPECT_TRUE(refused(producerKeyTx(harness_, user.id, user.key, makeKeyPair().publicKey, 1, 35)))
+      << "frozen: its keys certify no producer key either";
   block = commit(upTo(block, 18), 18, {makeReserveTransfer(harness_, 5, 60)});
   EXPECT_EQ(peer.getAccount(user.id).value().wallet.publicKeys, std::vector<std::string>{user.key.publicKey})
       << "not yet: still epoch 1";
@@ -4200,6 +4375,7 @@ TEST_F(MinerLivenessTest, AnAccountsRecoverySetStandsAboveItsKeys) {
     EXPECT_EQ(after.minSignatures, 1u);
     EXPECT_FALSE(after.recovery.pending);
     EXPECT_EQ(after.recovery.publicKeys, std::vector<std::string>{guardian2.publicKey}) << "the set stays";
+    EXPECT_FALSE(after.miner.hasProducerKey()) << "the new keys name the next producer key";
   }
   // The new key signs for the account; the old one no longer does.
   EXPECT_TRUE(refused(pay(user.key, 32)));

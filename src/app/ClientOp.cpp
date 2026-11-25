@@ -241,6 +241,18 @@ OpCommands::OpCommands(CLI::App& app) {
   assignDomain_.cmd->add_option("--domain", domain_, "The domain (a symbol: ACME)")->required();
   addCreateOptions(assignDomain_, true);
 
+  minerProducerKey_.cmd = op_->add_subcommand(
+      "miner-producer-key",
+      "Certify a miner's producer key: the one key its host signs blocks and sign-ins with (signed by the "
+      "account's keys; reads them from the node)");
+  minerProducerKey_.cmd->add_option("--account", from_, "The miner account")->required();
+  auto* producerKey =
+      minerProducerKey_.cmd->add_option("--producer-key", producerKey_, "The producer key's public key (hex or .pub)");
+  auto* clearProducerKey =
+      minerProducerKey_.cmd->add_flag("--clear", clearProducerKey_, "Clear it: the account's own keys sign again");
+  producerKey->excludes(clearProducerKey);
+  addCreateOptions(minerProducerKey_, true);
+
   wrap_.cmd =
       op_->add_subcommand("wrap", "Make an operation of a transaction file (mk-beacon-cert, mk-recovery, mk-tx …)");
   wrap_.cmd->add_option("file", file_, "Transaction file (its signatures are dropped)")->required();
@@ -275,7 +287,7 @@ bool OpCommands::signedByRecoverySet(const Create& create, bool hasRecoverySet) 
 
 const OpCommands::Create* OpCommands::parsedCreate() const {
   for (const Create* create : {&transfer_, &batch_, &mint_, &newAccount_, &updateKeys_, &setRecovery_,
-                               &withdrawRecovery_, &recover_, &assignDomain_, &wrap_}) {
+                               &withdrawRecovery_, &recover_, &assignDomain_, &minerProducerKey_, &wrap_}) {
     if (create->cmd->parsed()) {
       return create;
     }
@@ -559,6 +571,15 @@ int OpCommands::runCreate(const Create& create, pp::Client* client) {
       return fail("--domain: 1 to 7 letters A-Z");
     }
     built = op::assignDomain(common, from_, *name, create.fee);
+  } else if (&create == &minerProducerKey_) {
+    std::string key;
+    if (!clearProducerKey_) {
+      key = readPublicKey(producerKey_);
+      if (key.empty()) {
+        return fail("give --producer-key (hex or a .pub file) or --clear");
+      }
+    }
+    built = op::minerProducerKey(common, key, create.fee);
   } else if (&create == &newAccount_) {
     auto keys = readPublicKeys(accountKeys_, "--account-key");
     if (!keys) {

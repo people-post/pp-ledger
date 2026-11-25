@@ -6,17 +6,22 @@
 namespace pp {
 
 /**
- * T_MINER_REGISTER / T_MINER_REVOKE (docs/contracts/WIRE_SCHEMA.md § Miner registration and liveness).
- * Signed by the account itself. They change only the account's miner state, in place: the
- * account's blockId (where renewal reads its meta) does not move.
+ * T_MINER_REGISTER / T_MINER_REVOKE / T_MINER_PRODUCER_KEY (docs/contracts/WIRE_SCHEMA.md § Miner
+ * registration and liveness, § Miner producer keys). Signed by the account itself. They change only
+ * the account's miner state, in place: the account's blockId (where renewal reads its meta) does not
+ * move.
  *
  * Register: not a system account, not registered, not in its cool-down, balance after the fee
  * at least `minerMinStake`; fee = meta-size fee + `minerRegistrationFee`. Revoke: registered;
  * meta-size fee. Either takes effect in the committee at the next epoch's stake snapshot.
+ * Producer key: not a system account; a public key of the account's key type that is none of its
+ * own keys, or empty to clear it; meta-size fee. In force for every later record and block.
  */
 class MinerTxHandler : public ITxHandler {
 public:
-  explicit MinerTxHandler(bool registering) : registering_(registering) {}
+  enum class Kind { Register, Revoke, ProducerKey };
+
+  explicit MinerTxHandler(Kind kind) : kind_(kind) {}
 
   chain_tx::Roe<uint64_t> getSignerAccountId(const Ledger::TypedTx& tx, uint64_t slotLeaderId) const override;
 
@@ -33,12 +38,14 @@ public:
 
 private:
   chain_tx::Roe<const Ledger::TxMiner*> expect(const Ledger::TypedTx& tx) const;
-  chain_tx::Roe<void> applyMiner(const Ledger::TxMiner& tx, const TxContext& ctx, AccountBuffer& bank, uint64_t slot,
+  chain_tx::Roe<void> applyMiner(const Ledger::TypedTx& typed, const Ledger::TxMiner& tx, const TxContext& ctx,
+                                 AccountBuffer& bank, uint64_t slot,
                                  chain_block::BlockAdmissionMode admissionMode) const;
   chain_tx::Roe<void> checkRegisterAllowed(const Ledger::TxMiner& tx, const TxContext& ctx,
                                            const Client::Wallet& wallet, uint64_t slot) const;
+  chain_tx::Roe<void> checkProducerKey(const Ledger::TxMinerProducerKey& tx, const Client::Wallet& wallet) const;
 
-  bool registering_;
+  Kind kind_;
 };
 
 } // namespace pp

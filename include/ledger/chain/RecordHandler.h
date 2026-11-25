@@ -18,8 +18,8 @@ namespace pp {
 /** RecordHandler owns the per-record-type tx handlers. */
 class RecordHandler final {
 public:
-  /** Handler table size: record type ids 0..T_BEACON_SEED (8..15 reserved, no handler). */
-  static constexpr std::size_t kNumTxTypes = Ledger::T_BEACON_SEED + 1;
+  /** Handler table size: record type ids 0..T_MINER_PRODUCER_KEY (8..15 reserved, no handler). */
+  static constexpr std::size_t kNumTxTypes = Ledger::T_MINER_PRODUCER_KEY + 1;
 
   RecordHandler();
   ~RecordHandler() = default;
