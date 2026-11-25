@@ -4,7 +4,7 @@
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| R1 mechanics | Built, not yet run | `release.yml` (replaces `release-docker.yml`), backport bot, release-branch PR check, release issue, [RELEASE.md](../../docs/ops/RELEASE.md). The candidate's image smoke was run locally on a prebuilt image (L-SMOKE-IMAGE passed). `RELEASE_OWNER` set (Hongwei); rulesets on `release/**` and `v*` tags. Left: the GHCR package's visibility, pp-browser's RC023 (people-post/pp-browser#773) |
+| R1 mechanics | Built, not yet run | `release.yml` (replaces `release-docker.yml`), backport bot, release-branch PR check, release issue, [RELEASE.md](../../docs/ops/RELEASE.md). The candidate's image smoke was run locally on a prebuilt image (L-SMOKE-IMAGE passed). `RELEASE_OWNER` set (Hongwei); rulesets on `release/**` and `v*` tags. pp-browser's RC023 merged (people-post/pp-browser#773). Left: the GHCR package's visibility |
 | R2 compatibility tests | Not started | Build identity first: nodes do not report their version today |
 | R3 rule activation | Not started | Needs its own design; before 2.0.0 |
 | R4 network launch | Not started | Hosting waits for Leo |
