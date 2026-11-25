@@ -8,7 +8,9 @@ Order of work only; status in [CURRENT_STATE.md](CURRENT_STATE.md).
 - [x] Build CI on `release/**` and PRs to it; backport bot, release-branch PR check, release issue and its template
 - [x] [docs/ops/RELEASE.md](../../docs/ops/RELEASE.md) with the version table
 - [x] The `RELEASE_OWNER` variable (Hongwei, RL008)
-- [ ] Repository settings (an admin): branch protection on `release/**` as on main; the GHCR package public
+- [x] Rulesets: `release/**` as main (a PR with one approval, the build and format checks, no force-push or deletion);
+      `v*` tags created, moved or deleted only by a repository admin
+- [ ] The GHCR package's visibility (public, if anyone outside pulls it)
 - [ ] pp-browser: the release-compatibility docs say pp-ledger has release branches (RC023)
 
 ## R2 — Compatibility tests
