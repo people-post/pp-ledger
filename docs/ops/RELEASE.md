@@ -98,9 +98,9 @@ What each release writes and reads. A row changes in the PR that changes the for
 
 | Format | Where | 2.0 writes | 2.0 reads |
 |--------|-------|-----------|-----------|
-| Block header (`Ledger::Block::CURRENT_VERSION`) | [WIRE_SCHEMA](../contracts/WIRE_SCHEMA.md) | 9 | 9 |
-| Genesis meta (`GenesisAccountMeta::VERSION`) | [WIRE_SCHEMA](../contracts/WIRE_SCHEMA.md) | 14 | 14 |
-| Account (`UserAccount`) | [WIRE_SCHEMA](../contracts/WIRE_SCHEMA.md) | 4 | 4 |
+| Block header (`Ledger::Block::CURRENT_VERSION`) | [WIRE_SCHEMA](../contracts/WIRE_SCHEMA.md) | 10 | 10 |
+| Genesis meta (`GenesisAccountMeta::VERSION`) | [WIRE_SCHEMA](../contracts/WIRE_SCHEMA.md) | 15 | 15 |
+| Account (`UserAccount`, account leaf v3) | [WIRE_SCHEMA](../contracts/WIRE_SCHEMA.md) | 5 | 5 |
 | Beacon certificate (`T_BEACON_CERT`) | [BEACON_AUTHORITY](../contracts/BEACON_AUTHORITY.md) | 3 | 3 |
 | Ledger RPC protocols | [AMP_TRANSPORT](../contracts/AMP_TRANSPORT.md) | `/pp-ledger/rpc/1.0.0`, `/pp-ledger/rpc-bulk/1.0.0` | the same |
 | RPC envelope (`Request` / `Response`) | [AMP_TRANSPORT](../contracts/AMP_TRANSPORT.md) | 2 | 1, 2 |

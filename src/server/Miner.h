@@ -55,6 +55,22 @@ public:
   uint64_t getTipEpoch() const;
 
   uint64_t getStake() const;
+  /**
+   * The keys this miner signs with now (WIRE_SCHEMA § Miner producer keys): its blocks, its sign-in and
+   * the records it signs as slot leader. The held key of the producer key its account has in force,
+   * else every held key (the account's own). An error when the account has a producer key this miner
+   * does not hold: it cannot sign for it.
+   */
+  Roe<std::vector<std::string>> signingKeys() const;
+  /**
+   * The keys of `privateKeys` (their public keys `publicKeys`, in order) a miner signs with for an
+   * account whose miner state is `state` (none known: every held key).
+   */
+  static Roe<std::vector<std::string>> selectSigningKeys(const std::vector<std::string>& privateKeys,
+                                                         const std::vector<std::string>& publicKeys,
+                                                         const Client::MinerState* state, uint64_t minerId);
+  /** True once init() has run (the chain is mounted). */
+  bool isInitialized() const { return !config_.privateKeys.empty(); }
   size_t getPendingTransactionCount() const;
   /** Slot this miner collects for / seals now (the previous slot inside its delivery window). */
   uint64_t getProductionSlot() const;
@@ -86,6 +102,7 @@ private:
     uint64_t startingBlockId{0};
     uint64_t tokenId{AccountBuffer::ID_GENESIS};
     std::vector<std::string> privateKeys; // hex-encoded (multiple signatures)
+    std::vector<std::string> publicKeys;  // of privateKeys, in order (to find the producer key's)
   };
 
   /** Per-slot leader state built from the tip; reset whenever the tip moves. */

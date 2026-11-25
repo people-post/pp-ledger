@@ -1619,15 +1619,17 @@ void Chain::applyDueRecovery(uint64_t epoch) {
 }
 
 Chain::Roe<void> Chain::checkProducerSigned(const Ledger::ChainNode& block) const {
-  // The elected leader is public: only its account's keys (as held before this block) make a
-  // block of its slot, so no one else can take the slot with a block in its name.
+  // The elected leader is public: only its producer key, or its account's keys when it has none
+  // (as held before this block), make a block of its slot, so no one else can take the slot with a
+  // block in its name. A producer key certified in this block signs from the next.
   auto producer = txContext_.bank.getAccount(block.block.slotLeader);
   if (!producer) {
     return Error(E_BLOCK_VALIDATION, "Block " + std::to_string(block.block.index) + ": slot leader " +
                                          std::to_string(block.block.slotLeader) + " not found");
   }
-  if (auto signed_ = verifySignaturesAgainstAccount(Ledger::Block::producerSigningMessage(getNetworkId(), block.hash),
-                                                    block.block.producerSignatures, producer.value());
+  if (auto signed_ =
+          verifySignaturesAgainstAccount(Ledger::Block::producerSigningMessage(getNetworkId(), block.hash),
+                                         block.block.producerSignatures, chain_tx::producerSigner(producer.value()));
       !signed_) {
     return Error(E_BLOCK_VALIDATION, "Block " + std::to_string(block.block.index) +
                                          " is not signed by its slot leader " + std::to_string(block.block.slotLeader) +
@@ -2212,6 +2214,15 @@ Chain::Roe<void> Chain::verifyAccountSignatures(uint64_t accountId, const std::s
   return verifySignaturesAgainstAccount(message, signatures, account.value());
 }
 
+Chain::Roe<void> Chain::verifyProducerSignatures(uint64_t accountId, const std::string& message,
+                                                 const std::vector<std::string>& signatures) const {
+  auto account = txContext_.bank.getAccount(accountId);
+  if (!account) {
+    return Error(E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(accountId));
+  }
+  return verifySignaturesAgainstAccount(message, signatures, chain_tx::producerSigner(account.value()));
+}
+
 std::optional<std::string> Chain::getBeaconReveal(uint64_t epoch) const {
   auto it = txContext_.beaconReveals.find(epoch);
   return it == txContext_.beaconReveals.end() ? std::nullopt : std::optional<std::string>(it->second);
@@ -2343,8 +2354,12 @@ Chain::Roe<void> Chain::validateTxSignatures(const Ledger::Record& record, uint6
       return {};
     }
   }
-  return verifySignaturesAgainstAccount(record.signingMessage(getNetworkId()), record.signatures,
-                                        accountResult.value());
+  // Renewals and ends are the slot leader's: signed as its blocks are, by its producer key when it has one.
+  const bool leaderSigned =
+      slotLeaderId != 0 && (record.type == Ledger::T_RENEWAL || record.type == Ledger::T_END_USER);
+  return verifySignaturesAgainstAccount(
+      record.signingMessage(getNetworkId()), record.signatures,
+      leaderSigned ? chain_tx::producerSigner(accountResult.value()) : accountResult.value());
 }
 
 Chain::Roe<uint64_t> Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer& bank, uint64_t accountId) const {

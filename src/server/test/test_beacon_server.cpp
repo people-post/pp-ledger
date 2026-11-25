@@ -430,6 +430,48 @@ TEST(BeaconServerInitTest, GenesisMinersAreRegistered) {
   EXPECT_FALSE(beacon.getAccount(AccountBuffer::ID_RESERVE).value().wallet.miner.registered);
 }
 
+// A genesis miner may name its producer key (WIRE_SCHEMA § Miner producer keys): the key its host
+// signs with from block 1, so the account's keys need never reach it. Never one of its own keys.
+TEST(BeaconServerInitTest, AGenesisMinersProducerKeySignsItsSignIn) {
+  GenesisSetup setup("pp-ledger-beacon-genesis-producer-key-test");
+  auto account = utl::mlDsaGenerate().value();
+  auto hot = utl::mlDsaGenerate().value();
+  const uint64_t minerId = AccountBuffer::ID_FIRST_ISSUED;
+  setup.writeInitConfig(R"(, "genesisMiners": [{"id": )" + std::to_string(minerId) + R"(, "publicKeys": [")" +
+                        utl::hexEncode(account.publicKey) + R"("], "producerKey": ")" + utl::hexEncode(hot.publicKey) +
+                        R"("}])");
+  auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+  ASSERT_TRUE(init.isOk()) << init.error().message;
+  Beacon beacon;
+  Beacon::MountConfig mount;
+  mount.workDir = (setup.dir / "data").string();
+  ASSERT_TRUE(beacon.mount(mount).isOk());
+  const auto miner = beacon.getAccount(minerId).value().wallet.miner;
+  EXPECT_TRUE(miner.registered);
+  EXPECT_EQ(miner.producerKey, hot.publicKey);
+
+  Client::MinerInfo info;
+  info.id = minerId;
+  info.peerId = "12D3KooWMinerPeer";
+  const std::string net = beacon.getNetworkId();
+  auto byHot = beacon.verifyMinerRegistration(signedBy(info, {hot}, net), net);
+  EXPECT_TRUE(byHot.isOk()) << byHot.error().message;
+  auto byAccount = beacon.verifyMinerRegistration(signedBy(info, {account}, net), net);
+  ASSERT_FALSE(byAccount.isOk()) << "the account's key does not sign in for it";
+  EXPECT_NE(byAccount.error().message.find("not signed"), std::string::npos) << byAccount.error().message;
+}
+
+TEST(BeaconServerInitTest, AGenesisMinersProducerKeyIsNoneOfItsKeys) {
+  GenesisSetup setup("pp-ledger-beacon-genesis-producer-key-own-test");
+  auto account = utl::mlDsaGenerate().value();
+  setup.writeInitConfig(R"(, "genesisMiners": [{"id": )" + std::to_string(AccountBuffer::ID_FIRST_ISSUED) +
+                        R"(, "publicKeys": [")" + utl::hexEncode(account.publicKey) + R"("], "producerKey": ")" +
+                        utl::hexEncode(account.publicKey) + R"("}])");
+  auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+  ASSERT_FALSE(init.isOk());
+  EXPECT_NE(init.error().message.find("none of its own keys"), std::string::npos) << init.error().message;
+}
+
 // networkId is part of genesis: init refuses to make a chain without one.
 TEST(BeaconServerInitTest, InitRequiresNetworkId) {
   GenesisSetup setup("pp-ledger-beacon-network-id-test");

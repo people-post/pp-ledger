@@ -128,6 +128,9 @@ public:
   /** `signatures` over `message` satisfy account `accountId`'s keys and minSignatures. */
   Roe<void> verifyAccountSignatures(uint64_t accountId, const std::string& message,
                                     const std::vector<std::string>& signatures) const;
+  /** As verifyAccountSignatures, for what a miner signs: its producer key when it has one (chain_tx::producerSigner). */
+  Roe<void> verifyProducerSignatures(uint64_t accountId, const std::string& message,
+                                     const std::vector<std::string>& signatures) const;
   int64_t getConsensusTimestamp() const;
   int64_t getConsensusTimestampMs() const;
   /** End of `slot` (seconds) — the earliest timestamp a block for it may carry. */

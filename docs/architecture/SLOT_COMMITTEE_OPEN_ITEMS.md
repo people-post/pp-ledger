@@ -42,27 +42,15 @@ producer key are the case it would have to cover.
 
 ## Miner producer keys
 
-A miner signs with its **account's own keys**: each block it leads (`producerSignatures`,
-[Block](../contracts/WIRE_SCHEMA.md#block)) and its sign-in to its upstream
-([Miner sign-in](../contracts/WIRE_SCHEMA.md#miner-sign-in-register-request)). So the host that runs
-`pp-miner` holds the keys that also move the account's stake and balance and sign its
-registration: a compromised miner host loses the account.
-
-Proposed, as the beacon's key works ([BEACON_AUTHORITY.md](../contracts/BEACON_AUTHORITY.md)): the
-miner account, its keys offline (M-of-N), certifies a **producer key** on chain, a record signed
-by the account naming the key's public key and a sequence. Blocks and sign-ins are checked against
-the producer key in force for the slot; the producer key signs nothing else, so it cannot move
-funds, change the account or register it. A lost or stolen producer key is replaced by a new
-certificate from the account, without touching the account's keys. What a thief can still do is
-sign conflicting blocks in the slots the account leads: the misbehaviour
-[Miner bonds and slashing](#miner-bonds-and-slashing) would make cost stake.
-
-Open: the record (its own type or a field of `T_MINER_REGISTER`), whether a certificate expires,
-when a new producer key takes effect (the next epoch, as the committee is fixed ahead), and
-whether an account without one keeps signing with its own keys. Whatever the answer, it changes
-what every node verifies, so it is decided and built before the first release freezes the chain
-format ([projects/release PHASES § R5](../../projects/release/PHASES.md#r5--200)); after that it
-needs rule activation ([§ R3](../../projects/release/PHASES.md#r3--rule-activation)).
+**Closed.** A miner used to sign with its **account's own keys**, so the host running `pp-miner` held the keys
+that also move the account's stake. Closed by producer keys, as the beacon's key works: the account,
+its keys offline (M-of-N if it likes), certifies one producer key on chain (`T_MINER_PRODUCER_KEY`),
+which alone signs its blocks, its sign-in and the renewals it signs as leader, and nothing else
+([WIRE_SCHEMA.md § Miner producer keys](../contracts/WIRE_SCHEMA.md#miner-producer-keys)). Decided:
+its own record type; no expiry; in force from the next block; an account without one keeps signing
+with its own keys; genesis miners may name one; a recovery clears it. Residual: a thief holding a
+producer key can still sign blocks in the slots the account leads, until the account replaces the
+key — the misbehaviour [Miner bonds and slashing](#miner-bonds-and-slashing) would make cost stake.
 
 ## Private leader selection
 

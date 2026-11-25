@@ -137,6 +137,8 @@ public:
         return std::get<Ledger::TxDomainAssign>(tx).meta.size();
       case Ledger::T_BEACON_SEED:
         return 0; // no meta, no fee
+      case Ledger::T_MINER_PRODUCER_KEY:
+        return std::get<Ledger::TxMinerProducerKey>(tx).meta.size(); // the key itself is not billed
       default:
         return chain_tx::TxError(chain_err::E_INTERNAL, "Unknown typed transaction variant");
     }

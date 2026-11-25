@@ -90,6 +90,9 @@ public:
   /** `signatures` over `message` by account `accountId`'s keys (Chain::E_ACCOUNT_NOT_FOUND: no such account). */
   Roe<void> verifyAccountSignatures(uint64_t accountId, const std::string& message,
                                     const std::vector<std::string>& signatures) const;
+  /** As verifyAccountSignatures, by what signs for the account as a miner: its producer key when it has one. */
+  Roe<void> verifyProducerSignatures(uint64_t accountId, const std::string& message,
+                                     const std::vector<std::string>& signatures) const;
   /** What a pool checks before it holds `record` (Chain::checkAdmission). */
   Roe<void> checkAdmission(const Ledger::Record& record, int64_t nowSec, bool verifySignatures) const;
   /** (payer, idempotent id) of a record that has one. */

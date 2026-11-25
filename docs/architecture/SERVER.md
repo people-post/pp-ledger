@@ -462,6 +462,8 @@ After starting a beacon and miner, you can test the system:
 # Register an account as a miner (signed with its key); elected from the next epoch
 ./app/pp-client -b -p 8622 miner-register <account> -f <fee> -k <key>
 ./app/pp-client -b -p 8622 miner-revoke <account> -f <fee> -k <key>
+# Certify the one key the miner host signs with (its producer key); then the host holds only it
+./app/pp-client -b -p 8622 miner-producer-key <account> --producer-key <key.pub> -f <fee> -k <account key>
 
 # Wait for block production...
 # Check if block was created

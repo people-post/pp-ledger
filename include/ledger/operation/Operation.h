@@ -30,6 +30,8 @@ enum class Kind {
   AccountRecovery,
   /** The registrar giving an issued account its domain (T_DOMAIN_ASSIGN). */
   DomainAssign,
+  /** An account certifying (or clearing) its miner producer key (T_MINER_PRODUCER_KEY). */
+  MinerProducerKey,
   ConfigUpdate,
   BeaconCertificate,
   Recovery,
@@ -192,6 +194,11 @@ pp::Roe<Operation> mint(const Common& common, uint64_t amount, uint64_t fee);
  * the registrar (`common.signers.account`), which pays `fee`.
  */
 pp::Roe<Operation> assignDomain(const Common& common, uint64_t account, const std::string& domain, uint64_t fee);
+/**
+ * Certify `producerKey` (raw ML-DSA-65 public key; empty: clear it) as the miner producer key of the
+ * signers' account (T_MINER_PRODUCER_KEY, WIRE_SCHEMA § Miner producer keys), which pays `fee`.
+ */
+pp::Roe<Operation> minerProducerKey(const Common& common, const std::string& producerKey, uint64_t fee);
 /** A new account `id` funded with `amount` by the signers' account (the registrar for issued ids). */
 pp::Roe<Operation> newAccount(const Common& common, uint64_t id, const UserAccount& account, uint64_t amount,
                               uint64_t fee);

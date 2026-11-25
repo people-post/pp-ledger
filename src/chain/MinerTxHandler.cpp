@@ -3,6 +3,9 @@
 #include "ledger/chain/AccountPolicy.h"
 #include "ledger/chain/ErrorCodes.h"
 #include "ledger/chain/TxFees.h"
+#include "ledger/lib/common/Utilities.h"
+
+#include <algorithm>
 
 #include <limits>
 #include <string>
@@ -11,12 +14,22 @@
 namespace pp {
 
 chain_tx::Roe<const Ledger::TxMiner*> MinerTxHandler::expect(const Ledger::TypedTx& tx) const {
-  if (registering_) {
-    if (const auto* p = std::get_if<Ledger::TxMinerRegister>(&tx)) {
-      return static_cast<const Ledger::TxMiner*>(p);
-    }
-  } else if (const auto* p = std::get_if<Ledger::TxMinerRevoke>(&tx)) {
-    return static_cast<const Ledger::TxMiner*>(p);
+  switch (kind_) {
+    case Kind::Register:
+      if (const auto* p = std::get_if<Ledger::TxMinerRegister>(&tx)) {
+        return static_cast<const Ledger::TxMiner*>(p);
+      }
+      break;
+    case Kind::Revoke:
+      if (const auto* p = std::get_if<Ledger::TxMinerRevoke>(&tx)) {
+        return static_cast<const Ledger::TxMiner*>(p);
+      }
+      break;
+    case Kind::ProducerKey:
+      if (const auto* p = std::get_if<Ledger::TxMinerProducerKey>(&tx)) {
+        return static_cast<const Ledger::TxMiner*>(p);
+      }
+      break;
   }
   return chain_tx::TxError(chain_err::E_INTERNAL, "Expected a miner registration transaction");
 }
@@ -68,7 +81,7 @@ chain_tx::Roe<void> MinerTxHandler::applyBuffer(const Ledger::TypedTx& tx, Accou
   if (auto seeded = chain_tx::seedFeeAccountIfNeeded(bank, c.ctx.bank, m.fee); !seeded) {
     return seeded;
   }
-  return applyMiner(m, c.ctx, bank, c.effectiveSlot, chain_block::BlockAdmissionMode::Full);
+  return applyMiner(tx, m, c.ctx, bank, c.effectiveSlot, chain_block::BlockAdmissionMode::Full);
 }
 
 chain_tx::Roe<void> MinerTxHandler::applyBlock(const Ledger::TypedTx& tx, AccountBuffer& bank,
@@ -84,7 +97,7 @@ chain_tx::Roe<void> MinerTxHandler::applyBlock(const Ledger::TypedTx& tx, Accoun
       !idem) {
     return idem;
   }
-  return applyMiner(m, c.ctx, bank, c.blockSlot, c.admissionMode);
+  return applyMiner(tx, m, c.ctx, bank, c.blockSlot, c.admissionMode);
 }
 
 chain_tx::Roe<void> MinerTxHandler::checkRegisterAllowed(const Ledger::TxMiner& tx, const TxContext& ctx,
@@ -117,8 +130,35 @@ chain_tx::Roe<void> MinerTxHandler::checkRegisterAllowed(const Ledger::TxMiner& 
   return {};
 }
 
-chain_tx::Roe<void> MinerTxHandler::applyMiner(const Ledger::TxMiner& tx, const TxContext& ctx, AccountBuffer& bank,
-                                               uint64_t slot, chain_block::BlockAdmissionMode admissionMode) const {
+chain_tx::Roe<void> MinerTxHandler::checkProducerKey(const Ledger::TxMinerProducerKey& tx,
+                                                     const Client::Wallet& wallet) const {
+  if (AccountIds::isSystemAccount(tx.walletId)) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "System accounts cannot be miners");
+  }
+  if (tx.producerKey.empty()) {
+    if (!wallet.miner.hasProducerKey()) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               "Account " + std::to_string(tx.walletId) + " has no producer key to clear");
+    }
+    return {};
+  }
+  if (tx.producerKey.size() != utl::kMlDsaPublicKeyBytes) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "A producer key is an ML-DSA-65 public key");
+  }
+  // A hot key that is also one of the account's keys would put the account's keys back on the host.
+  if (std::find(wallet.publicKeys.begin(), wallet.publicKeys.end(), tx.producerKey) != wallet.publicKeys.end()) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "A producer key cannot be one of the account's own keys");
+  }
+  if (tx.producerKey == wallet.miner.producerKey) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "That producer key is already in force for account " + std::to_string(tx.walletId));
+  }
+  return {};
+}
+
+chain_tx::Roe<void> MinerTxHandler::applyMiner(const Ledger::TypedTx& typed, const Ledger::TxMiner& tx,
+                                               const TxContext& ctx, AccountBuffer& bank, uint64_t slot,
+                                               chain_block::BlockAdmissionMode admissionMode) const {
   if (!ctx.optChainConfig.has_value()) {
     return chain_tx::TxError(chain_err::E_STATE_INIT, "Chain config required for miner registration");
   }
@@ -127,16 +167,18 @@ chain_tx::Roe<void> MinerTxHandler::applyMiner(const Ledger::TxMiner& tx, const 
     if (!ctx.fnBillableCustomMetaSizeForFee.has_value()) {
       return chain_tx::TxError(chain_err::E_INTERNAL, "Fee-meta size extractor not configured on TxContext");
     }
-    auto metaFee = chain_tx::calculateMinimumFeeForTransaction(config, Ledger::TypedTx(Ledger::TxMinerRegister{tx}),
-                                                               *ctx.fnBillableCustomMetaSizeForFee);
+    auto metaFee = chain_tx::calculateMinimumFeeForTransaction(config, typed, *ctx.fnBillableCustomMetaSizeForFee);
     if (!metaFee) {
       return metaFee.error();
     }
-    const uint64_t flat = registering_ ? config.minerRegistrationFee : 0;
+    const uint64_t flat = kind_ == Kind::Register ? config.minerRegistrationFee : 0;
     if (flat > std::numeric_limits<uint64_t>::max() - metaFee.value() || tx.fee < metaFee.value() + flat) {
-      return chain_tx::TxError(chain_err::E_TX_FEE, std::string(registering_ ? "Miner registration" : "Miner revoke") +
-                                                        " fee below minimum " + std::to_string(metaFee.value() + flat) +
-                                                        ": " + std::to_string(tx.fee));
+      const char* what = kind_ == Kind::Register ? "Miner registration"
+                         : kind_ == Kind::Revoke ? "Miner revoke"
+                                                 : "Miner producer key";
+      return chain_tx::TxError(chain_err::E_TX_FEE, std::string(what) + " fee below minimum " +
+                                                        std::to_string(metaFee.value() + flat) + ": " +
+                                                        std::to_string(tx.fee));
     }
   }
 
@@ -150,21 +192,33 @@ chain_tx::Roe<void> MinerTxHandler::applyMiner(const Ledger::TxMiner& tx, const 
   }
   const Client::Wallet wallet = accountRoe.value().wallet;
   Client::MinerState miner = wallet.miner;
-  if (registering_) {
-    if (auto allowed = checkRegisterAllowed(tx, ctx, wallet, slot); !allowed) {
-      return allowed;
+  switch (kind_) {
+    case Kind::Register:
+      if (auto allowed = checkRegisterAllowed(tx, ctx, wallet, slot); !allowed) {
+        return allowed;
+      }
+      miner.registered = true;
+      miner.lastProducedSlot = slot; // a new miner is not due straight away
+      miner.missedDue = 0;
+      miner.autoDeregisteredEpoch = Client::MinerState::kNever;
+      break;
+    case Kind::Revoke:
+      if (!miner.registered) {
+        return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                                 "Account is not a registered miner: " + std::to_string(tx.walletId));
+      }
+      miner.registered = false;
+      miner.missedDue = 0;
+      break;
+    case Kind::ProducerKey: {
+      // Registered or not: a miner may certify its key before it registers, and keeps it after a revoke.
+      const auto& producer = std::get<Ledger::TxMinerProducerKey>(typed);
+      if (auto valid = checkProducerKey(producer, wallet); !valid) {
+        return valid;
+      }
+      miner.producerKey = producer.producerKey;
+      break;
     }
-    miner.registered = true;
-    miner.lastProducedSlot = slot; // a new miner is not due straight away
-    miner.missedDue = 0;
-    miner.autoDeregisteredEpoch = Client::MinerState::kNever;
-  } else {
-    if (!miner.registered) {
-      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                               "Account is not a registered miner: " + std::to_string(tx.walletId));
-    }
-    miner.registered = false;
-    miner.missedDue = 0;
   }
 
   if (tx.fee > 0) {

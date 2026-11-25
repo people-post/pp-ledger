@@ -8,6 +8,6 @@
 | R2 compatibility tests | Not started | Build identity first: nodes do not report their version today |
 | R3 rule activation | Not started | Needs its own design; before 2.0.0 |
 | R4 network launch | Not started | Hosting waits for Leo |
-| R5 2.0.0 | Not started | After R2's first two items, R3 and miner producer keys ([SLOT_COMMITTEE_OPEN_ITEMS](../../docs/architecture/SLOT_COMMITTEE_OPEN_ITEMS.md#miner-producer-keys)) |
+| R5 2.0.0 | Not started | After R2's first two items and R3; miner producer keys built ([WIRE_SCHEMA § Miner producer keys](../../docs/contracts/WIRE_SCHEMA.md#miner-producer-keys)) |
 
 Decisions RL001–RL008 taken by Hongwei on 2026-11-24; he is the release owner (RL008).

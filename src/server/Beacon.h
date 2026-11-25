@@ -87,9 +87,9 @@ public:
   /** Live admission only: a block for `slot` arrives in its delivery window (SlotCommittee). */
   bool isInDeliveryWindow(uint64_t slot) const;
   /**
-   * A REGISTER is genuine only if the miner account's keys signed it (as for
-   * its transactions): nobody can register a miner id they do not control. And
-   * the account is a registered miner on chain.
+   * A REGISTER is genuine only if the miner signed it as it signs its blocks: its
+   * producer key, or the account's keys when it has none. Nobody can register a
+   * miner id they do not control. And the account is a registered miner on chain.
    */
   Roe<void> verifyMinerRegistration(const Client::MinerInfo& miner, const std::string& networkId) const;
 

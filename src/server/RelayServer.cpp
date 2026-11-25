@@ -295,8 +295,8 @@ void RelayServer::dRegister(const Client::Request& request, const RequestQueue::
     replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Registration timestamp is too far from the relay's clock")));
     return;
   }
-  if (auto signed_ = relay_.verifyAccountSignatures(minerInfo.id, minerInfo.signingMessage(relay_.getNetworkId()),
-                                                    minerInfo.signatures);
+  if (auto signed_ = relay_.verifyProducerSignatures(minerInfo.id, minerInfo.signingMessage(relay_.getNetworkId()),
+                                                     minerInfo.signatures);
       !signed_ && signed_.error().code != Chain::E_ACCOUNT_NOT_FOUND) {
     replyWith(reply,
               Roe<std::string>(Error(E_REQUEST, "Registration not signed by miner " + std::to_string(minerInfo.id) +

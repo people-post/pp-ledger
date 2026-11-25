@@ -5,7 +5,9 @@
 #include "ledger/chain/TxFees.h"
 #include "chain/TxTyped.h"
 #include "ledger/client/Client.h"
+#include "ledger/lib/common/Utilities.h"
 
+#include <algorithm>
 #include <string>
 #include <limits>
 #include <variant>
@@ -182,11 +184,20 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(const Ledger::TxNewUser& tx, 
   Client::UserAccount userAccount = std::move(userAccountRoe.value());
 
   // Miner state is chain-owned: a new account starts unregistered, except a genesis miner
-  // (issued range) registered in the genesis block.
+  // (issued range) registered in the genesis block, with the producer key its entry names.
   const bool genesisMiner =
       blockId == 0 && tx.toWalletId >= AccountBuffer::ID_FIRST_ISSUED && tx.toWalletId < AccountBuffer::ID_FIRST_USER;
   Client::MinerState expectedMiner;
   expectedMiner.registered = genesisMiner && userAccount.wallet.miner.registered;
+  if (genesisMiner && userAccount.wallet.miner.hasProducerKey()) {
+    const std::string& key = userAccount.wallet.miner.producerKey;
+    const auto& own = userAccount.wallet.publicKeys;
+    if (key.size() != utl::kMlDsaPublicKeyBytes || std::find(own.begin(), own.end(), key) != own.end()) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               "A genesis miner's producer key is an ML-DSA-65 public key, none of its own keys");
+    }
+    expectedMiner.producerKey = key;
+  }
   if (userAccount.wallet.miner != expectedMiner) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "A new account cannot carry miner state (register with T_MINER_REGISTER)");

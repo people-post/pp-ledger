@@ -40,13 +40,14 @@ public:
   constexpr static uint16_t T_ATTACH_DELETE_SLOT = 14;
   constexpr static uint16_t T_ATTACH_REPLACE_ALL = 15;
   // Miner registration (docs/contracts/WIRE_SCHEMA.md § Miner registration and liveness).
-  constexpr static uint16_t T_MINER_REGISTER = 16;   // Account opts in as a miner (fee, min stake)
-  constexpr static uint16_t T_MINER_REVOKE = 17;     // Account opts out
-  constexpr static uint16_t T_BEACON_CERT = 18;      // Admin set certifies the next beacon generation
-  constexpr static uint16_t T_RECOVERY = 19;         // Recovery set announces a new admin set
-  constexpr static uint16_t T_IMPORT = 20;           // Re-genesis: one account of the predecessor network
-  constexpr static uint16_t T_ACCOUNT_RECOVERY = 21; // An account's recovery set announces its next keys
-  constexpr static uint16_t T_BEACON_SEED = 22;      // The beacon reveals its seed for the next epoch
+  constexpr static uint16_t T_MINER_REGISTER = 16;     // Account opts in as a miner (fee, min stake)
+  constexpr static uint16_t T_MINER_REVOKE = 17;       // Account opts out
+  constexpr static uint16_t T_BEACON_CERT = 18;        // Admin set certifies the next beacon generation
+  constexpr static uint16_t T_RECOVERY = 19;           // Recovery set announces a new admin set
+  constexpr static uint16_t T_IMPORT = 20;             // Re-genesis: one account of the predecessor network
+  constexpr static uint16_t T_ACCOUNT_RECOVERY = 21;   // An account's recovery set announces its next keys
+  constexpr static uint16_t T_BEACON_SEED = 22;        // The beacon reveals its seed for the next epoch
+  constexpr static uint16_t T_MINER_PRODUCER_KEY = 23; // Account certifies (or clears) its miner producer key
 
   struct TxCommon {
     uint64_t fee{0};  // Transaction fee, always in native token, always goes to system fee account
@@ -159,6 +160,21 @@ public:
   };
   struct TxMinerRegister : TxMiner {};
   struct TxMinerRevoke : TxMiner {};
+  /**
+   * T_MINER_PRODUCER_KEY: the account certifies `producerKey` (a public key of its key type) as the
+   * key its blocks, sign-ins and leader-signed records are signed with; empty clears it (its own keys
+   * sign again). Signed by the account itself; meta-size fee.
+   */
+  struct TxMinerProducerKey : TxMiner {
+    std::string producerKey;
+
+    template <typename Archive>
+    void serialize(Archive& ar) {
+      ar & walletId & fee & meta & idempotentId & validationTsMin & validationTsMax & producerKey;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
 
   /**
    * T_BEACON_CERT: the next beacon certificate (beacon-authority ba2), signed by the genesis
@@ -252,11 +268,11 @@ public:
 
   /**
    * In-memory typed transaction payload for centralized dispatch. Variant order is not the
-   * record type id (16..21 follow 0..6, then 7, then 22; 8..15 are reserved): use typeOf().
+   * record type id (16..21 follow 0..6, then 7, then 22, 23; 8..15 are reserved): use typeOf().
    */
-  using TypedTx =
-      std::variant<TxDefault, TxGenesis, TxNewUser, TxConfig, TxUserUpdate, TxRenewal, TxEndUser, TxMinerRegister,
-                   TxMinerRevoke, TxBeaconCert, TxRecovery, TxImport, TxAccountRecovery, TxDomainAssign, TxBeaconSeed>;
+  using TypedTx = std::variant<TxDefault, TxGenesis, TxNewUser, TxConfig, TxUserUpdate, TxRenewal, TxEndUser,
+                               TxMinerRegister, TxMinerRevoke, TxBeaconCert, TxRecovery, TxImport, TxAccountRecovery,
+                               TxDomainAssign, TxBeaconSeed, TxMinerProducerKey>;
   /** Record type id (T_*) of a typed transaction. */
   static uint16_t typeOf(const TypedTx& tx);
 
@@ -314,7 +330,8 @@ public:
     // 7: state roots commit to account attachments (account leaf v2, beacon-authority B031).
     // 8: finalAt (projects/finality FN007).
     // 9: producerSignatures (the slot leader signs its block).
-    static constexpr uint16_t CURRENT_VERSION = 9;
+    // 10: miner producer keys (account leaf v3: the miner state carries the producer key).
+    static constexpr uint16_t CURRENT_VERSION = 10;
 
     // --- Header (hashed) ---
     uint64_t index{0};
@@ -358,9 +375,10 @@ public:
      */
     std::vector<CommitteeMember> committee;
     /**
-     * The slot leader account's signatures over producerSigningMessage(networkId, block hash): only
-     * the account elected for the slot produces its block. Not hashed (they sign the hash). Empty in
-     * blocks with no producer (genesis, import blocks).
+     * The slot leader's signatures over producerSigningMessage(networkId, block hash): only the account
+     * elected for the slot produces its block. By its producer key (one signature) when it certified
+     * one, else by its account's keys, as held before the block. Not hashed (they sign the hash). Empty
+     * in blocks with no producer (genesis, import blocks).
      */
     std::vector<std::string> producerSignatures;
 

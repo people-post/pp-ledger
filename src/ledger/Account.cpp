@@ -59,6 +59,9 @@ pp::common::Meta Wallet::ltsToMeta() const {
     if (miner.autoDeregisteredEpoch != MinerState::kNever) {
       m.setJsonUInt("autoDeregisteredEpoch", miner.autoDeregisteredEpoch);
     }
+    if (miner.hasProducerKey()) {
+      m.set("producerKey", utl::toJsonSafeString(miner.producerKey));
+    }
     j.set("miner", m);
   }
   if (recovery != AccountRecovery{}) {

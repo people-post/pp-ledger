@@ -31,6 +31,7 @@ const std::vector<std::pair<Kind, std::string>>& kindNames() {
                                                                   {Kind::AccountUpdate, "account-update"},
                                                                   {Kind::AccountRecovery, "account-recovery"},
                                                                   {Kind::DomainAssign, "domain-assign"},
+                                                                  {Kind::MinerProducerKey, "miner-producer-key"},
                                                                   {Kind::ConfigUpdate, "config-update"},
                                                                   {Kind::BeaconCertificate, "beacon-certificate"},
                                                                   {Kind::Recovery, "recovery"},
@@ -228,6 +229,8 @@ Kind kindOf(const Ledger::Record& record) {
       return Kind::AccountRecovery;
     case Ledger::T_DOMAIN_ASSIGN:
       return Kind::DomainAssign;
+    case Ledger::T_MINER_PRODUCER_KEY:
+      return Kind::MinerProducerKey;
     case Ledger::T_CONFIG:
       return Kind::ConfigUpdate;
     case Ledger::T_BEACON_CERT:
@@ -264,6 +267,10 @@ std::optional<uint64_t> signerAccountOf(const Ledger::Record& record) {
     }
     case Ledger::T_DOMAIN_ASSIGN:
       return AccountIds::ID_REGISTRAR; // the registrar signs and pays
+    case Ledger::T_MINER_PRODUCER_KEY: {
+      auto tx = utl::binaryUnpack<Ledger::TxMinerProducerKey>(record.data);
+      return tx ? std::optional<uint64_t>(tx.value().walletId) : std::nullopt;
+    }
     case Ledger::T_ACCOUNT_RECOVERY: {
       // The recovered account; its recovery set signs (the signers name that set's keys).
       auto tx = utl::binaryUnpack<Ledger::TxAccountRecovery>(record.data);
@@ -757,6 +764,23 @@ pp::Roe<Summary> summarize(const Operation& op) {
                  {"Fee (from the registrar)", groupDigits(tx.fee)}};
       break;
     }
+    case Kind::MinerProducerKey: {
+      const auto& tx = std::get<Ledger::TxMinerProducerKey>(typed.value());
+      if (tx.producerKey.empty()) {
+        s.title = "Clear a miner's producer key";
+        s.lines = {{"Account", accountName(tx.walletId)},
+                   {"From then on", "the account's own keys sign its blocks and sign-ins again"}};
+      } else {
+        s.title = "Certify a miner's producer key";
+        s.lines = {{"Account", accountName(tx.walletId)},
+                   {"Producer key", keysLine({tx.producerKey}, 1)},
+                   {"From then on",
+                    "it alone signs the account's blocks and sign-ins (from the next block); it cannot move funds "
+                    "or change the account"}};
+      }
+      s.lines.emplace_back("Fee (from the account)", groupDigits(tx.fee));
+      break;
+    }
     case Kind::AccountRecovery: {
       const auto& tx = std::get<Ledger::TxAccountRecovery>(typed.value());
       AccountRecoveryAction action;
@@ -864,6 +888,9 @@ pp::Roe<Summary> summarize(const Operation& op) {
         }
         if (!created.wallet.domain.empty()) {
           line = created.wallet.domain + "; " + line;
+        }
+        if (created.wallet.miner.hasProducerKey()) {
+          line += "; producer key " + keysLine({created.wallet.miner.producerKey}, 1);
         }
         s.lines.emplace_back(miner ? "Miner " + std::to_string(id) : accountName(id), line);
       }
@@ -1032,6 +1059,28 @@ pp::Roe<Operation> assignDomain(const Common& common, uint64_t account, const st
   op.record.type = Ledger::T_DOMAIN_ASSIGN;
   op.record.data = utl::binaryPack(tx);
   op.kind = Kind::DomainAssign;
+  return op;
+}
+
+pp::Roe<Operation> minerProducerKey(const Common& common, const std::string& producerKey, uint64_t fee) {
+  if (auto ok = checkCommon(common, true); !ok) {
+    return ok.error();
+  }
+  if (AccountIds::isSystemAccount(*common.signers.account)) {
+    return pp::Error("System accounts cannot be miners");
+  }
+  if (!producerKey.empty() && producerKey.size() != utl::kMlDsaPublicKeyBytes) {
+    return pp::Error("A producer key is an ML-DSA-65 public key");
+  }
+  Ledger::TxMinerProducerKey tx;
+  tx.walletId = *common.signers.account;
+  tx.producerKey = producerKey;
+  tx.fee = fee;
+  stamp(tx, common);
+  Operation op = start(common);
+  op.record.type = Ledger::T_MINER_PRODUCER_KEY;
+  op.record.data = utl::binaryPack(tx);
+  op.kind = Kind::MinerProducerKey;
   return op;
 }
 

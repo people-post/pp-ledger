@@ -59,6 +59,7 @@ private:
   struct Config {
     uint64_t minerId{0};
     std::vector<std::string> privateKeys;
+    std::vector<std::string> publicKeys; // of privateKeys, in order
   };
 
   /**
@@ -73,7 +74,7 @@ private:
   /** Re-register with the upstream every REGISTER_RENEW_INTERVAL so the beacon keeps our record. */
   void renewRegistrationPeriodically();
   /** Our registration, signed with all our keys for `networkId` (the beacon verifies it). */
-  Roe<Client::MinerInfo> signedRegistration(const std::string& networkId) const;
+  Roe<Client::MinerInfo> signedRegistration(const std::string& networkId);
   Roe<Client::BeaconState> connectToBeacon();
   void initHandlers();
   void handleSlotLeaderRole();

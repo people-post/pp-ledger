@@ -48,6 +48,8 @@ struct Miner {
   std::vector<std::string> publicKeys;
   uint8_t minSignatures{1};
   uint64_t stake{0}; ///< initial native-token balance, taken from the reserve
+  /** Optional producer key (WIRE_SCHEMA § Miner producer keys): the miner host's key, none of `publicKeys`. */
+  std::string producerKey;
 };
 
 /** The provisional system names (projects/domains DN006): PPL, RSV, REG, FEE, RCY. */

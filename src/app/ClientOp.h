@@ -78,6 +78,9 @@ private:
   Create withdrawRecovery_;
   Create assignDomain_;
   std::string domain_;
+  Create minerProducerKey_;
+  std::string producerKey_;
+  bool clearProducerKey_{false};
   Create recover_;
   /**
    * Signed by the account's recovery set (its keys and threshold read from the node by default): a

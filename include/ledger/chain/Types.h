@@ -315,7 +315,8 @@ struct GenesisImport {
 };
 
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 14; // 14: config.finalitySeconds (projects/finality)
+  // 14: config.finalitySeconds (projects/finality); 15: the account's miner state carries its producer key
+  constexpr static const uint32_t VERSION = 15;
 
   BlockChainConfig config;
   UserAccount genesis;

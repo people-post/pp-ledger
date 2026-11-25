@@ -589,6 +589,18 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseGenesisMiners(const O
     }
     miner.publicKeys = std::move(keys.value().publicKeys);
     miner.minSignatures = keys.value().minSignatures;
+    if (entry->contains("producerKey")) {
+      // The miner host's key (WIRE_SCHEMA § Miner producer keys): hex ML-DSA-65, none of its publicKeys.
+      auto hex = entry->getString("producerKey");
+      std::string text = hex ? *hex : std::string{};
+      if (text.rfind("0x", 0) == 0) {
+        text = text.substr(2);
+      }
+      miner.producerKey = utl::hexDecode(text);
+      if (miner.producerKey.size() != utl::kMlDsaPublicKeyBytes) {
+        return Error(E_CONFIG, where + ".producerKey must be a hex ML-DSA-65 public key");
+      }
+    }
     if (entry->contains("stake")) {
       auto stake = entry->getNonNegInt("stake");
       if (!stake || *stake == 0) {

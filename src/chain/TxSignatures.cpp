@@ -56,4 +56,14 @@ Roe<void> verifySignaturesAgainstAccount(const std::string& message, const std::
   return {};
 }
 
+AccountBuffer::Account producerSigner(const AccountBuffer::Account& account) {
+  if (!account.wallet.miner.hasProducerKey()) {
+    return account;
+  }
+  AccountBuffer::Account signer = account;
+  signer.wallet.publicKeys = {account.wallet.miner.producerKey};
+  signer.wallet.minSignatures = 1;
+  return signer;
+}
+
 } // namespace pp::chain_tx

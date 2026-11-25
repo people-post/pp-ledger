@@ -183,6 +183,11 @@ Later miners register on chain with `pp-client -b --host <relay> miner-register 
 - `minSignatures` — optional, default: all keys
 - `stake` — optional initial balance taken from reserve; default an equal share
   of 10% of the supply among miners without an explicit stake
+- `producerKey` — optional hex ML-DSA-65 public key, none of `publicKeys`: the miner's **producer
+  key**, the one key its host signs blocks and sign-ins with, so the account's keys never reach it
+  ([WIRE_SCHEMA.md § Miner producer keys](../contracts/WIRE_SCHEMA.md#miner-producer-keys)). A miner
+  certifies or replaces one later with `pp-client -b --host <relay> miner-producer-key <account>
+  --producer-key <key.pub> -f <fee> -k <account key>` (multi-signature: `pp-client op miner-producer-key`)
 
 **Re-genesis** (`pp-beacon --init --import-state state.snap`, case 1; runbook
 [RE_GENESIS.md](RE_GENESIS.md), rules [BEACON_AUTHORITY.md § Importing genesis](../contracts/BEACON_AUTHORITY.md#importing-genesis)):
@@ -251,7 +256,7 @@ When the beacon's key is stolen, the admins certify a new key held on one of the
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `minerId` | **required** | The miner's account id (e.g. a genesis miner) |
-| `keys` | **required** | Files with the account's hex private keys; the first is also the miner's network identity |
+| `keys` | **required** | Files with the hex private keys it signs with: its **producer key** alone once its account certified one ([WIRE_SCHEMA.md § Miner producer keys](../contracts/WIRE_SCHEMA.md#miner-producer-keys)), else the account's keys. The first is also the miner's network identity. It signs with the held key of the producer key in force, else with every key; holding neither, it warns and produces nothing |
 | `beacons` | **required** (or `beacon`) | Upstream multiaddrs (relays, or the beacon), each ending in `/p2p/<peer id>`; `beacon` (one) is read as for a relay |
 | `port` | 8518 | UDP listen port (miners only dial out; nothing needs to reach it) |
 | `networkAnchor` | none | Optional pins checked against upstreams: `{"networkId", "genesisHash", "trustedCheckpointId", "predecessorDir"}` (`predecessorDir`: as for a relay above; a miner fetches block 0 to check it, even when starting at a checkpoint). `genesisHash` is the hex block hash (as `pp-client block 0` prints it, `0x` optional). With it, a fresh miner starting at a checkpoint replays the upstream's `AUTHORITY_PROOF` from genesis and requires the checkpoint to carry the authority it reaches, else starts at genesis |

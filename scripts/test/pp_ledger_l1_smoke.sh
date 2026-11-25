@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# L-SMOKE-L1: beacon→relay→miner tip advances after tx inject; a miner registers; an operation
-# file (signed apart by the reserve holders, merged) creates an account.
+# L-SMOKE-L1: beacon→relay→miner tip advances after tx inject; a miner registers; a miner runs on a
+# producer key alone; an operation file (signed apart by the reserve holders, merged) creates an account.
 # Uses short slots + tx inject (see docs/ops/TEST_STRATEGY.md).
 #
 # Usage:
@@ -40,6 +40,9 @@ fi
 register_miner_account $((1 << 30)) "${TEST_DIR}/keys/alice.key" 120 ||
   die "L-SMOKE-L1: miner registration did not land"
 
+# Miner producer keys: a genesis miner certifies one and runs with it alone.
+run_producer_key_scenario 120
+
 # CONFIG_GET: the relay serves the config in force (what tools build transactions from).
 config_reply=$(run_pp_client -b --host "$(relay_multiaddr)" config 2>&1) ||
   die "L-SMOKE-L1: pp-client config failed: ${config_reply}"
@@ -56,4 +59,4 @@ run_token_scenario
 run_domain_scenario
 run_account_recovery_scenario
 
-echo -e "${GREEN}L-SMOKE-L1 PASSED (nextBlockId $start_tip → $end_tip; miner registered; operation file; batch; verified account; token issuer; domains; account recovery)${NC}"
+echo -e "${GREEN}L-SMOKE-L1 PASSED (nextBlockId $start_tip → $end_tip; miner registered; producer key; operation file; batch; verified account; token issuer; domains; account recovery)${NC}"
