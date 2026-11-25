@@ -32,6 +32,7 @@ Do not put phase status in `AGENTS.md`.
 | [platform-integration](platform-integration/DESIGN.md) | A ledger role (relay or miner) in pp-node on its mesh runtime; later pp-browser's client and optional miner (pi1 built: `Server::runOnHost`) |
 | [ledger-topology](ledger-topology/DESIGN.md) | Planned topology work: reorg repair, upstream cross-checks, range sync, watermarks, re-calibration |
 | [account-recovery](account-recovery/DESIGN.md) | A way back for every user and issued account: an opt-in recovery set above the account's keys names new keys, the account frozen until they take over (built in 1.4.0: [WIRE_SCHEMA § Account recovery](../docs/contracts/WIRE_SCHEMA.md#account-recovery)) |
+| [release](release/DESIGN.md) | How pp-ledger is released (release branches, candidates built once, the version table) and what a release may change once a network runs on it; the first is 2.0.0 ([CURRENT_STATE.md](release/CURRENT_STATE.md)) |
 | [domains](domains/DESIGN.md) | Symbols for system (1–3 letters) and issuer accounts (4–7): a token's ticker and the account's domain, given by genesis or the registrar, read-only, proven both ways (built: [WIRE_SCHEMA § Domains](../docs/contracts/WIRE_SCHEMA.md#domains)) |
 
 ## Done / archived
