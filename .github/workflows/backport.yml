@@ -1,0 +1,183 @@
+name: backport
+
+# The backport bot (projects/release DESIGN § Release branches; pp-browser's, for release/X.Y): a merged main PR
+# labelled `backport release/X.Y` gets a PR to that exact branch with its commits cherry-picked
+# (`-x`, so each keeps its "(cherry picked from commit …)" trailer), linking the original and asking the release
+# owner (repo variable RELEASE_OWNER; the original author when unset) for review. One label per target branch; a
+# label added after the merge works too. A cherry-pick that does not apply is reported on the original PR and
+# nothing is pushed: conflicts are never resolved here. docs/ops/RELEASE.md § Release branches and backports.
+#
+# GITHUB_TOKEN only. A branch pushed or a PR opened with it starts no `push` / `pull_request` run, so the bot
+# dispatches build-project.yml on the backport branch itself (workflow_dispatch is the exception GitHub allows): its check
+# runs land on the PR's head commit. A later human push to the branch runs the normal pull_request checks.
+#
+# pull_request_target (the workflow from main, a write token, also for fork PRs): it never runs the PR's code,
+# only git on its commits, and PR text reaches the script through the event file or env, never `${{ }}` in `run`.
+
+on:
+  pull_request_target:
+    types: [closed, labeled]
+    branches: [main]
+
+permissions:
+  contents: write       # push backport/* branches
+  pull-requests: write  # open the backport PR, request review
+  issues: write         # comment on the original PR
+  actions: write        # dispatch build-project.yml on the backport branch
+
+concurrency:
+  group: backport-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  backport:
+    if: >-
+      github.event.pull_request.merged == true && (
+        (github.event.action == 'closed' && contains(join(github.event.pull_request.labels.*.name, '|'), 'backport ')) ||
+        (github.event.action == 'labeled' && startsWith(github.event.label.name, 'backport '))
+      )
+    runs-on: ubuntu-24.04
+    steps:
+      # Blobless full history: the target branch and main's commits, blobs fetched as cherry-pick needs them.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Cherry-pick onto each labelled release branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_OWNER: ${{ vars.RELEASE_OWNER }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          ev="$GITHUB_EVENT_PATH"
+          pr=$(jq -r '.pull_request.number' "$ev")
+          merge_sha=$(jq -r '.pull_request.merge_commit_sha' "$ev")
+          author=$(jq -r '.pull_request.user.login' "$ev")
+          title=$(jq -r '.pull_request.title' "$ev")
+          if [ "$(jq -r '.action' "$ev")" = labeled ]; then
+            mapfile -t labels < <(jq -r '.label.name' "$ev")
+          else
+            mapfile -t labels < <(jq -r '.pull_request.labels[].name | select(startswith("backport "))' "$ev")
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          comment() { # comment <issue number> <body file>
+            jq -n --rawfile body "$2" '{body: $body}' | gh api "repos/$GH_REPO/issues/$1/comments" --input - >/dev/null
+          }
+          note() { printf '%s\n' "$1" >"$RUNNER_TEMP/note.md"; comment "$pr" "$RUNNER_TEMP/note.md"; }
+
+          # The commits main got from this PR, oldest first. A merge commit: the PR's own commits (merges inside
+          # the PR skipped). Otherwise a squash (one commit) or a rebase (the PR's N commits, ending at the merge
+          # SHA, recognised by their subjects matching the PR's commits in order).
+          if [ "$(git rev-list --parents -n 1 "$merge_sha" | wc -w)" -eq 3 ]; then
+            mapfile -t commits < <(git rev-list --reverse --topo-order --no-merges "${merge_sha}^1..${merge_sha}^2")
+          else
+            mapfile -t pr_subjects < <(gh api --paginate "repos/$GH_REPO/pulls/$pr/commits" --jq '.[].commit.message | split("\n")[0]')
+            n=${#pr_subjects[@]}
+            commits=("$merge_sha")
+            if [ "$n" -gt 1 ]; then
+              mapfile -t main_subjects < <(git log --reverse --format=%s -n "$n" "$merge_sha")
+              if [ "${main_subjects[*]}" = "${pr_subjects[*]}" ]; then
+                mapfile -t commits < <(git rev-list --reverse -n "$n" "$merge_sha")
+              fi
+            fi
+          fi
+          echo "Commits from #$pr: ${commits[*]}"
+
+          for label in "${labels[@]}"; do
+            target=${label#backport }
+            echo "::group::$label"
+            if ! [[ "$target" =~ ^release/[0-9]+\.[0-9]+$ ]]; then
+              note "Backport bot: \`$label\` names no release branch. Backport labels are \`backport release/X.Y\` ([RELEASE.md]($REPO_URL/blob/main/docs/ops/RELEASE.md#release-branches-and-backports)); nothing was done."
+              echo "::endgroup::"; continue
+            fi
+            if ! git rev-parse -q --verify "refs/remotes/origin/$target" >/dev/null; then
+              note "Backport bot: there is no branch \`$target\` to backport to (label \`$label\`); nothing was done."
+              echo "::endgroup::"; continue
+            fi
+            branch="backport/pr-$pr-to-${target//\//-}"
+            open=$(gh api "repos/$GH_REPO/pulls?state=open&base=$target&head=${GH_REPO%%/*}:$branch" --jq '.[0].html_url // empty')
+            if [ -n "$open" ]; then
+              echo "An open backport PR exists: $open"
+              echo "::endgroup::"; continue
+            fi
+
+            git switch -q -C "$branch" "origin/$target"
+            conflict=""
+            for c in "${commits[@]}"; do
+              # Already on the target (the same patch, picked before): skip it, as the release owner would.
+              if [[ "$(git cherry "origin/$target" "$c" "$c^")" == -* ]]; then echo "Already on $target: $c"; continue; fi
+              if git cherry-pick -x "$c"; then continue; fi
+              if [ -z "$(git diff --name-only --diff-filter=U)" ] && git diff --cached --quiet; then
+                git cherry-pick --skip # empty on the target: nothing to pick
+                continue
+              fi
+              conflict=$c
+              files=$(git diff --name-only --diff-filter=U | sed 's/^/- `/; s/$/`/')
+              git cherry-pick --abort
+              break
+            done
+
+            reviewer=${RELEASE_OWNER:-$author}
+            reviewer=${reviewer#@}
+            if [ -n "$conflict" ]; then
+              {
+                echo "Backport bot: the backport to \`$target\` does not apply cleanly, so nothing was pushed (conflicts are reported, not adapted here)."
+                echo
+                echo "Conflict picking $conflict ($(git log -1 --format=%s "$conflict")) in:"
+                echo "${files:-"- (no file listed: see the [run]($RUN_URL))"}"
+                echo
+                echo "To backport by hand (every commit of this PR, in order):"
+                echo '```bash'
+                echo "git fetch origin && git switch -c $branch origin/$target"
+                echo "git cherry-pick -x ${commits[*]}"
+                echo '```'
+                echo "Resolve, and say what differs in the resolved commit's message on a line \`branch-specific backport: …\` (or pick cleanly what applies and put the adaptation in a separate commit with that line). Then open a PR to \`$target\` linking #$pr."
+                echo
+                echo "@$reviewer"
+              } >"$RUNNER_TEMP/conflict.md"
+              comment "$pr" "$RUNNER_TEMP/conflict.md"
+              echo "::warning::Conflict backporting to $target; reported on #$pr"
+              echo "::endgroup::"; continue
+            fi
+            if [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$target")" ]; then
+              note "Backport bot: every commit of this PR is already on \`$target\`; no backport PR needed."
+              echo "::endgroup::"; continue
+            fi
+
+            # The token cannot push changes to .github/workflows/ (GitHub withholds the workflows permission).
+            if ! git push -q --force origin "HEAD:refs/heads/$branch"; then
+              note "Backport bot: could not push \`$branch\` (a change under \`.github/workflows/\` cannot be pushed with the workflow token; see the [run]($RUN_URL)). Backport it to \`$target\` by hand: \`git cherry-pick -x ${commits[*]}\`."
+              echo "::endgroup::"; continue
+            fi
+
+            {
+              echo "Backport of #$pr to \`$target\`, opened by the [backport bot]($RUN_URL) from the label \`$label\`."
+              echo
+              echo "Commits, each cherry-picked with \`-x\`:"
+              for c in "${commits[@]}"; do echo "- $c"; done
+              echo
+              echo "Checks: the bot dispatched [Build pp-ledger]($REPO_URL/actions/workflows/build-project.yml?query=branch%3A${branch//\//%2F}) on this branch, as a PR opened with the workflow token starts no pull_request run. Missing? Actions → Build pp-ledger → Run workflow on \`$branch\`, or close and reopen this PR."
+              echo
+              echo "Needs a human approval (the release owner's may do). [RELEASE.md § Release branches and backports]($REPO_URL/blob/main/docs/ops/RELEASE.md#release-branches-and-backports)"
+            } >"$RUNNER_TEMP/body.md"
+            new_pr=$(jq -n --arg title "[$target] $title" --arg head "$branch" --arg base "$target" --rawfile body "$RUNNER_TEMP/body.md" \
+              '{title: $title, head: $head, base: $base, body: $body, maintainer_can_modify: true}' \
+              | gh api "repos/$GH_REPO/pulls" --input - --jq '.number')
+            echo "Opened #$new_pr"
+
+            for who in "$reviewer" "$author"; do
+              if gh api -X POST "repos/$GH_REPO/pulls/$new_pr/requested_reviewers" -f "reviewers[]=$who" >/dev/null; then break; fi
+              echo "::warning::Could not request review from $who"
+            done
+            gh api -X POST "repos/$GH_REPO/actions/workflows/build-project.yml/dispatches" -f "ref=$branch" \
+              || echo "::warning::Could not dispatch build-project.yml on $branch"
+            note "Backport bot: opened #$new_pr to \`$target\`."
+            echo "::endgroup::"
+          done
