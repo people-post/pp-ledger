@@ -1,9 +1,15 @@
 # Source tree: libraries, servers, and apps.
 
 if(MSVC)
-  add_compile_options(/W4 /WX)
+  add_compile_options(/W4)
+  if(PP_LEDGER_WARNINGS_AS_ERRORS)
+    add_compile_options(/WX)
+  endif()
 else()
-  add_compile_options(-Wall -Wextra -Werror)
+  add_compile_options(-Wall -Wextra)
+  if(PP_LEDGER_WARNINGS_AS_ERRORS)
+    add_compile_options(-Werror)
+  endif()
 endif()
 
 # Private headers: src/<folder>/X.h, included as "<folder>/X.h" by this repo's targets only — a

@@ -86,6 +86,10 @@ cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc)
 ```
 
+Warnings fail the build (`PP_LEDGER_WARNINGS_AS_ERRORS`, on by default). An older compiler with false positives
+(GCC 12, as on Debian 12 and Raspberry Pi OS) builds with `-DPP_LEDGER_WARNINGS_AS_ERRORS=OFF`; the warnings are still
+shown.
+
 ### Run Tests
 
 ```bash
