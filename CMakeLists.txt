@@ -12,6 +12,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(PP_LEDGER_BUILD_APPS "Build pp-beacon, pp-miner, pp-client, pp-relay" ${PROJECT_IS_TOP_LEVEL})
 option(PP_LEDGER_BUILD_HTTP "Build HTTP API server (pp-http)" OFF)
 option(PP_LEDGER_BUILD_TESTS "Build the testing tree" OFF)
+# Compiler warnings fail the build by default (CI). An embedder or an older compiler with false positives (GCC 12 on
+# Debian 12, for one) turns it off; pp-browser and pp-ledger-apps pass their own switch down.
+option(PP_LEDGER_WARNINGS_AS_ERRORS "Treat compiler warnings as errors for pp-ledger's targets" ON)
 
 if(PP_LEDGER_BUILD_TESTS)
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
