@@ -7,11 +7,13 @@
 #include "server/Server.h"
 #include "ledger/network/LedgerRpcProtocol.h"
 #include "ledger/lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/Utilities.h"
 #include "common/io/Json.h"
 
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <cstdlib>
 #include <filesystem>
 #include <mutex>
 #include <set>
@@ -151,6 +153,7 @@ public:
   using Server::followUpstream;
   using Server::isTrustedPeer;
   using Server::laneFor;
+  using Server::loadIdentityKeyIfGiven;
   using Server::loadOrCreateIdentityKey;
   using Server::noteMinerPeer;
   using Server::packResponse;
@@ -639,6 +642,39 @@ TEST(ServerThreadTest, IdentityKeyWithRelativeWorkDirIsCreatedThenReloaded) {
     ASSERT_TRUE(again.isOk()) << again.error().message;
     EXPECT_EQ(first.value(), again.value());
     EXPECT_TRUE(std::filesystem::exists(std::filesystem::path(dir) / "keys" / "amp-identity.txt"));
+  }
+  std::filesystem::remove_all(dir, ec);
+}
+
+// A miner's identity (loadIdentityKeyIfGiven): none unless given — the environment first, then an
+// existing keys/amp-identity.txt — and nothing is created, so a miner without one keeps its first
+// signing key's peer id.
+TEST(ServerThreadTest, AnIdentityKeyIsTakenOnlyWhenGiven) {
+  const std::string dir = "pp-ledger-given-identity-test";
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  ::unsetenv("PP_LEDGER_IDENTITY_KEY");
+  ::unsetenv("PP_LEDGER_IDENTITY_KEY_FILE");
+  {
+    EchoServer server;
+    ASSERT_TRUE(server.run(dir).isOk());
+    auto none = server.loadIdentityKeyIfGiven();
+    ASSERT_TRUE(none.isOk()) << none.error().message;
+    EXPECT_FALSE(none.value().has_value());
+    EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(dir) / "keys" / "amp-identity.txt")) << "none created";
+
+    auto created = server.loadOrCreateIdentityKey(); // as a relay would, or an operator's file
+    ASSERT_TRUE(created.isOk()) << created.error().message;
+    auto fromFile = server.loadIdentityKeyIfGiven();
+    ASSERT_TRUE(fromFile.isOk() && fromFile.value().has_value());
+    EXPECT_EQ(*fromFile.value(), created.value());
+
+    const auto other = utl::mlDsaGenerate().value();
+    ::setenv("PP_LEDGER_IDENTITY_KEY", utl::hexEncode(other.privateKey).c_str(), 1);
+    auto fromEnv = server.loadIdentityKeyIfGiven();
+    ::unsetenv("PP_LEDGER_IDENTITY_KEY");
+    ASSERT_TRUE(fromEnv.isOk() && fromEnv.value().has_value());
+    EXPECT_EQ(*fromEnv.value(), other.privateKey) << "the environment first";
   }
   std::filesystem::remove_all(dir, ec);
 }

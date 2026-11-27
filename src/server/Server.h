@@ -289,10 +289,15 @@ protected:
 
   /**
    * This node's network identity key (`keys/amp-identity.txt` in the work
-   * dir), created on first start. Beacon and relay; a miner's identity is its
-   * account key.
+   * dir), created on first start. Beacon and relay.
    */
   Service::Roe<std::string> loadOrCreateIdentityKey();
+  /**
+   * The network identity key if one is given: PP_LEDGER_IDENTITY_KEY (or _FILE), else
+   * `keys/amp-identity.txt` when it exists. None otherwise; nothing is created. A miner's
+   * identity, which without one is its first signing key.
+   */
+  Service::Roe<std::optional<std::string>> loadIdentityKeyIfGiven();
 
   /** Before startAmpServer: the link table, handshake backlog (LR005) and socket buffers from the role's config. */
   void setTransportLimits(const NodeConfig& config) {
