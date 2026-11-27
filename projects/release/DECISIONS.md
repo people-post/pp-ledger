@@ -121,8 +121,10 @@ infrastructure's (Leo's): the devnet apart from the two public networks.
 
 A client chooses its ledger network itself, by network card (network id and genesis hash), not through anything else
 it is configured for: during the soak the only public chain is the testnet, so a product's production setup runs on
-it. pp-browser records what this means for the app (a tester build never opens mainnet; keys per network; the
-network always shown).
+it. Our app ships our networks' cards (mainnet the default, the testnet beside it) and lets a user add any other; no
+network is mandatory and there is no signed list of networks. A successor of our mainnet after a re-genesis reaches
+users as the app's new default, with our announcement. pp-browser records what this means for the app (its
+profile-model PM013: a tester build opens only our test networks; keys per network; the network always shown).
 **Rationale:** Users and operators need a chain to try with nothing at stake, and the release process needs a place
 where every release runs before it touches value; we need a third we can break. A long testnet run before mainnet
 finds what only time and strangers find, and exercises the upgrade path (rule activation) before it matters.
