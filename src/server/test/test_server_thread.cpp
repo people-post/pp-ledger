@@ -646,6 +646,27 @@ TEST(ServerThreadTest, IdentityKeyWithRelativeWorkDirIsCreatedThenReloaded) {
   std::filesystem::remove_all(dir, ec);
 }
 
+namespace {
+
+/** Sets or clears an environment variable (POSIX setenv / unsetenv; MSVC _putenv_s, "" clears). */
+void setEnvVar(const char* name, const std::string& value) {
+#ifdef _WIN32
+  _putenv_s(name, value.c_str());
+#else
+  setenv(name, value.c_str(), 1);
+#endif
+}
+
+void clearEnvVar(const char* name) {
+#ifdef _WIN32
+  _putenv_s(name, "");
+#else
+  unsetenv(name);
+#endif
+}
+
+} // namespace
+
 // A miner's identity (loadIdentityKeyIfGiven): none unless given — the environment first, then an
 // existing keys/amp-identity.txt — and nothing is created, so a miner without one keeps its first
 // signing key's peer id.
@@ -653,8 +674,8 @@ TEST(ServerThreadTest, AnIdentityKeyIsTakenOnlyWhenGiven) {
   const std::string dir = "pp-ledger-given-identity-test";
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
-  ::unsetenv("PP_LEDGER_IDENTITY_KEY");
-  ::unsetenv("PP_LEDGER_IDENTITY_KEY_FILE");
+  clearEnvVar("PP_LEDGER_IDENTITY_KEY");
+  clearEnvVar("PP_LEDGER_IDENTITY_KEY_FILE");
   {
     EchoServer server;
     ASSERT_TRUE(server.run(dir).isOk());
@@ -670,9 +691,9 @@ TEST(ServerThreadTest, AnIdentityKeyIsTakenOnlyWhenGiven) {
     EXPECT_EQ(*fromFile.value(), created.value());
 
     const auto other = utl::mlDsaGenerate().value();
-    ::setenv("PP_LEDGER_IDENTITY_KEY", utl::hexEncode(other.privateKey).c_str(), 1);
+    setEnvVar("PP_LEDGER_IDENTITY_KEY", utl::hexEncode(other.privateKey));
     auto fromEnv = server.loadIdentityKeyIfGiven();
-    ::unsetenv("PP_LEDGER_IDENTITY_KEY");
+    clearEnvVar("PP_LEDGER_IDENTITY_KEY");
     ASSERT_TRUE(fromEnv.isOk() && fromEnv.value().has_value());
     EXPECT_EQ(*fromEnv.value(), other.privateKey) << "the environment first";
   }
