@@ -1475,7 +1475,8 @@ register_miner_account() {
 }
 
 # Miner producer keys (WIRE_SCHEMA § Miner producer keys): miner1's account certifies a producer key
-# with its own key; miner1 restarts holding only the producer key, signs in and produces with it.
+# with its own key; miner1 restarts holding only the producer key, signs in and produces with it, on a
+# network identity of its own (PP_LEDGER_IDENTITY_KEY): its peer id is that key's, not the producer key's.
 run_producer_key_scenario() {
   local max_wait=${1:-120}
   local key_dir="${TEST_DIR}/keys"
@@ -1484,6 +1485,7 @@ run_producer_key_scenario() {
   account=$(miner_account_id 1)
   echo -e "${CYAN}Miner producer key: miner1 (account ${account}) certifies one, then runs with it alone...${NC}"
   generate_tx_keypair "producer1" >/dev/null
+  generate_tx_keypair "identity1" >/dev/null
   # Once per network (a reused network has it in force already).
   if ! account_json "$account" | grep -q '"producerKey":"'; then
     run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" miner-producer-key "$account" \
@@ -1499,9 +1501,19 @@ run_producer_key_scenario() {
   cp "${key_dir}/producer1.key" "${miner_dir}/producer.txt"
   rm -f "${miner_dir}/key.txt"
   sed -i 's/"key.txt"/"producer.txt"/' "${miner_dir}/config.json"
+  export PP_LEDGER_IDENTITY_KEY_FILE="${key_dir}/identity1.key"
   run_bg_cmd "${miner_dir}/console.log" "$BUILD_DIR/app/pp-miner" -d "$miner_dir" ${DEBUG_FLAG}
   save_pid "miner1" $!
+  unset PP_LEDGER_IDENTITY_KEY_FILE
   await_miner 1 || die "L-SMOKE-PRODUCER-KEY: miner1 did not restart with its producer key"
+  local identity_peer producer_peer listen
+  identity_peer=$(run_pp_client peer-id "${key_dir}/identity1.key" | sed -n 's/^Peer id: *//p')
+  producer_peer=$(run_pp_client peer-id "${key_dir}/producer1.key" | sed -n 's/^Peer id: *//p')
+  listen=$(cat "${MULTIADDR_DIR}/miner1")
+  [[ "$listen" == *"/p2p/${identity_peer}" ]] ||
+    die "L-SMOKE-PRODUCER-KEY: miner1 listens as ${listen}, not as its identity key's ${identity_peer}"
+  [[ "$identity_peer" != "$producer_peer" ]] || die "L-SMOKE-PRODUCER-KEY: identity and producer peer ids match"
+  echo -e "${GREEN}✓ Miner1's peer id is its identity key's, not its producer key's${NC}"
 
   local deadline=$((SECONDS + max_wait))
   while ((SECONDS < deadline)); do

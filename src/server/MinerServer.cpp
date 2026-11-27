@@ -247,9 +247,19 @@ Service::Roe<void> MinerServer::onStart() {
   log().info << "  UDP port: " << runFileConfig.port;
   log().info << "  Beacons: " << runFileConfig.upstreams.size();
 
-  // A miner's network identity is its account's first key (on a host: the host's identity).
-  const std::string accountKey = config_.privateKeys.front();
-  if (auto started = startFollowing(runFileConfig, [accountKey]() -> Service::Roe<std::string> { return accountKey; });
+  // A miner's network identity: the identity key it is given (PP_LEDGER_IDENTITY_KEY, or
+  // keys/amp-identity.txt), so its peer id stays when its signing keys change; else its first
+  // signing key (its producer key, or its account's first key), as before such a key existed.
+  auto givenIdentity = loadIdentityKeyIfGiven();
+  if (!givenIdentity) {
+    return Service::Error(E_CONFIG, givenIdentity.error().message);
+  }
+  const std::string identityKey = givenIdentity.value() ? *givenIdentity.value() : config_.privateKeys.front();
+  if (!givenIdentity.value()) {
+    log().info << "  Network identity: its first signing key (give PP_LEDGER_IDENTITY_KEY for one of its own)";
+  }
+  if (auto started =
+          startFollowing(runFileConfig, [identityKey]() -> Service::Roe<std::string> { return identityKey; });
       !started) {
     return started;
   }

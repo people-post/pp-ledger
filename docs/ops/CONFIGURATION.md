@@ -9,7 +9,7 @@ command-line options, can come from the environment instead ([Environment](#envi
 |------|------|-----------|
 | `init-config.json` | beacon | `pp-beacon --init --genesis-key …` or `--plan-genesis` only (genesis); a missing file is written as a template. `--init` refuses a work directory whose `data/` already holds a chain (`--force` replaces it, destroying it); a failed `--init` leaves no `data/` behind |
 | `config.json` | beacon, relay, miner | every start, optional when the environment sets what the role needs ([Environment](#environment)). With neither, the beacon runs on its defaults (nothing is written); the relay and miner write a template (upstream, account id, keys cannot be guessed) and stop |
-| `keys/amp-identity.txt` | beacon, relay | every start; created on first start — unless `PP_LEDGER_IDENTITY_KEY` sets the identity |
+| `keys/amp-identity.txt` | beacon, relay, miner | every start; created on first start by the beacon and relays (a miner only reads one it is given) — unless `PP_LEDGER_IDENTITY_KEY` sets the identity |
 | `keys/beacon-signing.key`, `.pub` | beacon | `--init`; created when absent (or pre-generated with `pp-client keygen -o keys/beacon-signing`). Every start: both must be present |
 | `keys/beacon-signing.next.key`, `.pub` | beacon | Optional, every start: a key staged for a rotation ([Identity keys](#identity-keys)) |
 | `keys/beacon-seed.secret` | beacon | `--init` / `--plan-genesis`; created (hex, 0600) when absent, never overwritten. The seed chain secret behind the certificate's anchor ([BEACON_AUTHORITY.md § Seed chain](../contracts/BEACON_AUTHORITY.md#seed-chain)); back it up with the signing key |
@@ -39,7 +39,7 @@ Kubernetes secrets); setting both is an error. Lists take commas or newlines.
 | `PP_MINER_ID` | miner | `minerId` |
 | `PP_MINER_KEYS` `[_FILE]` | miner | `keys` (list: hex keys or key file paths) |
 | `PP_GENESIS_KEY_FILES` | beacon `--init` | `--genesis-key` (list of key files; keeps keys out of argv) |
-| `PP_LEDGER_IDENTITY_KEY` `[_FILE]` | beacon, relay | the network identity (hex private key) instead of `keys/amp-identity.txt`: a stable peer id, nothing written |
+| `PP_LEDGER_IDENTITY_KEY` `[_FILE]` | beacon, relay, miner | the network identity (hex private key) instead of `keys/amp-identity.txt`: a stable peer id, nothing written |
 | `PP_BEACON_SIGNING_KEY` `[_FILE]` | beacon (`--init` and every start) | the beacon signing key (hex private key) instead of `keys/beacon-signing.key` / `.pub`; its public key is derived. Nothing is written |
 | `PP_BEACON_SIGNING_NEXT_KEY` `[_FILE]` | beacon | a key staged for a rotation, instead of `keys/beacon-signing.next.*` |
 | `PP_HTTP_PORT`, `PP_HTTP_BIND`, `PP_HTTP_CORS_ORIGIN`, `PP_HTTP_BEACON`, `PP_HTTP_MINER` | pp-http | `--port`, `--bind`, `--cors-origin`, `--beacon`, `--miner` |
@@ -256,7 +256,7 @@ When the beacon's key is stolen, the admins certify a new key held on one of the
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `minerId` | **required** | The miner's account id (e.g. a genesis miner) |
-| `keys` | **required** | Files with the hex private keys it signs with: its **producer key** alone once its account certified one ([WIRE_SCHEMA.md § Miner producer keys](../contracts/WIRE_SCHEMA.md#miner-producer-keys)), else the account's keys. The first is also the miner's network identity. It signs with the held key of the producer key in force, else with every key; holding neither, it warns and produces nothing |
+| `keys` | **required** | Files with the hex private keys it signs with: its **producer key** alone once its account certified one ([WIRE_SCHEMA.md § Miner producer keys](../contracts/WIRE_SCHEMA.md#miner-producer-keys)), else the account's keys. The first is also the miner's network identity unless it is given one ([§ Identity keys](#identity-keys)). It signs with the held key of the producer key in force, else with every key; holding neither, it warns and produces nothing |
 | `beacons` | **required** (or `beacon`) | Upstream multiaddrs (relays, or the beacon), each ending in `/p2p/<peer id>`; `beacon` (one) is read as for a relay |
 | `port` | 8518 | UDP listen port (miners only dial out; nothing needs to reach it) |
 | `networkAnchor` | none | Optional pins checked against upstreams: `{"networkId", "genesisHash", "trustedCheckpointId", "predecessorDir"}` (`predecessorDir`: as for a relay above; a miner fetches block 0 to check it, even when starting at a checkpoint). `genesisHash` is the hex block hash (as `pp-client block 0` prints it, `0x` optional). With it, a fresh miner starting at a checkpoint replays the upstream's `AUTHORITY_PROOF` from genesis and requires the checkpoint to carry the authority it reaches, else starts at genesis |
@@ -383,7 +383,11 @@ cancel it). From the first block of epoch E the new keys are the admin set.
 
 The beacon and each relay create `keys/amp-identity.txt` on first start; its
 peer id is the `/p2p/` part of their multiaddr, printed at start as
-`AMP ledger listener: ...`. A miner's identity is its first account key.
+`AMP ledger listener: ...`. A miner's identity is the identity key it is given —
+`PP_LEDGER_IDENTITY_KEY` (or `_FILE`), else a `keys/amp-identity.txt` in its work directory — and
+without one its first signing key (its producer key, or its account's first key). Give a miner one:
+its peer id then stays when its producer key is replaced, and the key that connects is not the key
+that signs its blocks. A miner never creates one (a miner's peer id would change on upgrade).
 
 ## Network timing (fixed)
 

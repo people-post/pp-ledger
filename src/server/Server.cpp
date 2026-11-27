@@ -947,7 +947,7 @@ pp::amp::PeerLinkManager* Server::peerLinks() {
   return ampSupport_ ? &ampSupport_->links() : nullptr;
 }
 
-Service::Roe<std::string> Server::loadOrCreateIdentityKey() {
+Service::Roe<std::optional<std::string>> Server::loadIdentityKeyIfGiven() {
   // From the environment (PP_LEDGER_IDENTITY_KEY or _FILE, hex): a stable peer id, nothing written.
   auto fromEnv = env_config::secret("PP_LEDGER_IDENTITY_KEY");
   if (!fromEnv) {
@@ -958,7 +958,26 @@ Service::Roe<std::string> Server::loadOrCreateIdentityKey() {
     if (key.size() != utl::kMlDsaPrivateKeyBytes) {
       return Service::Error(-1, "PP_LEDGER_IDENTITY_KEY is not a hex ML-DSA-65 private key");
     }
-    return key;
+    return std::optional<std::string>(key);
+  }
+  if (!std::filesystem::exists(std::filesystem::path(workDir_) / "keys" / "amp-identity.txt")) {
+    return std::optional<std::string>();
+  }
+  // Relative to the work dir (readPrivateKey resolves it there).
+  auto key = utl::readPrivateKey("keys/amp-identity.txt", workDir_);
+  if (!key) {
+    return Service::Error(-1, "Failed to load identity key: " + key.error().message);
+  }
+  return std::optional<std::string>(key.value());
+}
+
+Service::Roe<std::string> Server::loadOrCreateIdentityKey() {
+  auto given = loadIdentityKeyIfGiven();
+  if (!given) {
+    return given.error();
+  }
+  if (given.value()) {
+    return *given.value();
   }
   const std::filesystem::path keysDir = std::filesystem::path(workDir_) / "keys";
   const std::filesystem::path keyPath = keysDir / "amp-identity.txt";
