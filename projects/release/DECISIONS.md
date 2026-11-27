@@ -44,7 +44,9 @@ for the newest `vX.Y.Z`. Dev images (`0.0.0-dev.<sha>`) are built by hand from m
 **Date:** 2026-11-24
 **Status:** Accepted (Hongwei, 2026-11-24).
 **Decision:** The first real release is 2.0.0: the first a network launches on, and from which the chain format is
-frozen ([RL006](#rl006--a-live-chain-is-read-forever-rules-change-at-a-signed-epoch)).
+frozen ([RL006](#rl006--a-live-chain-is-read-forever-rules-change-at-a-signed-epoch)). That network is the testnet
+([RL009](#rl009--three-networks-devnet-testnet-then-mainnet-long-after)); mainnet launches later, on the release of the
+day.
 **Rationale:** Nothing has been released for real, so 1.0.0 was considered first; but `release/v1.0.0` …
 `release/v1.8.1` already exist as development pins, and a `v1.0.0` beside them would read as older than them, and
 the consumers' pins would seem to go backwards. 2.0.0 is past all of them.
@@ -66,8 +68,9 @@ still ships only on a tested pp-ledger release.
 
 **Date:** 2026-11-24
 **Status:** Accepted (Hongwei, 2026-11-24): the mechanism is built before 2.0.0.
-**Decision:** From the network that launches on 2.0.0 on, every release reads and verifies every block that network
-made, with the rules it was made under. A consensus change ships in a release that knows both rules and switches on at
+**Decision:** From the network that launches on 2.0.0 on — the testnet
+([RL010](#rl010--the-testnet-is-live-the-freeze-starts-at-its-launch)) — every release reads and verifies every block
+that network, and every later one, made, with the rules it was made under. A consensus change ships in a release that knows both rules and switches on at
 an epoch the genesis quorum signs after operators upgraded; a node that does not know the rules a signed activation
 names stops before its epoch with "update needed". Re-genesis stays the emergency path. Until then, today's rule
 (a format change is a new network) stands.
@@ -84,6 +87,8 @@ silently, and a bad height needs another release); re-genesis per rule change (a
 **Status:** Accepted (Hongwei, 2026-11-24).
 **Decision:** Launching a network has its own runbook in this repository: the genesis key ceremony, the beacon's
 init, publishing the network id and genesis block hash (the pin consumers trust) and the version table's network row.
+It runs twice: for the testnet, then for mainnet, each with its own keys and holders
+([RL009](#rl009--three-networks-devnet-testnet-then-mainnet-long-after)).
 Where the nodes run is infrastructure's (Leo's); its hosts, accounts and deploys stay out of this public repository.
 **Rationale:** A launch happens once and is about keys and trust, a release happens often and is about bytes; mixing
 them would make every release look like a launch, or hide the launch's steps in a release checklist.
@@ -96,3 +101,70 @@ them would make every release look like a launch, or hide the launch's steps in 
 pushes the candidate and release tags, reviews backport PRs and records the go / no-go in the release issue. As in
 pp-browser, where he is the release owner too.
 **Rationale:** One person answers for what a network runs; the backport bot asks the release owner to review.
+
+## RL009 — Three networks: devnet, testnet, then mainnet long after
+
+**Date:** 2026-11-27
+**Status:** Accepted (Hongwei, 2026-11-27).
+**Decision:**
+
+| Network | For | Runs | Reset | Tokens |
+|---------|-----|------|-------|--------|
+| **devnet** | Us: tests, rehearsals (the launch runbook first), the lab | Dev images of main | At will | Worthless |
+| **testnet** | Users trying the chain before the real thing; operators practising; the soak | Candidates first, then releases | Rarely: only at a critical failure ([RL010](#rl010--the-testnet-is-live-the-freeze-starts-at-its-launch)) | Worthless, handed out by hand ([RL012](#rl012--testnet-tokens-by-hand-from-an-onboarding-account)) |
+| **mainnet** | The real chain | Releases only, after the testnet ran them | Never (re-genesis is an emergency) | Real |
+
+The testnet launches on 2.0.0 and runs for a noticeable time before mainnet: mainnet launches only when the go-ahead
+criteria hold ([RL011](#rl011--mainnet-launches-when-the-testnet-met-its-go-ahead-criteria)), on the release of that
+day, with a genesis and keys of its own. Every release reaches the testnet before mainnet. Where the networks run is
+infrastructure's (Leo's): the devnet apart from the two public networks.
+
+A client chooses its ledger network itself, by network card (network id and genesis hash), not through anything else
+it is configured for: during the soak the only public chain is the testnet, so a product's production setup runs on
+it. pp-browser records what this means for the app (a tester build never opens mainnet; keys per network; the
+network always shown).
+**Rationale:** Users and operators need a chain to try with nothing at stake, and the release process needs a place
+where every release runs before it touches value; we need a third we can break. A long testnet run before mainnet
+finds what only time and strangers find, and exercises the upgrade path (rule activation) before it matters.
+**Alternatives:** A testnet only (it could no longer be reset at will, and every experiment would be public); mainnet
+first, testnet beside it later (the upgrade path first tried on real value).
+
+## RL010 — The testnet is live: the freeze starts at its launch
+
+**Date:** 2026-11-27
+**Status:** Accepted (Hongwei, 2026-11-27).
+**Decision:** The testnet is the first live network: from its launch on 2.0.0 the chain format is frozen (RL006), a
+consensus change switches on at a signed epoch, and every release reads every block it made. It is reset only at a
+critical failure the network cannot otherwise survive (keys lost or stolen with no recovery, a consensus failure with
+no fix that keeps the chain): by re-genesis ([RE_GENESIS.md](../../docs/ops/RE_GENESIS.md)), announced ahead,
+accounts carried over. Never to make an upgrade easier.
+**Rationale:** The soak is worth most if the testnet lives under mainnet's rules: an upgrade through rule activation
+runs there first, with outside operators, where a mistake costs nothing real. A testnet that resets on every breaking
+change would leave that path untried until mainnet.
+**Alternatives:** Resets at will (cheaper, but tests nothing mainnet needs); never reset (a critical failure would
+leave it dead).
+
+## RL011 — Mainnet launches when the testnet met its go-ahead criteria
+
+**Date:** 2026-11-27
+**Status:** Accepted (Hongwei, 2026-11-27): the starting numbers; changed here when they change.
+**Decision:** Mainnet's go-ahead, recorded with who decided and when (the release issue of its release):
+- the testnet ran **at least 3 months**;
+- **at least one release upgraded the testnet through rule activation**, and a miner producer key replacement and a
+  beacon key rotation were drilled on it;
+- **no consensus incident in the last 30 days**, and none open;
+- **at least 3 outside operators** ran relays or miners on it;
+- **a load test** at several times the load expected at mainnet's launch passed;
+- **an external security review** of consensus and the cryptography is done and its findings handled.
+**Rationale:** "A noticeable time" needs a definition that says when it is over; each criterion is something only a
+long, public run (or someone from outside) can show.
+
+## RL012 — Testnet tokens by hand, from an onboarding account
+
+**Date:** 2026-11-27
+**Status:** Accepted (Hongwei, 2026-11-27).
+**Decision:** Testnet tokens are handed out by hand at first, from an onboarding account: an ordinary account with a
+small balance, topped up from the reserve now and then ([CONFIGURATION.md](../../docs/ops/CONFIGURATION.md), key
+custody tiers). The reserve and registrar keys stay cold on the testnet as on mainnet. A faucet service may come later.
+**Rationale:** A faucet is a service to build, run and protect from being drained; by hand is enough while users are
+few, and the custody practice is the one mainnet will use.

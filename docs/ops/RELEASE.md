@@ -79,8 +79,10 @@ commit.
 ## What a release may change
 
 Until a network runs on a release, the chain format may change freely (today's rule:
-[WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md) — no backward compatibility, a new network). From the network that
-launches on 2.0.0 on ([RL006](../../projects/release/DECISIONS.md#rl006--a-live-chain-is-read-forever-rules-change-at-a-signed-epoch)):
+[WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md) — no backward compatibility, a new network). From the testnet's launch on
+2.0.0 on, for it and for mainnet after it
+([RL006](../../projects/release/DECISIONS.md#rl006--a-live-chain-is-read-forever-rules-change-at-a-signed-epoch),
+[RL010](../../projects/release/DECISIONS.md#rl010--the-testnet-is-live-the-freeze-starts-at-its-launch)):
 
 | Change | Takes |
 |--------|-------|
@@ -109,11 +111,14 @@ What each release writes and reads. A row changes in the PR that changes the for
 | Operation file | [OPERATION_FILE](../contracts/OPERATION_FILE.md) | 1 | 1 |
 | Key backup | [KEY_BACKUP](../contracts/KEY_BACKUP.md) | 1 | 1 |
 
-Networks:
+Networks ([RL009](../../projects/release/DECISIONS.md#rl009--three-networks-devnet-testnet-then-mainnet-long-after)):
+the public ones. Every release runs on the testnet before mainnet. (The devnet is ours: dev images, reset at will, not
+listed.)
 
 | Network | Network id | Genesis block hash | Runs | Launched |
 |---------|------------|--------------------|------|----------|
-| — | | | | Not yet ([projects/release PHASES § R4](../../projects/release/PHASES.md#r4--network-launch)) |
+| testnet | | | | Not yet: on 2.0.0 ([projects/release PHASES § R4](../../projects/release/PHASES.md#r4--testnet-launch)) |
+| mainnet | | | | Not yet: after the testnet's run ([§ R6](../../projects/release/PHASES.md#r6--soak-then-mainnet)) |
 
 ## Release branches and backports
 

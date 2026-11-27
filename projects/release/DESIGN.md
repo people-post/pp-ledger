@@ -42,14 +42,15 @@ What pp-ledger adds:
    the chain, protocol and file formats it writes and reads, and which networks run it. pp-node and pp-ledger-apps
    releases name the pp-ledger release they pin, so the table answers "which app reads which network".
 3. **A live chain's rule** ([RL006](DECISIONS.md#rl006--a-live-chain-is-read-forever-rules-change-at-a-signed-epoch)).
-4. **The network launch, apart from any release** ([RL007](DECISIONS.md#rl007--a-network-launch-is-not-a-release)).
+4. **The network launch, apart from any release** ([RL007](DECISIONS.md#rl007--a-network-launch-is-not-a-release)),
+   for the testnet first and mainnet long after ([RL009](DECISIONS.md#rl009--three-networks-devnet-testnet-then-mainnet-long-after)).
 
 ## A live chain
 
 Today a format change means a new network ([WIRE_SCHEMA](../../docs/contracts/WIRE_SCHEMA.md): "no backward
-compatibility with earlier block versions"; [RE_GENESIS](../../docs/ops/RE_GENESIS.md)). That holds until a network
-launches on 2.0.0. From then:
-
+compatibility with earlier block versions"; [RE_GENESIS](../../docs/ops/RE_GENESIS.md)). That holds until the testnet
+launches on 2.0.0 ([RL010](DECISIONS.md#rl010--the-testnet-is-live-the-freeze-starts-at-its-launch)). From then, for it
+and for mainnet after it:
 - **Every block stays readable.** A node that joins from genesis replays every block with the rules it was made under,
   so each release keeps every earlier block and record version's reading and validation.
 - **Consensus changes switch on at a signed epoch.** A release that knows the old and the new rules ships first;
@@ -65,13 +66,26 @@ Tested by frozen chains and mixed versions ([PHASES § R2](PHASES.md#r2--compati
 release, kept in the repo, must load and verify in every later one; a candidate's nodes run against the last
 release's.
 
+## Networks
+
+Three ([RL009](DECISIONS.md#rl009--three-networks-devnet-testnet-then-mainnet-long-after)): a **devnet** for us, reset at
+will, on dev images; a **testnet** for users and operators, launched first, on 2.0.0, and live from then on
+([RL010](DECISIONS.md#rl010--the-testnet-is-live-the-freeze-starts-at-its-launch): the freeze, rule activation,
+a reset only at a critical failure); **mainnet**, launched after a long testnet run, once its go-ahead criteria hold
+([RL011](DECISIONS.md#rl011--mainnet-launches-when-the-testnet-met-its-go-ahead-criteria)). Every release runs on the
+testnet before mainnet.
+
+A client picks its ledger network by network card (network id and genesis hash), on its own: while the testnet is the
+only public chain, a product's production setup runs on it.
+
 ## The network launch
 
-Once, and not a software release: the genesis key ceremony (genesis, recovery and admin keys made offline by their
-holders, [deploy/README.md § Production notes](../../deploy/README.md#production-notes)), `init-config.json`, the
-beacon's `--init`, and publishing the network's id and genesis block hash, the pin pp-ledger-apps and pp-node trust.
-Its runbook is this repository's ([PHASES § R4](PHASES.md#r4--network-launch)); where the nodes run is
-infrastructure's (Leo's), and the hosts, accounts and deploys stay out of this public repository.
+Not a software release, and done twice — the testnet, then mainnet — each with its own keys: the genesis key ceremony
+(genesis, recovery and admin keys made offline by their holders,
+[deploy/README.md § Production notes](../../deploy/README.md#production-notes)), `init-config.json`, the beacon's
+`--init`, and publishing the network's id and genesis block hash, the pin pp-ledger-apps and pp-node trust. Its
+runbook is this repository's ([PHASES § R4](PHASES.md#r4--testnet-launch)), rehearsed on the devnet; where the nodes
+run is infrastructure's (Leo's), and the hosts, accounts and deploys stay out of this public repository.
 
 ## Open
 
